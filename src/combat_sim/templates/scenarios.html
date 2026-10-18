@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}Saved Scenarios - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>💾 Saved Scenarios</h2>
+</div>
+
+<div class="scenarios-grid" id="scenarios-container">
+    <!-- Scenarios loaded dynamically -->
+</div>
+
+<div class="compare-bar" id="compare-bar" style="display: none;">
+    <span id="compare-count">0 selected</span>
+    <button class="btn btn-primary" onclick="compareSelected()">Compare Selected</button>
+    <button class="btn btn-secondary" onclick="clearSelection()">Clear</button>
+</div>
+
+<!-- Comparison Modal -->
+<div class="modal" id="compare-modal">
+    <div class="modal-content modal-xlarge">
+        <div class="modal-header">
+            <h3>Scenario Comparison</h3>
+            <button class="modal-close" onclick="closeModal('compare-modal')">&times;</button>
+        </div>
+        <div id="compare-content"></div>
+    </div>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+let scenarios = [];
+let selectedIds = new Set();
+
+document.addEventListener('DOMContentLoaded', loadScenarios);
+
+async function loadScenarios() {
+    const resp = await fetch('/api/scenarios');
+    scenarios = await resp.json();
+    renderScenarios();
+}
+
+function renderScenarios() {
+    const container = document.getElementById('scenarios-container');
+
+    if (scenarios.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>No saved scenarios yet</h3>
+                <p>Run a simulation and click "Save Scenario" to save it here.</p>
+                <a href="/" class="btn btn-primary">Go to Simulator</a>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = scenarios.map(s => `
+        <div class="scenario-card ${selectedIds.has(s.id) ? 'selected' : ''}" data-id="${s.id}">
+            <div class="scenario-checkbox">
+                <input type="checkbox" ${selectedIds.has(s.id) ? 'checked' : ''}
+                       onchange="toggleSelection(${s.id})">
+            </div>
+            <div class="scenario-content" onclick="toggleSelection(${s.id})">
+                <h4>${s.name}</h4>
+                <div class="scenario-matchup">
+                    <span class="attacker">${s.attacker_config?.unit_name || 'Unknown'}</span>
+                    <span class="vs">vs</span>
+                    <span class="defender">${s.defender_config?.unit_name || 'Unknown'}</span>
+                </div>
+                <div class="scenario-results" style="${s.results ? '' : 'display:none'}">
+                    <div class="result-mini">
+                        <span class="value">${s.results?.summary?.average_damage || '-'}</span>
+                        <span class="label">Avg Dmg</span>
+                    </div>
+                    <div class="result-mini">
+                        <span class="value">${s.results?.summary?.models_killed || '-'}</span>
+                        <span class="label">Kills</span>
+                    </div>
+                </div>
+                <div class="scenario-date">${new Date(s.created_at).toLocaleDateString()}</div>
+            </div>
+            <div class="scenario-actions">
+                <button class="btn-small" onclick="loadScenario(${s.id}); event.stopPropagation();">Load</button>
+                <button class="btn-small" onclick="rerunScenario(${s.id}); event.stopPropagation();">Re-run</button>
+                <button class="btn-small btn-danger" onclick="deleteScenario(${s.id}); event.stopPropagation();">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function toggleSelection(id) {
+    if (selectedIds.has(id)) {
+        selectedIds.delete(id);
+    } else {
+        selectedIds.add(id);
+    }
+    updateCompareBar();
+    renderScenarios();
+}
+
+function updateCompareBar() {
+    const bar = document.getElementById('compare-bar');
+    const count = document.getElementById('compare-count');
+
+    if (selectedIds.size >= 2) {
+        bar.style.display = 'flex';
+        count.textContent = `${selectedIds.size} selected`;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function clearSelection() {
+    selectedIds.clear();
+    updateCompareBar();
+    renderScenarios();
+}
+
+async function compareSelected() {
+    const selected = scenarios.filter(s => selectedIds.has(s.id));
+
+    if (selected.length < 2) {
+        alert('Select at least 2 scenarios to compare');
+        return;
+    }
+
+    // Re-run simulations to get fresh results
+    const results = await Promise.all(selected.map(async s => {
+        if (s.results) return { scenario: s, result: s.results };
+
+        const resp = await fetch('/api/simulate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                attacker: s.attacker_config,
+                defender: s.defender_config,
+                conditions: s.battle_conditions,
+                method: 'monte_carlo',
+                iterations: 1000
+            })
+        });
+        return { scenario: s, result: await resp.json() };
+    }));
+
+    showComparison(results);
+}
+
+function showComparison(results) {
+    const content = document.getElementById('compare-content');
+
+    // Build comparison table
+    let html = `
+        <div class="compare-table-wrapper">
+            <table class="compare-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        ${results.map(r => `<th>${r.scenario.name}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Attacker</td>
+                        ${results.map(r => `<td>${r.scenario.attacker_config?.unit_name || '-'}</td>`).join('')}
+                    </tr>
+                    <tr>
+                        <td>Weapon</td>
+                        ${results.map(r => `<td>${r.scenario.attacker_config?.weapon_name || '-'}</td>`).join('')}
+                    </tr>
+                    <tr>
+                        <td>Defender</td>
+                        ${results.map(r => `<td>${r.scenario.defender_config?.unit_name || '-'}</td>`).join('')}
+                    </tr>
+                    <tr class="highlight">
+                        <td>Avg Damage</td>
+                        ${results.map(r => `<td class="value">${r.result.summary?.average_damage || '-'}</td>`).join('')}
+                    </tr>
+                    <tr class="highlight">
+                        <td>Models Killed</td>
+                        ${results.map(r => `<td class="value">${r.result.summary?.models_killed || '-'}</td>`).join('')}
+                    </tr>
+                    <tr>
+                        <td>Overkill</td>
+                        ${results.map(r => `<td>${r.result.summary?.overkill || '-'}</td>`).join('')}
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="compare-chart" class="compare-chart"></div>
+    `;
+
+    content.innerHTML = html;
+    openModal('compare-modal');
+
+    // Draw comparison chart
+    setTimeout(() => drawComparisonChart(results), 100);
+}
+
+function drawComparisonChart(results) {
+    const traces = results.map((r, i) => {
+        const dist = r.result.distribution;
+        return {
+            x: dist?.labels || [],
+            y: dist?.probabilities || [],
+            type: 'bar',
+            name: r.scenario.name,
+            opacity: 0.7
+        };
+    });
+
+    Plotly.newPlot('compare-chart', traces, {
+        barmode: 'group',
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        font: { color: '#eaeaea' },
+        margin: { t: 40, r: 20, b: 60, l: 60 },
+        xaxis: { title: 'Damage', gridcolor: '#2a2a4a' },
+        yaxis: { title: 'Probability %', gridcolor: '#2a2a4a' },
+        legend: { orientation: 'h', y: 1.1 }
+    }, { responsive: true });
+}
+
+function loadScenario(id) {
+    const scenario = scenarios.find(s => s.id === id);
+    if (scenario) {
+        // Store in sessionStorage and redirect
+        sessionStorage.setItem('loadScenario', JSON.stringify(scenario));
+        window.location.href = '/';
+    }
+}
+
+async function rerunScenario(id) {
+    const scenario = scenarios.find(s => s.id === id);
+    if (!scenario) return;
+
+    const resp = await fetch('/api/simulate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            attacker: scenario.attacker_config,
+            defender: scenario.defender_config,
+            conditions: scenario.battle_conditions,
+            method: 'monte_carlo',
+            iterations: 1000
+        })
+    });
+
+    const result = await resp.json();
+
+    // Update scenario with new results
+    await fetch(`/api/scenarios/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ results: result })
+    });
+
+    loadScenarios();
+}
+
+async function deleteScenario(id) {
+    if (!confirm('Delete this scenario?')) return;
+
+    await fetch(`/api/scenarios/${id}`, { method: 'DELETE' });
+    selectedIds.delete(id);
+    updateCompareBar();
+    loadScenarios();
+}
+
+function openModal(id) {
+    document.getElementById(id).classList.add('show');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+}
+</script>
+{% endblock %}

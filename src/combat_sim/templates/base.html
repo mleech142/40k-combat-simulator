@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}40K Combat Simulator{% endblock %}</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header class="header">
+        <a href="/" class="header-brand">
+            <h1>⚔️ 40K Combat Simulator</h1>
+        </a>
+        <nav class="header-nav">
+            <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">Simulator</a>
+            <a href="/matchups" class="nav-link {% if request.path == '/matchups' %}active{% endif %}">Matchups</a>
+            <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}">Scenarios</a>
+            <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}">Data</a>
+            <span class="version">v0.1.0 · 11th Edition</span>
+        </nav>
+    </header>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

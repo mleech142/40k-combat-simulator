@@ -1,0 +1,634 @@
+{% extends "base.html" %}
+
+{% block title %}Data Management - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>📁 Data Management</h2>
+    <div class="header-actions">
+        <button class="btn btn-secondary" onclick="exportData()">📤 Export JSON</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">📥 Import JSON</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">
+        <button class="btn btn-secondary" onclick="downloadBackup()">💾 Backup DB</button>
+    </div>
+</div>
+
+<!-- Tabs -->
+<div class="data-tabs">
+    <button class="data-tab active" onclick="showDataTab('factions')">Factions</button>
+    <button class="data-tab" onclick="showDataTab('units')">Units</button>
+    <button class="data-tab" onclick="showDataTab('weapons')">Weapons</button>
+</div>
+
+<!-- Factions Tab -->
+<div class="data-content active" id="tab-factions">
+    <div class="data-toolbar">
+        <button class="btn btn-primary" onclick="showAddFactionModal()">+ Add Faction</button>
+    </div>
+    <table class="data-table" id="factions-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Units</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<!-- Units Tab -->
+<div class="data-content" id="tab-units">
+    <div class="data-toolbar">
+        <select id="filter-faction" class="filter-select" onchange="loadUnits()">
+            <option value="">All Factions</option>
+        </select>
+        <input type="text" id="filter-unit" class="filter-input" placeholder="Search units..." oninput="filterUnits()">
+        <button class="btn btn-primary" onclick="showAddUnitModal()">+ Add Unit</button>
+    </div>
+    <table class="data-table" id="units-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Faction</th>
+                <th>T</th>
+                <th>Sv</th>
+                <th>W</th>
+                <th>Inv</th>
+                <th>FNP</th>
+                <th>Keywords</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<!-- Weapons Tab -->
+<div class="data-content" id="tab-weapons">
+    <div class="data-toolbar">
+        <select id="filter-weapon-type" class="filter-select" onchange="loadWeapons()">
+            <option value="all">All Types</option>
+            <option value="ranged">Ranged</option>
+            <option value="melee">Melee</option>
+        </select>
+        <input type="text" id="filter-weapon" class="filter-input" placeholder="Search weapons..." oninput="filterWeapons()">
+        <button class="btn btn-primary" onclick="showAddWeaponModal()">+ Add Weapon</button>
+    </div>
+    <table class="data-table" id="weapons-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Unit</th>
+                <th>A</th>
+                <th>Skill</th>
+                <th>S</th>
+                <th>AP</th>
+                <th>D</th>
+                <th>Abilities</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<!-- Add/Edit Unit Modal -->
+<div class="modal" id="unit-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="unit-modal-title">Add Unit</h3>
+            <button class="modal-close" onclick="closeModal('unit-modal')">&times;</button>
+        </div>
+        <form id="unit-form" onsubmit="saveUnit(event)">
+            <input type="hidden" id="unit-id">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Faction</label>
+                    <select id="unit-faction" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="unit-name" required>
+                </div>
+            </div>
+            <div class="form-row stats-row">
+                <div class="form-group">
+                    <label>T</label>
+                    <input type="number" id="unit-t" min="1" max="14" required>
+                </div>
+                <div class="form-group">
+                    <label>Sv</label>
+                    <input type="number" id="unit-sv" min="2" max="7" required>
+                </div>
+                <div class="form-group">
+                    <label>W</label>
+                    <input type="number" id="unit-w" min="1" max="30" required>
+                </div>
+                <div class="form-group">
+                    <label>Inv</label>
+                    <input type="number" id="unit-inv" min="2" max="6" placeholder="-">
+                </div>
+                <div class="form-group">
+                    <label>FNP</label>
+                    <input type="number" id="unit-fnp" min="2" max="6" placeholder="-">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Keywords (comma-separated)</label>
+                <input type="text" id="unit-keywords" placeholder="Infantry, Primaris, etc.">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('unit-modal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add/Edit Weapon Modal -->
+<div class="modal" id="weapon-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="weapon-modal-title">Add Weapon</h3>
+            <button class="modal-close" onclick="closeModal('weapon-modal')">&times;</button>
+        </div>
+        <form id="weapon-form" onsubmit="saveWeapon(event)">
+            <input type="hidden" id="weapon-id">
+            <input type="hidden" id="weapon-type-hidden">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Type</label>
+                    <select id="weapon-type" required>
+                        <option value="ranged">Ranged</option>
+                        <option value="melee">Melee</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Unit</label>
+                    <select id="weapon-unit" required></select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="weapon-name" required>
+            </div>
+            <div class="form-row stats-row">
+                <div class="form-group">
+                    <label>A</label>
+                    <input type="text" id="weapon-a" required placeholder="2 or D6">
+                </div>
+                <div class="form-group">
+                    <label>BS/WS</label>
+                    <input type="number" id="weapon-skill" min="2" max="6" required>
+                </div>
+                <div class="form-group">
+                    <label>S</label>
+                    <input type="number" id="weapon-s" min="1" max="20" required>
+                </div>
+                <div class="form-group">
+                    <label>AP</label>
+                    <input type="number" id="weapon-ap" min="0" max="6" required>
+                </div>
+                <div class="form-group">
+                    <label>D</label>
+                    <input type="text" id="weapon-d" required placeholder="1 or D6">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Abilities (comma-separated)</label>
+                <input type="text" id="weapon-abilities" placeholder="Lethal Hits, Blast, etc.">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('weapon-modal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Import Diff Modal -->
+<div class="modal" id="import-modal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3>Import Data - Review Changes</h3>
+            <button class="modal-close" onclick="closeModal('import-modal')">&times;</button>
+        </div>
+        <div id="import-diff-content"></div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeModal('import-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="applyImport()">Apply Selected Changes</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let allUnits = [];
+let allWeapons = [];
+let allFactions = [];
+let pendingImport = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadFactions();
+    loadUnits();
+    loadWeapons();
+});
+
+function showDataTab(tabName) {
+    document.querySelectorAll('.data-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.data-content').forEach(c => c.classList.remove('active'));
+    document.querySelector(`[onclick="showDataTab('${tabName}')"]`).classList.add('active');
+    document.getElementById('tab-' + tabName).classList.add('active');
+}
+
+// Factions
+async function loadFactions() {
+    const resp = await fetch('/api/data/factions');
+    allFactions = await resp.json();
+
+    const tbody = document.querySelector('#factions-table tbody');
+    tbody.innerHTML = allFactions.map(f => `
+        <tr>
+            <td>${f.id}</td>
+            <td>${f.name}</td>
+            <td>${f.unit_count}</td>
+            <td>
+                <button class="btn-small" onclick="editFaction(${f.id})">Edit</button>
+                <button class="btn-small btn-danger" onclick="deleteFaction(${f.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+
+    // Populate faction dropdowns
+    const selects = ['filter-faction', 'unit-faction'];
+    selects.forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel && id !== 'filter-faction') {
+            sel.innerHTML = allFactions.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+        } else if (sel) {
+            sel.innerHTML = '<option value="">All Factions</option>' +
+                allFactions.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+        }
+    });
+}
+
+// Units
+async function loadUnits() {
+    const factionId = document.getElementById('filter-faction')?.value || '';
+    const resp = await fetch(`/api/data/units?faction_id=${factionId}`);
+    allUnits = await resp.json();
+    renderUnitsTable(allUnits);
+
+    // Populate unit dropdown for weapons
+    const weaponUnit = document.getElementById('weapon-unit');
+    if (weaponUnit) {
+        weaponUnit.innerHTML = allUnits.map(u => `<option value="${u.id}">${u.name} (${u.faction})</option>`).join('');
+    }
+}
+
+function renderUnitsTable(units) {
+    const tbody = document.querySelector('#units-table tbody');
+    tbody.innerHTML = units.map(u => `
+        <tr>
+            <td>${u.name}</td>
+            <td>${u.faction}</td>
+            <td>${u.toughness}</td>
+            <td>${u.save}+</td>
+            <td>${u.wounds}</td>
+            <td>${u.invulnerable_save ? u.invulnerable_save + '+' : '-'}</td>
+            <td>${u.feel_no_pain ? u.feel_no_pain + '+' : '-'}</td>
+            <td>${(u.keywords || []).join(', ')}</td>
+            <td>
+                <button class="btn-small" onclick="editUnit(${u.id})">Edit</button>
+                <button class="btn-small btn-danger" onclick="deleteUnit(${u.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterUnits() {
+    const search = document.getElementById('filter-unit').value.toLowerCase();
+    const filtered = allUnits.filter(u => u.name.toLowerCase().includes(search));
+    renderUnitsTable(filtered);
+}
+
+function showAddUnitModal() {
+    document.getElementById('unit-modal-title').textContent = 'Add Unit';
+    document.getElementById('unit-form').reset();
+    document.getElementById('unit-id').value = '';
+    openModal('unit-modal');
+}
+
+async function editUnit(id) {
+    const resp = await fetch(`/api/units/${id}`);
+    const unit = await resp.json();
+
+    document.getElementById('unit-modal-title').textContent = 'Edit Unit';
+    document.getElementById('unit-id').value = unit.id;
+    document.getElementById('unit-faction').value = unit.faction_id || allFactions.find(f => f.name === unit.faction)?.id;
+    document.getElementById('unit-name').value = unit.name;
+    document.getElementById('unit-t').value = unit.toughness;
+    document.getElementById('unit-sv').value = unit.save;
+    document.getElementById('unit-w').value = unit.wounds;
+    document.getElementById('unit-inv').value = unit.invulnerable_save || '';
+    document.getElementById('unit-fnp').value = unit.feel_no_pain || '';
+    document.getElementById('unit-keywords').value = (unit.keywords || []).join(', ');
+
+    openModal('unit-modal');
+}
+
+async function saveUnit(e) {
+    e.preventDefault();
+
+    const id = document.getElementById('unit-id').value;
+    const data = {
+        faction_id: parseInt(document.getElementById('unit-faction').value),
+        name: document.getElementById('unit-name').value,
+        toughness: parseInt(document.getElementById('unit-t').value),
+        save: parseInt(document.getElementById('unit-sv').value),
+        wounds: parseInt(document.getElementById('unit-w').value),
+        invulnerable_save: parseInt(document.getElementById('unit-inv').value) || null,
+        feel_no_pain: parseInt(document.getElementById('unit-fnp').value) || null,
+        keywords: document.getElementById('unit-keywords').value.split(',').map(k => k.trim()).filter(k => k),
+    };
+
+    const url = id ? `/api/data/units/${id}` : '/api/data/units';
+    const method = id ? 'PUT' : 'POST';
+
+    await fetch(url, {
+        method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+
+    closeModal('unit-modal');
+    loadUnits();
+}
+
+async function deleteUnit(id) {
+    if (!confirm('Delete this unit and all its weapons?')) return;
+    await fetch(`/api/data/units/${id}`, {method: 'DELETE'});
+    loadUnits();
+    loadWeapons();
+}
+
+// Weapons
+async function loadWeapons() {
+    const type = document.getElementById('filter-weapon-type')?.value || 'all';
+    const resp = await fetch(`/api/data/weapons?type=${type}`);
+    allWeapons = await resp.json();
+    renderWeaponsTable(allWeapons);
+}
+
+function renderWeaponsTable(weapons) {
+    const tbody = document.querySelector('#weapons-table tbody');
+    tbody.innerHTML = weapons.map(w => `
+        <tr>
+            <td>${w.name}</td>
+            <td>${w.type}</td>
+            <td>${w.unit_name}</td>
+            <td>${w.attacks}</td>
+            <td>${w.skill}+</td>
+            <td>${w.strength}</td>
+            <td>-${w.ap}</td>
+            <td>${w.damage}</td>
+            <td>${(w.abilities || []).join(', ')}</td>
+            <td>
+                <button class="btn-small" onclick="editWeapon('${w.type}', ${w.id})">Edit</button>
+                <button class="btn-small btn-danger" onclick="deleteWeapon('${w.type}', ${w.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterWeapons() {
+    const search = document.getElementById('filter-weapon').value.toLowerCase();
+    const filtered = allWeapons.filter(w => w.name.toLowerCase().includes(search));
+    renderWeaponsTable(filtered);
+}
+
+function showAddWeaponModal() {
+    document.getElementById('weapon-modal-title').textContent = 'Add Weapon';
+    document.getElementById('weapon-form').reset();
+    document.getElementById('weapon-id').value = '';
+    document.getElementById('weapon-type-hidden').value = '';
+    openModal('weapon-modal');
+}
+
+async function editWeapon(type, id) {
+    const resp = await fetch(`/api/data/weapons/${type}/${id}`);
+    const weapon = await resp.json();
+
+    document.getElementById('weapon-modal-title').textContent = 'Edit Weapon';
+    document.getElementById('weapon-id').value = weapon.id;
+    document.getElementById('weapon-type-hidden').value = type;
+    document.getElementById('weapon-type').value = type;
+    document.getElementById('weapon-unit').value = weapon.unit_id;
+    document.getElementById('weapon-name').value = weapon.name;
+    document.getElementById('weapon-a').value = weapon.attacks;
+    document.getElementById('weapon-skill').value = weapon.skill;
+    document.getElementById('weapon-s').value = weapon.strength;
+    document.getElementById('weapon-ap').value = weapon.ap;
+    document.getElementById('weapon-d').value = weapon.damage;
+    document.getElementById('weapon-abilities').value = (weapon.abilities || []).join(', ');
+
+    openModal('weapon-modal');
+}
+
+async function saveWeapon(e) {
+    e.preventDefault();
+
+    const id = document.getElementById('weapon-id').value;
+    const type = document.getElementById('weapon-type-hidden').value || document.getElementById('weapon-type').value;
+
+    const data = {
+        type: document.getElementById('weapon-type').value,
+        unit_id: parseInt(document.getElementById('weapon-unit').value),
+        name: document.getElementById('weapon-name').value,
+        attacks: document.getElementById('weapon-a').value,
+        skill: parseInt(document.getElementById('weapon-skill').value),
+        strength: parseInt(document.getElementById('weapon-s').value),
+        ap: parseInt(document.getElementById('weapon-ap').value),
+        damage: document.getElementById('weapon-d').value,
+        abilities: document.getElementById('weapon-abilities').value.split(',').map(a => a.trim()).filter(a => a),
+    };
+
+    const url = id ? `/api/data/weapons/${type}/${id}` : '/api/data/weapons';
+    const method = id ? 'PUT' : 'POST';
+
+    await fetch(url, {
+        method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+
+    closeModal('weapon-modal');
+    loadWeapons();
+}
+
+async function deleteWeapon(type, id) {
+    if (!confirm('Delete this weapon?')) return;
+    await fetch(`/api/data/weapons/${type}/${id}`, {method: 'DELETE'});
+    loadWeapons();
+}
+
+// Import/Export
+async function exportData() {
+    const resp = await fetch('/api/backup');
+    const data = await resp.json();
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '40k_combat_sim_export.json';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function importData(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const text = await file.text();
+    const importedData = JSON.parse(text);
+
+    // Fetch current data for comparison
+    const currentResp = await fetch('/api/backup');
+    const currentData = await currentResp.json();
+
+    // Generate diff
+    pendingImport = importedData;
+    showImportDiff(currentData, importedData);
+
+    input.value = '';
+}
+
+function showImportDiff(current, imported) {
+    const diffHtml = generateDiffHtml(current, imported);
+    document.getElementById('import-diff-content').innerHTML = diffHtml;
+    openModal('import-modal');
+}
+
+function generateDiffHtml(current, imported) {
+    let html = '<div class="diff-sections">';
+
+    // Compare units
+    const currentUnits = new Map(current.units.map(u => [u.name, u]));
+    const importedUnits = new Map(imported.units.map(u => [u.name, u]));
+
+    html += '<div class="diff-section"><h4>Units</h4><div class="diff-items">';
+
+    // New units
+    for (const [name, unit] of importedUnits) {
+        if (!currentUnits.has(name)) {
+            html += `<div class="diff-item diff-add">
+                <label><input type="checkbox" checked data-type="unit" data-action="add" data-name="${name}">
+                <span class="diff-badge add">NEW</span> ${name}</label>
+            </div>`;
+        }
+    }
+
+    // Changed units
+    for (const [name, imported] of importedUnits) {
+        const current = currentUnits.get(name);
+        if (current) {
+            const changes = compareUnit(current, imported);
+            if (changes.length > 0) {
+                html += `<div class="diff-item diff-change">
+                    <label><input type="checkbox" checked data-type="unit" data-action="update" data-name="${name}">
+                    <span class="diff-badge change">CHANGED</span> ${name}</label>
+                    <div class="diff-details">${changes.join(', ')}</div>
+                </div>`;
+            }
+        }
+    }
+
+    html += '</div></div>';
+
+    // Compare weapons
+    html += '<div class="diff-section"><h4>Weapons</h4><div class="diff-items">';
+
+    const currentWeapons = new Map([
+        ...current.ranged_weapons.map(w => [`ranged:${w.name}`, w]),
+        ...current.melee_weapons.map(w => [`melee:${w.name}`, w])
+    ]);
+    const importedWeapons = new Map([
+        ...imported.ranged_weapons.map(w => [`ranged:${w.name}`, w]),
+        ...imported.melee_weapons.map(w => [`melee:${w.name}`, w])
+    ]);
+
+    for (const [key, weapon] of importedWeapons) {
+        if (!currentWeapons.has(key)) {
+            html += `<div class="diff-item diff-add">
+                <label><input type="checkbox" checked data-type="weapon" data-action="add" data-name="${key}">
+                <span class="diff-badge add">NEW</span> ${weapon.name}</label>
+            </div>`;
+        }
+    }
+
+    html += '</div></div></div>';
+
+    return html;
+}
+
+function compareUnit(current, imported) {
+    const changes = [];
+    if (current.toughness !== imported.toughness) changes.push(`T: ${current.toughness}→${imported.toughness}`);
+    if (current.save !== imported.save) changes.push(`Sv: ${current.save}→${imported.save}`);
+    if (current.wounds !== imported.wounds) changes.push(`W: ${current.wounds}→${imported.wounds}`);
+    if (current.invulnerable_save !== imported.invulnerable_save) changes.push(`Inv changed`);
+    if (current.feel_no_pain !== imported.feel_no_pain) changes.push(`FNP changed`);
+    return changes;
+}
+
+async function applyImport() {
+    if (!pendingImport) return;
+
+    // Get selected changes
+    const checkboxes = document.querySelectorAll('#import-diff-content input[type="checkbox"]:checked');
+
+    // For simplicity, if any changes selected, do full restore
+    // A more sophisticated version would apply selective changes
+    if (checkboxes.length > 0) {
+        await fetch('/api/restore', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(pendingImport)
+        });
+
+        alert('Import complete!');
+        closeModal('import-modal');
+        loadFactions();
+        loadUnits();
+        loadWeapons();
+    }
+
+    pendingImport = null;
+}
+
+async function downloadBackup() {
+    const resp = await fetch('/api/backup');
+    const data = await resp.json();
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `40k_backup_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// Modal helpers
+function openModal(id) {
+    document.getElementById(id).classList.add('show');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+}
+</script>
+{% endblock %}

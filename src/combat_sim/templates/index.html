@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="combat-grid">
+    <!-- Attacker Panel -->
+    <section class="card attacker-panel">
+        <h2>⚔️ Attacker</h2>
+
+        <div class="form-group">
+            <label for="attacker-unit">Unit</label>
+            <div class="autocomplete-wrapper">
+                <input type="text" class="autocomplete-input" id="attacker-unit"
+                       placeholder="Search units..." autocomplete="off">
+                <div class="autocomplete-dropdown" id="attacker-unit-dropdown"></div>
+            </div>
+        </div>
+
+        <div class="unit-stats" id="attacker-stats" style="display: none;">
+            <div class="stat"><span class="stat-label">T</span><span class="stat-value" id="att-t">-</span></div>
+            <div class="stat"><span class="stat-label">Sv</span><span class="stat-value" id="att-sv">-</span></div>
+            <div class="stat"><span class="stat-label">W</span><span class="stat-value" id="att-w">-</span></div>
+            <div class="stat"><span class="stat-label">Inv</span><span class="stat-value" id="att-inv">-</span></div>
+            <div class="stat"><span class="stat-label">FNP</span><span class="stat-value" id="att-fnp">-</span></div>
+        </div>
+
+        <div class="form-group">
+            <label for="attacker-weapon">Weapon</label>
+            <div class="autocomplete-wrapper">
+                <input type="text" class="autocomplete-input" id="attacker-weapon"
+                       placeholder="Search weapons..." autocomplete="off">
+                <div class="autocomplete-dropdown" id="attacker-weapon-dropdown"></div>
+            </div>
+        </div>
+
+        <div class="weapon-stats" id="attacker-weapon-stats" style="display: none;">
+            <div class="stat"><span class="stat-label">A</span><span class="stat-value" id="wpn-a">-</span></div>
+            <div class="stat"><span class="stat-label">BS/WS</span><span class="stat-value" id="wpn-skill">-</span></div>
+            <div class="stat"><span class="stat-label">S</span><span class="stat-value" id="wpn-s">-</span></div>
+            <div class="stat"><span class="stat-label">AP</span><span class="stat-value" id="wpn-ap">-</span></div>
+            <div class="stat"><span class="stat-label">D</span><span class="stat-value" id="wpn-d">-</span></div>
+        </div>
+        <div class="weapon-abilities" id="wpn-abilities"></div>
+    </section>
+
+    <!-- Defender Panel -->
+    <section class="card defender-panel">
+        <h2>🛡️ Defender</h2>
+
+        <div class="form-group">
+            <label for="defender-unit">Unit</label>
+            <div class="autocomplete-wrapper">
+                <input type="text" class="autocomplete-input" id="defender-unit"
+                       placeholder="Search units..." autocomplete="off">
+                <div class="autocomplete-dropdown" id="defender-unit-dropdown"></div>
+            </div>
+        </div>
+
+        <div class="unit-stats" id="defender-stats" style="display: none;">
+            <div class="stat"><span class="stat-label">T</span><span class="stat-value" id="def-t">-</span></div>
+            <div class="stat"><span class="stat-label">Sv</span><span class="stat-value" id="def-sv">-</span></div>
+            <div class="stat"><span class="stat-label">W</span><span class="stat-value" id="def-w">-</span></div>
+            <div class="stat"><span class="stat-label">Inv</span><span class="stat-value" id="def-inv">-</span></div>
+            <div class="stat"><span class="stat-label">FNP</span><span class="stat-value" id="def-fnp">-</span></div>
+        </div>
+
+        <div class="form-group">
+            <label for="model-count">Model Count</label>
+            <input type="number" class="input-small" id="model-count" value="5" min="1" max="30">
+        </div>
+    </section>
+</div>
+
+<!-- Battle Conditions -->
+<section class="card conditions-panel">
+    <h2>⚙️ Battle Conditions</h2>
+    <div class="conditions-grid">
+        <div class="conditions-column">
+            <h3>State</h3>
+            <div class="toggle-group">
+                <label class="toggle" data-condition="half_range">
+                    <input type="checkbox" id="cond-half-range"> Half Range
+                </label>
+                <label class="toggle" data-condition="charged">
+                    <input type="checkbox" id="cond-charged"> Charged
+                </label>
+                <label class="toggle" data-condition="stationary">
+                    <input type="checkbox" id="cond-stationary"> Stationary
+                </label>
+                <label class="toggle" data-condition="cover">
+                    <input type="checkbox" id="cond-cover"> Cover
+                </label>
+            </div>
+        </div>
+
+        <div class="conditions-column">
+            <h3>Re-rolls</h3>
+            <div class="reroll-group">
+                <div class="reroll-row">
+                    <label>Hit Rolls:</label>
+                    <div class="btn-group" data-reroll="hits">
+                        <button class="btn-option active" data-value="none">None</button>
+                        <button class="btn-option" data-value="ones">1s</button>
+                        <button class="btn-option" data-value="all">All</button>
+                    </div>
+                </div>
+                <div class="reroll-row">
+                    <label>Wound Rolls:</label>
+                    <div class="btn-group" data-reroll="wounds">
+                        <button class="btn-option active" data-value="none">None</button>
+                        <button class="btn-option" data-value="ones">1s</button>
+                        <button class="btn-option" data-value="all">All</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="conditions-column">
+            <h3>Simulation</h3>
+            <div class="simulation-options">
+                <label class="toggle">
+                    <input type="checkbox" id="monte-carlo"> Monte Carlo
+                </label>
+                <div class="iterations-input">
+                    <label for="iterations">Iterations:</label>
+                    <input type="number" id="iterations" value="1000" min="100" max="100000" step="100">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="simulate-actions">
+        <button class="btn btn-primary" id="btn-simulate">▶ Run Simulation</button>
+        <button class="btn btn-secondary" id="btn-save">💾 Save Scenario</button>
+    </div>
+</section>
+
+<!-- Results Panel -->
+<section class="card results-panel" id="results-panel">
+    <h2>📊 Results</h2>
+
+    <div class="results-summary">
+        <div class="result-card">
+            <span class="result-value" id="res-avg-damage">-</span>
+            <span class="result-label">Avg Damage</span>
+        </div>
+        <div class="result-card">
+            <span class="result-value" id="res-models-killed">-</span>
+            <span class="result-label">Models Killed</span>
+        </div>
+        <div class="result-card">
+            <span class="result-value" id="res-overkill">-</span>
+            <span class="result-label">Overkill</span>
+        </div>
+    </div>
+
+    <div class="results-detail">
+        <div class="breakdown">
+            <h3>Attack Breakdown</h3>
+            <table class="breakdown-table">
+                <thead>
+                    <tr><th>Phase</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Attacks</td><td id="res-attacks">-</td></tr>
+                    <tr><td>→ Hits</td><td id="res-hits">-</td></tr>
+                    <tr><td>→ Wounds</td><td id="res-wounds">-</td></tr>
+                    <tr><td>→ Failed Saves</td><td id="res-failed-saves">-</td></tr>
+                    <tr><td>→ Damage</td><td id="res-damage">-</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="distribution">
+            <h3>Damage Distribution</h3>
+            <div id="chart" class="chart-container"></div>
+        </div>
+    </div>
+</section>
+
+<!-- Hidden data -->
+<script>
+    window.APP_DATA = {
+        factions: {{ factions | tojson if factions else '[]' | safe }}
+    };
+</script>
+{% endblock %}

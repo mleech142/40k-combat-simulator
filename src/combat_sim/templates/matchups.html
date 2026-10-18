@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Matchups - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="matchups-layout">
+    <!-- Left Sidebar: Unit/Weapon Selection -->
+    <aside class="matchups-sidebar">
+        <!-- Weapon Type Toggle -->
+        <div class="sidebar-section weapon-type-toggle">
+            <div class="toggle-bar">
+                <button class="toggle-btn" data-type="ranged">Shooting</button>
+                <button class="toggle-btn active" data-type="both">Both</button>
+                <button class="toggle-btn" data-type="melee">Melee</button>
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Attackers</h3>
+            <div class="search-add">
+                <input type="text" class="search-input" id="attacker-search"
+                       placeholder="Search units to add..." autocomplete="off">
+                <div class="search-dropdown" id="attacker-dropdown"></div>
+            </div>
+            <div class="selection-list" id="attacker-list">
+                <p class="empty-message">No attackers selected</p>
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Defenders</h3>
+            <div class="search-add">
+                <input type="text" class="search-input" id="defender-search"
+                       placeholder="Search units to add..." autocomplete="off">
+                <div class="search-dropdown" id="defender-dropdown"></div>
+            </div>
+            <div class="selection-list" id="defender-list">
+                <p class="empty-message">No defenders selected</p>
+            </div>
+        </div>
+
+        <div class="sidebar-actions">
+            <button class="btn btn-primary btn-block" id="btn-run-matrix">
+                Run Matrix
+            </button>
+            <button class="btn btn-secondary btn-block" id="btn-save-comparison">
+                Save Comparison
+            </button>
+            <button class="btn btn-secondary btn-block" id="btn-load-comparison">
+                Load Comparison
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="matchups-main">
+        <!-- Conditions Bar -->
+        <section class="conditions-bar card">
+            <div class="conditions-inline">
+                <div class="condition-toggles">
+                    <label class="toggle-inline">
+                        <input type="checkbox" id="mat-half-range"> Half Range
+                    </label>
+                    <label class="toggle-inline">
+                        <input type="checkbox" id="mat-charged"> Charged
+                    </label>
+                    <label class="toggle-inline">
+                        <input type="checkbox" id="mat-stationary"> Stationary
+                    </label>
+                    <label class="toggle-inline">
+                        <input type="checkbox" id="mat-cover"> Cover
+                    </label>
+                </div>
+                <div class="condition-rerolls">
+                    <span class="reroll-label">Hits:</span>
+                    <select id="mat-reroll-hits" class="select-small">
+                        <option value="none">None</option>
+                        <option value="ones">1s</option>
+                        <option value="all">All</option>
+                    </select>
+                    <span class="reroll-label">Wounds:</span>
+                    <select id="mat-reroll-wounds" class="select-small">
+                        <option value="none">None</option>
+                        <option value="ones">1s</option>
+                        <option value="all">All</option>
+                    </select>
+                </div>
+                <div class="metric-selector">
+                    <label for="mat-metric">Display:</label>
+                    <select id="mat-metric" class="select-small">
+                        <option value="avg_damage">Avg Damage</option>
+                        <option value="models_killed">Models Killed</option>
+                        <option value="damage_per_point">Dmg/Point</option>
+                        <option value="kill_probability">Kill %</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Matrix Grid -->
+        <section class="matrix-container card" id="matrix-container">
+            <div class="matrix-placeholder">
+                <p>Add attackers and defenders, then click "Run Matrix" to generate the comparison grid.</p>
+            </div>
+        </section>
+
+        <!-- Summary Section -->
+        <section class="matrix-summary card" id="matrix-summary" style="display: none;">
+            <h3>Summary</h3>
+            <div class="summary-columns">
+                <div class="summary-column">
+                    <h4>Best Attackers (by Efficiency)</h4>
+                    <ul id="best-attackers"></ul>
+                </div>
+                <div class="summary-column">
+                    <h4>Biggest Threats (by Damage)</h4>
+                    <ul id="biggest-threats"></ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Right Side Panel: Cell Details -->
+    <aside class="matchups-detail-panel" id="detail-panel" style="display: none;">
+        <div class="detail-header">
+            <h3 id="detail-title">Details</h3>
+            <button class="btn-close" id="close-detail">&times;</button>
+        </div>
+        <div class="detail-matchup">
+            <div class="detail-attacker">
+                <strong>Attacker:</strong>
+                <span id="detail-attacker">-</span>
+            </div>
+            <div class="detail-defender">
+                <strong>Defender:</strong>
+                <span id="detail-defender">-</span>
+            </div>
+        </div>
+        <div class="detail-summary">
+            <div class="detail-stat">
+                <span class="detail-value" id="detail-avg-damage">-</span>
+                <span class="detail-label">Avg Damage</span>
+            </div>
+            <div class="detail-stat">
+                <span class="detail-value" id="detail-models-killed">-</span>
+                <span class="detail-label">Models Killed</span>
+            </div>
+        </div>
+        <div class="detail-breakdown">
+            <h4>Attack Flow</h4>
+            <table class="breakdown-table">
+                <tbody>
+                    <tr><td>Attacks</td><td id="detail-attacks">-</td></tr>
+                    <tr><td>Hits</td><td id="detail-hits">-</td></tr>
+                    <tr><td>Wounds</td><td id="detail-wounds">-</td></tr>
+                    <tr><td>Failed Saves</td><td id="detail-failed-saves">-</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="detail-distribution">
+            <h4>Damage Distribution</h4>
+            <div id="detail-chart" class="chart-container-small"></div>
+        </div>
+    </aside>
+</div>
+
+<!-- Load Comparison Modal -->
+<div class="modal" id="load-modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Load Comparison</h3>
+            <button class="btn-close" id="close-load-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="comparison-list" id="comparison-list">
+                <p class="empty-message">No saved comparisons</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Save Comparison Modal -->
+<div class="modal" id="save-modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Save Comparison</h3>
+            <button class="btn-close" id="close-save-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="comparison-name">Comparison Name</label>
+                <input type="text" id="comparison-name" placeholder="e.g., Space Marines vs Orks">
+            </div>
+            <button class="btn btn-primary" id="btn-confirm-save">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden data -->
+<script>
+    window.APP_DATA = {
+        factions: {{ factions | tojson if factions else '[]' | safe }}
+    };
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/matchups.js') }}"></script>
+{% endblock %}
