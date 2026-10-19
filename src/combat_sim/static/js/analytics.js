@@ -939,14 +939,14 @@
         const top = Math.max(100, ...scores);
         Plotly.newPlot(el, [
             { type: 'scatterpolar', r: names.map(() => 100).concat(100), theta: names.concat(names[0]),
-              mode: 'lines', line: { color: 'rgba(160,160,160,0.6)', dash: 'dot' }, name: 'Wiped (100%)', hoverinfo: 'skip' },
+              mode: 'lines', line: { color: themeColor('--text-muted'), dash: 'dot' }, name: 'Wiped (100%)', hoverinfo: 'skip' },
             { type: 'scatterpolar', r: scores.concat(scores[0]), theta: names.concat(names[0]), fill: 'toself',
-              fillcolor: 'rgba(233,69,96,0.25)', line: { color: '#e94560' }, name: 'Army',
+              fillcolor: themeColor('--accent-tint'), line: { color: themeColor('--accent') }, name: 'Army',
               hovertemplate: '%{theta}: %{r}%<extra></extra>' },
         ], {
-            polar: { bgcolor: 'transparent', radialaxis: { range: [0, top], ticksuffix: '%', gridcolor: '#2a2a4a', color: '#a0a0a0' },
-                     angularaxis: { gridcolor: '#2a2a4a', color: '#eaeaea' } },
-            paper_bgcolor: 'transparent', font: { color: '#eaeaea', size: 11 },
+            polar: { bgcolor: 'transparent', radialaxis: { range: [0, top], ticksuffix: '%', gridcolor: themeColor('--border'), color: themeColor('--text-secondary') },
+                     angularaxis: { gridcolor: themeColor('--border'), color: themeColor('--text-primary') } },
+            paper_bgcolor: 'transparent', font: { color: themeColor('--text-primary'), size: 11 },
             margin: { t: 30, r: 60, b: 30, l: 60 }, showlegend: false,
         }, { responsive: true, displayModeBar: false });
     }
@@ -1036,22 +1036,22 @@
             y: distribution.probabilities,
             type: 'bar',
             marker: {
-                color: '#4fc3f7'
+                color: themeColor('--accent')
             },
             hovertemplate: '%{x} damage: %{y:.1f}%<extra></extra>'
         }], {
             margin: { t: 10, r: 10, b: 30, l: 40 },
             paper_bgcolor: 'transparent',
             plot_bgcolor: 'transparent',
-            font: { color: '#e0e0e0' },
+            font: { color: themeColor('--text-primary') },
             xaxis: {
                 title: 'Damage',
                 type: 'category',
-                gridcolor: 'rgba(255,255,255,0.1)'
+                gridcolor: themeColor('--border')
             },
             yaxis: {
                 title: '%',
-                gridcolor: 'rgba(255,255,255,0.1)'
+                gridcolor: themeColor('--border')
             }
         }, {
             responsive: true,

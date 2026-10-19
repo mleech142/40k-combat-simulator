@@ -494,6 +494,11 @@ function showUnitStats(side, unit) {
 
 const escapeHtml = Core.escapeHtml;
 
+/** A colour token from style.css's :root (e.g. themeColor('--accent')), so charts follow the theme. */
+function themeColor(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 /**
  * Load weapons for selected unit and show them in the weapon list
  */
@@ -912,9 +917,9 @@ function drawChart(distribution) {
         y: probabilities,
         type: 'bar',
         marker: {
-            color: '#e94560',
+            color: themeColor('--accent'),
             line: {
-                color: '#ff6b6b',
+                color: themeColor('--accent-hover'),
                 width: 1
             }
         },
@@ -922,17 +927,17 @@ function drawChart(distribution) {
     }], {
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
-        font: { color: '#eaeaea', size: 11 },
+        font: { color: themeColor('--text-primary'), size: 11 },
         margin: { t: 20, r: 20, b: 50, l: 50 },
         xaxis: {
             title: 'Damage',
-            gridcolor: '#2a2a4a',
-            linecolor: '#2a2a4a'
+            gridcolor: themeColor('--border'),
+            linecolor: themeColor('--border')
         },
         yaxis: {
             title: 'Probability %',
-            gridcolor: '#2a2a4a',
-            linecolor: '#2a2a4a'
+            gridcolor: themeColor('--border'),
+            linecolor: themeColor('--border')
         },
         bargap: 0.15
     }, {

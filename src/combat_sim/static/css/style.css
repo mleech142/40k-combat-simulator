@@ -1,19 +1,25 @@
-/* 40K Combat Simulator - Dark Theme */
+/* 40K Combat Simulator - "Carbon & Blaze" dark theme
+ * Palette: Carbon Black #23231a, Charcoal Brown #322f20, Olive Bark #6a5837, Olive #988f2a, Blaze Orange #fe5f00
+ * (chosen from the colour theme prototype; see the prototype/colour-themes branch). Charts read these tokens too
+ * (themeColor in app.js), so change colours here only.
+ */
 
 :root {
-    --bg-primary: #1a1a2e;
-    --bg-secondary: #16213e;
-    --bg-tertiary: #0f0f1a;
-    --accent: #e94560;
-    --accent-hover: #ff6b6b;
-    --accent-dim: #a63344;
-    --text-primary: #eaeaea;
-    --text-secondary: #a0a0a0;
-    --text-muted: #666;
-    --border: #2a2a4a;
-    --success: #4ade80;
-    --warning: #fbbf24;
-    --error: #ef4444;
+    --bg-primary: #23231a;         /* Carbon Black: page */
+    --bg-secondary: #322f20;       /* Charcoal Brown: cards */
+    --bg-tertiary: #1a1a13;        /* darker than Carbon Black: header, inputs, table heads */
+    --accent: #fe5f00;             /* Blaze Orange */
+    --accent-hover: #ff7d2e;
+    --accent-dim: #6a5837;         /* Olive Bark */
+    --on-accent: #1a1a13;          /* text on accent-coloured buttons and chips */
+    --accent-tint: rgba(254, 95, 0, 0.14);  /* faint accent wash: selected rows, focused inputs */
+    --text-primary: #efe9d8;
+    --text-secondary: #bdb48f;
+    --text-muted: #8c8262;
+    --border: #4b4430;             /* between Charcoal Brown and Olive Bark */
+    --success: #b5aa32;            /* Olive, lifted for dark backgrounds */
+    --warning: #e0b23c;
+    --error: #e5484d;
 }
 
 * {
@@ -212,7 +218,7 @@ body {
 .autocomplete-input:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.1);
+    box-shadow: 0 0 0 3px var(--accent-tint);
 }
 
 .autocomplete-input::placeholder {
@@ -456,7 +462,7 @@ body {
 .toggle:has(input:checked) {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .toggle input {
@@ -505,7 +511,7 @@ body {
 .btn-option.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 /* Simulation options */
@@ -554,7 +560,7 @@ body {
 
 .btn-primary {
     background: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .btn-primary:hover {
@@ -768,7 +774,7 @@ body {
 
 .data-tab.active {
     background: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .data-content {
@@ -1108,7 +1114,7 @@ body {
 
 .scenario-card.selected {
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.2);
+    box-shadow: 0 0 0 2px var(--accent-tint);
 }
 
 .scenario-checkbox {
@@ -1624,7 +1630,7 @@ body {
 
 .toggle-btn.active {
     background: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 /* Conditions Bar */
@@ -1970,7 +1976,7 @@ body {
 .btn-load {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .modal-body {
@@ -2053,12 +2059,12 @@ body {
 }
 
 .source-custom {
-    background: rgba(74, 222, 128, 0.15);
+    background: color-mix(in srgb, var(--success) 18%, transparent);
     color: var(--success);
 }
 
 .source-missing {
-    background: rgba(251, 191, 36, 0.15);
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
     color: var(--warning);
 }
 
@@ -2236,7 +2242,7 @@ body {
 .kw-chip.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .kw-guide {
@@ -2340,7 +2346,7 @@ body {
 }
 
 .kw-badge-calc {
-    background: rgba(74, 222, 128, 0.15);
+    background: color-mix(in srgb, var(--success) 18%, transparent);
     color: var(--success);
 }
 
@@ -2526,7 +2532,7 @@ body {
 }
 
 .rule-row:has(input:checked) {
-    background: rgba(233, 69, 96, 0.12);
+    background: var(--accent-tint);
 }
 
 .rule-name {
@@ -2884,7 +2890,7 @@ body {
     border-radius: 999px;
     font-size: 0.65rem;
     font-weight: 600;
-    background: rgba(251, 191, 36, 0.15);
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
     color: var(--warning);
     white-space: nowrap;
 }
