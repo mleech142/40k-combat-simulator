@@ -2,10 +2,15 @@
 Database models for 40K Combat Simulator.
 
 Schema designed for Warhammer 40K 11th Edition rules.
+
+Reference data (factions, units, weapons, rules, stratagems) is loaded from the
+data JSON on every start; see data_store.py. Only saved scenarios and comparisons
+live solely in the database.
 """
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import JSON
+import math
 from datetime import datetime
 
 db = SQLAlchemy()
@@ -17,8 +22,6 @@ class Faction(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     units = db.relationship('Unit', backref='faction', lazy='dynamic')
@@ -29,8 +32,24 @@ class Faction(db.Model):
         return f'<Faction {self.name}>'
 
 
+# A unit's loadout: which of its faction's weapons it carries, and how many models carry each.
+unit_ranged_weapons = db.Table(
+    'unit_ranged_weapons',
+    db.Column('unit_id', db.Integer, db.ForeignKey('units.id'), primary_key=True),
+    db.Column('weapon_id', db.Integer, db.ForeignKey('ranged_weapons.id'), primary_key=True),
+    db.Column('qty', db.Integer, nullable=False, default=1),
+)
+
+unit_melee_weapons = db.Table(
+    'unit_melee_weapons',
+    db.Column('unit_id', db.Integer, db.ForeignKey('units.id'), primary_key=True),
+    db.Column('weapon_id', db.Integer, db.ForeignKey('melee_weapons.id'), primary_key=True),
+    db.Column('qty', db.Integer, nullable=False, default=1),
+)
+
+
 class Unit(db.Model):
-    """A unit profile with defensive stats."""
+    """A unit datasheet."""
     __tablename__ = 'units'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -44,21 +63,80 @@ class Unit(db.Model):
     invulnerable_save = db.Column(db.Integer, nullable=True)  # null = no invuln
     feel_no_pain = db.Column(db.Integer, nullable=True)  # null = no FNP
 
-    # Keywords stored as JSON array
-    keywords = db.Column(JSON, default=list)
+    # Other datasheet stats
+    move = db.Column(db.String(10), nullable=True)  # e.g. "5" or "20+"
+    oc = db.Column(db.Integer, nullable=True)
+    leadership = db.Column(db.Integer, nullable=True)  # 6+ = 6
+    points_cost = db.Column(db.Integer, nullable=True)  # Points at the datasheet model count
+    default_models = db.Column(db.Integer, nullable=True)  # Models in the unit per the datasheet
+    # Cost of each legal unit size, e.g. [{"models": 5, "points": 90}, {"models": 10, "points": 170}].
+    # The first entry is the datasheet size (points_cost / default_models).
+    points_by_size = db.Column(JSON, default=list)
 
-    # Points cost (optional, for efficiency calculations)
-    points_cost = db.Column(db.Integer, nullable=True)
+    keywords = db.Column(JSON, default=list)  # e.g. ["Infantry", "Chaos", "Nurgle"]
+    modifiers = db.Column(JSON, default=list)  # Unit-level keywords used by the maths, e.g. ["Feel No Pain 5+"]
+    can_lead = db.Column(JSON, default=list)  # Names of units this unit can lead
+    abilities = db.Column(db.Text, nullable=True)  # Free text from the datasheet
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    ranged_weapons = db.relationship('RangedWeapon', backref='unit', lazy='dynamic')
-    melee_weapons = db.relationship('MeleeWeapon', backref='unit', lazy='dynamic')
+    # Loadout (read through these; write qty via the link tables)
+    ranged_weapons = db.relationship('RangedWeapon', secondary=unit_ranged_weapons, viewonly=True,
+                                     backref='units', order_by='RangedWeapon.name')
+    melee_weapons = db.relationship('MeleeWeapon', secondary=unit_melee_weapons, viewonly=True,
+                                    backref='units', order_by='MeleeWeapon.name')
 
     def __repr__(self):
         return f'<Unit {self.name}>'
+
+    def size_brackets(self):
+        """Points brackets sorted by size (falls back to points_cost / default_models)."""
+        brackets = [b for b in (self.points_by_size or []) if b.get('models') and b.get('points') is not None]
+        if not brackets and self.points_cost is not None and self.default_models:
+            brackets = [{'models': self.default_models, 'points': self.points_cost}]
+        return sorted(brackets, key=lambda b: b['models'])
+
+    def points_for(self, models):
+        """
+        Points for a unit of `models` models: the exact cost of a listed size; otherwise the nearest
+        listed size below plus its per-model rate for the extra models (pro rata from the smallest
+        size if none is below). None if the unit has no points.
+        """
+        brackets = self.size_brackets()
+        if not brackets or not models:
+            return None
+        below = [b for b in brackets if b['models'] <= models]
+        base = below[-1] if below else brackets[0]
+        rate = base['points'] / base['models']
+        if base['models'] == models:
+            return base['points']
+        points = base['points'] + (models - base['models']) * rate if below else models * rate
+        return math.floor(points + 0.5)  # round half up, as Excel and the browser do
+
+    @property
+    def target_keywords(self):
+        """Keywords checked by Anti-X abilities: datasheet keywords plus unit modifiers."""
+        return list(self.keywords or []) + list(self.modifiers or [])
+
+    def loadout(self, weapon_type):
+        """[(weapon, qty)] for this unit's ranged or melee weapons, ordered by weapon name."""
+        table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
+        model = RangedWeapon if weapon_type == 'ranged' else MeleeWeapon
+        rows = db.session.query(model, table.c.qty) \
+            .join(table, table.c.weapon_id == model.id) \
+            .filter(table.c.unit_id == self.id) \
+            .order_by(model.name).all()
+        return [(weapon, qty) for weapon, qty in rows]
+
+    def set_loadout(self, weapon_type, entries):
+        """Replace the loadout of one weapon type with [{'weapon_id': .., 'qty': ..}]."""
+        table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
+        db.session.execute(table.delete().where(table.c.unit_id == self.id))
+        rows = {}
+        for entry in entries or []:
+            rows[int(entry['weapon_id'])] = max(1, int(entry.get('qty') or 1))
+        if rows:
+            db.session.execute(table.insert(), [
+                {'unit_id': self.id, 'weapon_id': wid, 'qty': qty} for wid, qty in rows.items()
+            ])
 
     def to_dict(self):
         return {
@@ -71,37 +149,41 @@ class Unit(db.Model):
             'wounds': self.wounds,
             'invulnerable_save': self.invulnerable_save,
             'feel_no_pain': self.feel_no_pain,
-            'keywords': self.keywords or [],
+            'move': self.move,
+            'oc': self.oc,
+            'leadership': self.leadership,
             'points_cost': self.points_cost,
+            'default_models': self.default_models,
+            'points_by_size': self.size_brackets(),
+            'keywords': self.keywords or [],
+            'modifiers': self.modifiers or [],
+            'can_lead': self.can_lead or [],
+            'abilities': self.abilities or '',
         }
 
 
 class RangedWeapon(db.Model):
-    """A ranged weapon profile."""
+    """A ranged weapon profile, owned by a faction and shared by its units."""
     __tablename__ = 'ranged_weapons'
 
     id = db.Column(db.Integer, primary_key=True)
-    unit_id = db.Column(db.Integer, db.ForeignKey('units.id'), nullable=False)
+    faction_id = db.Column(db.Integer, db.ForeignKey('factions.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
 
     # Weapon stats
     attacks = db.Column(db.String(10), nullable=False)  # Can be "2", "D6", "D3+1", etc.
-    ballistic_skill = db.Column(db.Integer, nullable=False)  # 3+ = 3, 4+ = 4, etc.
+    ballistic_skill = db.Column(db.Integer, nullable=True)  # 3+ = 3; null = no roll ("-", e.g. Torrent)
     strength = db.Column(db.Integer, nullable=False)
     armor_penetration = db.Column(db.Integer, nullable=False)  # Stored as positive: AP-2 = 2
     damage = db.Column(db.String(10), nullable=False)  # Can be "1", "D6", "D3+3", etc.
 
-    # Range in inches (0 = melee)
-    range_inches = db.Column(db.Integer, default=24)
+    # Range in inches, for reference only (never used in the maths)
+    range_inches = db.Column(db.Integer, nullable=True)
 
     # Abilities stored as JSON array of strings
     abilities = db.Column(JSON, default=list)
 
-    # Points cost for this weapon upgrade (optional)
-    points_cost = db.Column(db.Integer, nullable=True, default=0)
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    faction = db.relationship('Faction')
 
     def __repr__(self):
         return f'<RangedWeapon {self.name}>'
@@ -111,8 +193,7 @@ class RangedWeapon(db.Model):
             'id': self.id,
             'name': self.name,
             'type': 'ranged',
-            'unit_id': self.unit_id,
-            'unit_name': self.unit.name if self.unit else None,
+            'faction_id': self.faction_id,
             'attacks': self.attacks,
             'skill': self.ballistic_skill,
             'strength': self.strength,
@@ -120,21 +201,20 @@ class RangedWeapon(db.Model):
             'damage': self.damage,
             'range': self.range_inches,
             'abilities': self.abilities or [],
-            'points_cost': self.points_cost or 0,
         }
 
 
 class MeleeWeapon(db.Model):
-    """A melee weapon profile."""
+    """A melee weapon profile, owned by a faction and shared by its units."""
     __tablename__ = 'melee_weapons'
 
     id = db.Column(db.Integer, primary_key=True)
-    unit_id = db.Column(db.Integer, db.ForeignKey('units.id'), nullable=False)
+    faction_id = db.Column(db.Integer, db.ForeignKey('factions.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
 
     # Weapon stats
     attacks = db.Column(db.String(10), nullable=False)
-    weapon_skill = db.Column(db.Integer, nullable=False)  # 3+ = 3, 4+ = 4, etc.
+    weapon_skill = db.Column(db.Integer, nullable=True)  # 3+ = 3; null = no roll
     strength = db.Column(db.Integer, nullable=False)
     armor_penetration = db.Column(db.Integer, nullable=False)
     damage = db.Column(db.String(10), nullable=False)
@@ -142,11 +222,7 @@ class MeleeWeapon(db.Model):
     # Abilities stored as JSON array of strings
     abilities = db.Column(JSON, default=list)
 
-    # Points cost for this weapon upgrade (optional)
-    points_cost = db.Column(db.Integer, nullable=True, default=0)
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    faction = db.relationship('Faction')
 
     def __repr__(self):
         return f'<MeleeWeapon {self.name}>'
@@ -156,64 +232,158 @@ class MeleeWeapon(db.Model):
             'id': self.id,
             'name': self.name,
             'type': 'melee',
-            'unit_id': self.unit_id,
-            'unit_name': self.unit.name if self.unit else None,
+            'faction_id': self.faction_id,
             'attacks': self.attacks,
             'skill': self.weapon_skill,
             'strength': self.strength,
             'ap': self.armor_penetration,
             'damage': self.damage,
+            'range': None,
             'abilities': self.abilities or [],
-            'points_cost': self.points_cost or 0,
         }
 
 
 class FactionRule(db.Model):
-    """A faction-specific rule that modifies combat."""
+    """A faction rule (stored for reference; not yet used by the maths)."""
     __tablename__ = 'faction_rules'
 
     id = db.Column(db.Integer, primary_key=True)
     faction_id = db.Column(db.Integer, db.ForeignKey('factions.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text, nullable=True)
-
-    # Effect stored as JSON for flexibility
-    # e.g., {"reroll_wounds": "ones", "bonus_ap": 1, "condition": "half_range"}
-    effect = db.Column(JSON, default=dict)
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    applies_to = db.Column(db.String(20), nullable=True)  # "Attacker" or "Target"
+    phase = db.Column(db.String(20), nullable=True)  # "Shooting", "Fighting" or "Both"
+    modifier = db.Column(db.Text, nullable=True)  # Keyword-format modifier text
 
     def __repr__(self):
         return f'<FactionRule {self.name}>'
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'faction_id': self.faction_id,
+            'name': self.name,
+            'applies_to': self.applies_to,
+            'phase': self.phase,
+            'modifier': self.modifier,
+        }
+
 
 class Stratagem(db.Model):
-    """A stratagem that can be activated during combat."""
+    """A stratagem: core (no faction) or faction-specific. Stored for reference; not yet used by the maths."""
     __tablename__ = 'stratagems'
 
     id = db.Column(db.Integer, primary_key=True)
     faction_id = db.Column(db.Integer, db.ForeignKey('factions.id'), nullable=True)  # null = core stratagem
     name = db.Column(db.String(100), nullable=False)
-    cost_cp = db.Column(db.Integer, default=1)
-    description = db.Column(db.Text, nullable=True)
-
-    # When it can be used: "shooting", "fight", "both"
-    phase = db.Column(db.String(20), default='both')
-
-    # Who it affects: "attacker", "defender", "both"
-    affects = db.Column(db.String(20), default='attacker')
-
-    # Effect stored as JSON
-    effect = db.Column(JSON, default=dict)
-
-    is_core = db.Column(db.Boolean, default=False)  # Core stratagems available to all
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    cp = db.Column(db.String(10), nullable=True)
+    applies_to = db.Column(db.String(20), nullable=True)
+    phase = db.Column(db.String(20), nullable=True)
+    modifier = db.Column(db.Text, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
 
     def __repr__(self):
         return f'<Stratagem {self.name}>'
+
+    @property
+    def is_core(self):
+        return self.faction_id is None
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'faction_id': self.faction_id,
+            'name': self.name,
+            'cp': self.cp,
+            'applies_to': self.applies_to,
+            'phase': self.phase,
+            'modifier': self.modifier,
+            'notes': self.notes,
+        }
+
+
+class Keyword(db.Model):
+    """A rules keyword or modifier from the Keywords reference (read-only in the app)."""
+    __tablename__ = 'keywords'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(60), nullable=False)
+    category = db.Column(db.String(20), nullable=True)  # Weapon, Core (unit) or Stat (modifier)
+    applies_to = db.Column(db.String(20), nullable=True)  # Ranged, Melee, Both or Unit
+    format = db.Column(db.String(100), nullable=True)  # How to write it, e.g. "Sustained Hits X"
+    summary = db.Column(db.Text, nullable=True)
+    sim_step = db.Column(db.String(20), nullable=True)  # Attacks, Hit, Wound, Save, Damage or None
+    modelled = db.Column(db.Boolean, default=False)  # Used in the calculations
+    rule_ref = db.Column(db.String(20), nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'category': self.category,
+            'applies_to': self.applies_to,
+            'format': self.format,
+            'summary': self.summary,
+            'sim_step': self.sim_step,
+            'modelled': bool(self.modelled),
+            'rule_ref': self.rule_ref,
+        }
+
+
+class TargetProfile(db.Model):
+    """
+    A read-only benchmark target: a generic opponent profile (MEQ, TEQ...) for Matchups'
+    Generic mode, or a role-score benchmark (Anti-Horde, Anti-Tank...).
+    """
+    __tablename__ = 'target_profiles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(10), nullable=False)  # "generic" or "role"
+    name = db.Column(db.String(60), nullable=False)
+    models = db.Column(db.Integer, nullable=False, default=1)
+    toughness = db.Column(db.Integer, nullable=False)
+    wounds = db.Column(db.Integer, nullable=False)
+    save = db.Column(db.Integer, nullable=False)
+    invulnerable_save = db.Column(db.Integer, nullable=True)
+    feel_no_pain = db.Column(db.Integer, nullable=True)
+    keywords = db.Column(JSON, default=list)
+    weight = db.Column(db.Float, nullable=True)  # Generic profiles: weight in the averages
+    use = db.Column(db.Boolean, default=True)  # Generic profiles: included by default
+
+    # Lets the matrix treat a profile like a unit; faction 0 matches no faction's rules (core only)
+    faction_id = 0
+    points_cost = None
+
+    @property
+    def target_keywords(self):
+        return list(self.keywords or [])
+
+    def points_for(self, models):
+        return None
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'kind': self.kind,
+            'name': self.name,
+            'models': self.models,
+            'toughness': self.toughness,
+            'wounds': self.wounds,
+            'save': self.save,
+            'invulnerable_save': self.invulnerable_save,
+            'feel_no_pain': self.feel_no_pain,
+            'keywords': self.keywords or [],
+            'weight': self.weight,
+            'use': bool(self.use),
+        }
+
+
+# Tables rebuilt from the data JSON on every start (everything except saved scenarios/comparisons)
+REFERENCE_TABLES = [
+    unit_ranged_weapons, unit_melee_weapons,
+    RangedWeapon.__table__, MeleeWeapon.__table__,
+    FactionRule.__table__, Stratagem.__table__,
+    Unit.__table__, Faction.__table__, Keyword.__table__, TargetProfile.__table__,
+]
 
 
 class SavedScenario(db.Model):

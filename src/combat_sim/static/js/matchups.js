@@ -1,22 +1,43 @@
 /**
  * Matchups page JavaScript for matrix comparison functionality.
+ *
+ * Attackers are unit entries (the same unit may appear several times, labelled
+ * "#2", "#3"...), each holding its weapons with an include tick and a model count.
+ * The matrix has one row per attacker unit plus an "All attackers" total row.
  */
 
 (function() {
     'use strict';
 
+    const DEFAULT_DEFENDER_MODELS = 5;
+
     // State
     const state = {
-        attackers: [],  // [{weapon_id, weapon_type, label, unit_name, points}]
-        defenders: [],  // [{unit_id, model_count, label, points}]
+        // [{unit_id, unit_name, faction, weapons: [{weapon_id, weapon_type, name, range, attacks,
+        //   skill, strength, ap, damage, abilities, models, include}]}]
+        attackers: [],
+        // [{unit_id, unit_name, faction, toughness, save, wounds, invulnerable_save, feel_no_pain, model_count}]
+        defenders: [],
         results: null,
         currentMetric: 'avg_damage',
         weaponTypeFilter: 'both',  // 'ranged', 'melee', or 'both'
+        showWeapons: false,
+        analysisTab: 'summary',
+        defenderMode: 'real',  // 'real' (defender table) or 'generic' (benchmark profiles)
+        genericProfiles: [],  // read-only, from /api/data/target-profiles
+        genericIncluded: null,  // Set of included profile ids (null = each profile's default)
+        // Rules & stratagems each side can tick, and which are ticked ('rule:3', 'stratagem:7')
+        rules: {
+            attacker: { available: [], ticked: new Set(), factions: '' },
+            defender: { available: [], ticked: new Set(), factions: '' },
+        },
+        pickerMode: 'attacker',  // which table the Add Unit pop-up adds to
         conditions: {
             half_range: false,
             charged: false,
             stationary: false,
             cover: false,
+            damaged: false,
             reroll_hits: 'none',
             reroll_wounds: 'none'
         }
@@ -31,17 +52,75 @@
     function init() {
         cacheElements();
         bindEvents();
+        document.querySelectorAll('.defender-mode-toggle .toggle-btn').forEach(btn => {
+            btn.addEventListener('click', () => setDefenderMode(btn.dataset.mode));
+        });
+        document.querySelectorAll('.analysis-tabs .toggle-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                state.analysisTab = btn.dataset.tab;
+                renderAnalysis();
+            });
+        });
+        loadGenericProfiles();
+        populateFactionFilter();
+        restorePageState();
+        renderAttackerTable();
+        renderDefenderTable();
         loadSavedComparisons();
+        window.addEventListener('pagehide', savePageState);
+    }
+
+    // =========================
+    // Remember setup across tab changes (see PageState in app.js)
+    // =========================
+
+    const PAGE_STATE_KEY = 'matchupsState';
+
+    function savePageState() {
+        PageState.save(PAGE_STATE_KEY, {
+            attackers: state.attackers,
+            defenders: state.defenders,
+            conditions: state.conditions,
+            currentMetric: state.currentMetric,
+            weaponTypeFilter: state.weaponTypeFilter,
+            showWeapons: state.showWeapons,
+            results: state.results,
+            rulesTicked: ticksForSaving(),
+            defenderMode: state.defenderMode,
+            genericIncluded: state.genericIncluded ? [...state.genericIncluded] : null,
+        });
+    }
+
+    function restorePageState() {
+        const saved = PageState.load(PAGE_STATE_KEY);
+        if (!saved) return;
+
+        state.attackers = saved.attackers || [];
+        state.defenders = saved.defenders || [];
+        state.conditions = { ...state.conditions, ...(saved.conditions || {}) };
+        state.currentMetric = saved.currentMetric || state.currentMetric;
+        state.weaponTypeFilter = saved.weaponTypeFilter || state.weaponTypeFilter;
+        state.showWeapons = !!saved.showWeapons;
+        state.results = saved.results || null;
+        restoreTicks(saved.rulesTicked);
+        state.defenderMode = saved.defenderMode === 'generic' ? 'generic' : 'real';
+        state.genericIncluded = saved.genericIncluded ? new Set(saved.genericIncluded) : null;
+
+        updateConditionUI();
+        elements.metricSelect.value = state.currentMetric;
+        document.querySelectorAll('.weapon-type-toggle .toggle-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.type === state.weaponTypeFilter);
+        });
+
+        if (state.results) {
+            renderMatrix();
+            renderSummary();
+        }
     }
 
     function cacheElements() {
-        elements.attackerSearch = document.getElementById('attacker-search');
-        elements.attackerDropdown = document.getElementById('attacker-dropdown');
-        elements.attackerList = document.getElementById('attacker-list');
-
-        elements.defenderSearch = document.getElementById('defender-search');
-        elements.defenderDropdown = document.getElementById('defender-dropdown');
-        elements.defenderList = document.getElementById('defender-list');
+        elements.attackerBody = document.querySelector('#attacker-table tbody');
+        elements.defenderBody = document.querySelector('#defender-table tbody');
 
         elements.matrixContainer = document.getElementById('matrix-container');
         elements.matrixSummary = document.getElementById('matrix-summary');
@@ -51,34 +130,45 @@
         elements.detailPanel = document.getElementById('detail-panel');
         elements.metricSelect = document.getElementById('mat-metric');
 
+        elements.unitPickerModal = document.getElementById('unit-picker-modal');
+        elements.unitPickerSearch = document.getElementById('unit-picker-search');
+        elements.unitPickerFaction = document.getElementById('unit-picker-faction');
+        elements.unitPickerList = document.getElementById('unit-picker-list');
+
         elements.loadModal = document.getElementById('load-modal');
         elements.saveModal = document.getElementById('save-modal');
         elements.comparisonList = document.getElementById('comparison-list');
     }
 
     function bindEvents() {
-        // Weapon type toggle
+        // Weapon type filter (live: hidden weapons are left out of the matrix)
         document.querySelectorAll('.weapon-type-toggle .toggle-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.weapon-type-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 state.weaponTypeFilter = btn.dataset.type;
+                renderAttackerTable();
+                renderRulesList('attacker');
+                renderRulesList('defender');
             });
         });
 
-        // Search inputs - both now search for units
-        elements.attackerSearch.addEventListener('input', debounce(() => searchUnitsForAttacker(), 300));
-        elements.attackerSearch.addEventListener('focus', () => searchUnitsForAttacker());
-        elements.defenderSearch.addEventListener('input', debounce(() => searchUnitsForDefender(), 300));
-        elements.defenderSearch.addEventListener('focus', () => searchUnitsForDefender());
+        // Add Unit pop-up
+        document.getElementById('btn-add-attacker').addEventListener('click', () => openUnitPicker('attacker'));
+        document.getElementById('btn-add-defender').addEventListener('click', () => openUnitPicker('defender'));
+        document.getElementById('close-unit-picker').addEventListener('click', closeUnitPicker);
+        elements.unitPickerSearch.addEventListener('input', debounce(loadUnitPickerList, 250));
+        elements.unitPickerFaction.addEventListener('change', loadUnitPickerList);
 
-        // Close dropdowns on outside click
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.search-add')) {
-                elements.attackerDropdown.innerHTML = '';
-                elements.defenderDropdown.innerHTML = '';
-            }
+        // Table edits (event delegation, rows are re-rendered)
+        elements.attackerBody.addEventListener('change', onAttackerTableChange);
+        elements.attackerBody.addEventListener('click', onAttackerTableClick);
+        elements.defenderBody.addEventListener('change', onDefenderTableChange);
+        elements.defenderBody.addEventListener('input', (e) => {
+            if (!e.target.classList.contains('def-extra')) return;
+            state.defenders[parseInt(e.target.dataset.d)].extra_modifiers = e.target.value;
         });
+        elements.defenderBody.addEventListener('click', onDefenderTableClick);
 
         // Condition toggles
         document.getElementById('mat-half-range').addEventListener('change', (e) => {
@@ -92,6 +182,9 @@
         });
         document.getElementById('mat-cover').addEventListener('change', (e) => {
             state.conditions.cover = e.target.checked;
+        });
+        document.getElementById('mat-damaged').addEventListener('change', (e) => {
+            state.conditions.damaged = e.target.checked;
         });
         document.getElementById('mat-reroll-hits').addEventListener('change', (e) => {
             state.conditions.reroll_hits = e.target.value;
@@ -126,262 +219,570 @@
         document.getElementById('btn-confirm-save').addEventListener('click', saveComparison);
 
         // Close modals on backdrop click
-        elements.loadModal.addEventListener('click', (e) => {
-            if (e.target === elements.loadModal) {
-                elements.loadModal.style.display = 'none';
-            }
-        });
-        elements.saveModal.addEventListener('click', (e) => {
-            if (e.target === elements.saveModal) {
-                elements.saveModal.style.display = 'none';
-            }
+        [elements.loadModal, elements.saveModal, elements.unitPickerModal].forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
         });
     }
 
     // =========================
-    // Search Functions
+    // Rules & stratagems (army-wide)
     // =========================
 
-    async function searchUnitsForAttacker() {
-        const query = elements.attackerSearch.value.trim();
-        if (query.length < 1) {
-            elements.attackerDropdown.innerHTML = '';
+    const RULE_KIND_LABEL = { rule: 'Rule', stratagem: 'Stratagem', core: 'Core' };
+
+    function sideEntries(side) {
+        if (side === 'attacker') return state.attackers;
+        return state.defenderMode === 'generic' ? [] : state.defenders;
+    }
+
+    /** Reload a side's tickable list when the factions in its table change. */
+    async function refreshRules(side) {
+        const panel = state.rules[side];
+        const factionIds = [...new Set(sideEntries(side).map(e => e.faction_id).filter(Boolean))].sort((a, b) => a - b);
+        const signature = factionIds.join(',');
+        if (signature === panel.factions && panel.available.length) {
+            renderRulesList(side);
             return;
         }
+        panel.factions = signature;
+
+        const params = new URLSearchParams({ side: side === 'attacker' ? 'Attacker' : 'Target' });
+        factionIds.forEach(id => params.append('faction_id', id));
+        try {
+            const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
+            if (panel.factions !== signature) return;  // a newer refresh started
+            const keys = new Set(available.map(e => e.key));
+            panel.available = available;
+            panel.ticked = new Set([...panel.ticked].filter(k => keys.has(k)));
+            renderRulesList(side);
+        } catch (err) {
+            console.error('Error loading rules:', err);
+        }
+    }
+
+    /** Entries usable with the current Shooting / Both / Melee filter. */
+    function visibleRules(side) {
+        const allowed = { ranged: ['Shooting', 'Both'], melee: ['Fighting', 'Both'], both: ['Shooting', 'Fighting', 'Both'] };
+        const phases = allowed[state.weaponTypeFilter] || allowed.both;
+        return state.rules[side].available.filter(e => phases.includes(e.phase));
+    }
+
+    function renderRulesList(side) {
+        const listEl = document.getElementById(`${side}-rules-list`);
+        if (!listEl) return;
+        const panel = state.rules[side];
+        const visible = visibleRules(side);
+
+        // Group by faction (core stratagems last)
+        const groups = new Map();
+        for (const e of visible) {
+            const title = e.kind === 'core' ? 'Core stratagems' : e.faction;
+            if (!groups.has(title)) groups.set(title, []);
+            groups.get(title).push(e);
+        }
+        const titles = [...groups.keys()].sort((a, b) =>
+            (a === 'Core stratagems') - (b === 'Core stratagems') || a.localeCompare(b));
+
+        listEl.innerHTML = titles.length ? titles.map(title => `
+            <div class="rules-group-title">${escapeHtml(title)}</div>
+            ${groups.get(title).map(e => `
+                <label class="rule-row${e.has_effect ? '' : ' rule-no-effect'}"
+                       title="${e.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)'}">
+                    <input type="checkbox" data-key="${e.key}" ${panel.ticked.has(e.key) ? 'checked' : ''}>
+                    <span class="rule-name">${escapeHtml(e.name)}</span>
+                    <span class="rule-kind">${RULE_KIND_LABEL[e.kind]}</span>
+                    <span class="rule-phase">${escapeHtml(e.phase)}</span>
+                    ${e.cp ? `<span class="rule-cp">${escapeHtml(e.cp)} CP</span>` : ''}
+                    <span class="rule-modifier">${e.has_effect ? escapeHtml(e.modifier) : 'No effect on the calculations'}</span>
+                </label>`).join('')}
+        `).join('') : `<div class="rules-empty">${sideEntries(side).length ? 'No rules or stratagems for this phase' : 'Add units to see their rules and stratagems'}</div>`;
+
+        listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                cb.checked ? panel.ticked.add(cb.dataset.key) : panel.ticked.delete(cb.dataset.key);
+                updateRulesSummary(side);
+            });
+        });
+        updateRulesSummary(side);
+    }
+
+    function updateRulesSummary(side) {
+        const summaryEl = document.getElementById(`${side}-rules-summary`);
+        if (!summaryEl) return;
+        const active = visibleRules(side).filter(e => state.rules[side].ticked.has(e.key) && e.has_effect);
+        summaryEl.textContent = active.length
+            ? 'Active: ' + active.map(e => `${e.name} (${e.modifier})`).join(', ')
+            : (state.rules[side].ticked.size ? 'Ticked, but no effect with this filter' : 'None ticked');
+        summaryEl.classList.toggle('rules-summary-active', active.length > 0);
+    }
+
+    function rulesSelection(side) {
+        const selection = { rule_ids: [], stratagem_ids: [] };
+        for (const key of state.rules[side].ticked) {
+            const [kind, id] = key.split(':');
+            (kind === 'rule' ? selection.rule_ids : selection.stratagem_ids).push(parseInt(id));
+        }
+        return selection;
+    }
+
+    function ticksForSaving() {
+        return { attacker: [...state.rules.attacker.ticked], defender: [...state.rules.defender.ticked] };
+    }
+
+    function restoreTicks(saved) {
+        state.rules.attacker.ticked = new Set(saved?.attacker || []);
+        state.rules.defender.ticked = new Set(saved?.defender || []);
+        state.rules.attacker.factions = '';  // force a reload; ticks are kept if still available
+        state.rules.defender.factions = '';
+    }
+
+    // =========================
+    // Helpers
+    // =========================
+
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = value ?? '';
+        return div.innerHTML;
+    }
+
+    /** Unit name with "#n" appended when the same unit appears earlier in the list. */
+    function copyLabel(list, index) {
+        const entry = list[index];
+        let copy = 0;
+        for (let i = 0; i <= index; i++) {
+            if (list[i].unit_id === entry.unit_id && list[i].unit_name === entry.unit_name) copy++;
+        }
+        return copy > 1 ? `${entry.unit_name} #${copy}` : entry.unit_name;
+    }
+
+    function defenderLabel(index) {
+        return `${copyLabel(state.defenders, index)} (x${state.defenders[index].model_count})`;
+    }
+
+    function weaponVisible(weapon) {
+        return state.weaponTypeFilter === 'both' || weapon.weapon_type === state.weaponTypeFilter;
+    }
+
+    function toWeaponEntry(w) {
+        return {
+            weapon_id: w.id,
+            weapon_type: w.type,
+            name: w.name,
+            range: w.range ?? null,
+            attacks: w.attacks,
+            skill: w.skill,
+            strength: w.strength,
+            ap: w.ap,
+            damage: w.damage,
+            abilities: w.abilities || [],
+            models: w.qty || 1,  // Loadout quantity: models in the unit carrying this weapon
+            base_qty: w.qty || 1,  // Loadout quantity at the datasheet unit size
+            include: true,
+        };
+    }
+
+    /**
+     * Weapons named "Weapon - Profile" are alternative profiles of one gun: include only the first
+     * profile of each family by default, so it isn't counted twice (same rule as the Simulator).
+     */
+    function defaultIncluded(weapons) {
+        const families = new Set();
+        for (const w of weapons) {
+            const family = w.name.includes(' - ') ? w.name.split(' - ')[0].trim().toLowerCase() : null;
+            w.include = !family || !families.has(family);
+            if (family) families.add(family);
+        }
+        return weapons;
+    }
+
+    function toDefenderEntry(unit, modelCount) {
+        return {
+            unit_id: unit.id,
+            unit_name: unit.name,
+            faction: unit.faction,
+            faction_id: unit.faction_id,
+            points_by_size: unit.points_by_size || [],
+            toughness: unit.toughness,
+            save: unit.save,
+            wounds: unit.wounds,
+            invulnerable_save: unit.invulnerable_save,
+            feel_no_pain: unit.feel_no_pain,
+            model_count: modelCount,
+        };
+    }
+
+    function populateFactionFilter() {
+        const factions = window.APP_DATA?.factions || [];
+        elements.unitPickerFaction.innerHTML = '<option value="">All Factions</option>' +
+            factions.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('');
+    }
+
+    // =========================
+    // Add Unit pop-up
+    // =========================
+
+    function openUnitPicker(mode) {
+        state.pickerMode = mode;
+        document.getElementById('unit-picker-title').textContent =
+            mode === 'attacker' ? 'Add Attacker Unit' : 'Add Defender Unit';
+        elements.unitPickerSearch.value = '';
+        elements.unitPickerModal.style.display = 'flex';
+        elements.unitPickerSearch.focus();
+        loadUnitPickerList();
+    }
+
+    function closeUnitPicker() {
+        elements.unitPickerModal.style.display = 'none';
+    }
+
+    async function loadUnitPickerList() {
+        const params = new URLSearchParams();
+        const search = elements.unitPickerSearch.value.trim();
+        if (search) params.set('search', search);
+        if (elements.unitPickerFaction.value) params.set('faction_id', elements.unitPickerFaction.value);
 
         try {
-            const response = await fetch(`/api/units?search=${encodeURIComponent(query)}`);
+            const response = await fetch(`/api/units?${params}`);
             const units = await response.json();
 
-            elements.attackerDropdown.innerHTML = units.map(u => `
-                <div class="dropdown-item" data-unit-id="${u.id}">
-                    <span class="unit-name">${u.name}</span>
-                    <span class="unit-faction">${u.faction || ''}</span>
-                </div>
+            if (units.length === 0) {
+                elements.unitPickerList.innerHTML = '<p class="empty-message">No units found</p>';
+                return;
+            }
+
+            elements.unitPickerList.innerHTML = units.map(u => `
+                <button type="button" class="unit-picker-item" data-unit-id="${u.id}">
+                    <span class="unit-picker-name">${escapeHtml(u.name)}</span>
+                    <span class="unit-picker-faction">${escapeHtml(u.faction || '')}</span>
+                    <span class="unit-picker-stats">T${u.toughness} · ${u.save}+ · W${u.wounds}${u.invulnerable_save ? ` · ${u.invulnerable_save}++` : ''}</span>
+                </button>
             `).join('');
 
-            // Bind click events
-            elements.attackerDropdown.querySelectorAll('.dropdown-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const unitId = parseInt(item.dataset.unitId);
-                    const unitName = item.querySelector('.unit-name').textContent;
-                    addUnitAsAttacker(unitId, unitName);
-                    elements.attackerSearch.value = '';
-                    elements.attackerDropdown.innerHTML = '';
-                });
+            elements.unitPickerList.querySelectorAll('.unit-picker-item').forEach(item => {
+                item.addEventListener('click', () => addUnit(parseInt(item.dataset.unitId)));
             });
         } catch (err) {
             console.error('Error searching units:', err);
         }
     }
 
-    async function searchUnitsForDefender() {
-        const query = elements.defenderSearch.value.trim();
-        if (query.length < 1) {
-            elements.defenderDropdown.innerHTML = '';
-            return;
-        }
-
+    async function addUnit(unitId) {
         try {
-            const response = await fetch(`/api/units?search=${encodeURIComponent(query)}`);
-            const units = await response.json();
-
-            elements.defenderDropdown.innerHTML = units.map(u => `
-                <div class="dropdown-item" data-unit-id="${u.id}">
-                    <span class="unit-name">${u.name}</span>
-                    <span class="unit-faction">${u.faction || ''}</span>
-                </div>
-            `).join('');
-
-            // Bind click events
-            elements.defenderDropdown.querySelectorAll('.dropdown-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const unitId = parseInt(item.dataset.unitId);
-                    const unitName = item.querySelector('.unit-name').textContent;
-                    showModelCountPrompt(unitId, unitName);
-                    elements.defenderSearch.value = '';
-                    elements.defenderDropdown.innerHTML = '';
-                });
-            });
-        } catch (err) {
-            console.error('Error searching units:', err);
-        }
-    }
-
-    function showModelCountPrompt(unitId, unitName) {
-        const count = prompt(`How many models for "${unitName}"?`, '5');
-        if (count && !isNaN(parseInt(count))) {
-            addDefender(unitId, parseInt(count), unitName);
-        }
-    }
-
-    // =========================
-    // Add/Remove Functions
-    // =========================
-
-    async function addUnitAsAttacker(unitId, unitName) {
-        try {
-            // Fetch the unit with all its weapons
             const response = await fetch(`/api/units/${unitId}`);
             const unit = await response.json();
 
-            const filter = state.weaponTypeFilter;
-            let weaponsAdded = 0;
-
-            // Add ranged weapons
-            if ((filter === 'both' || filter === 'ranged') && unit.ranged_weapons) {
-                for (const weapon of unit.ranged_weapons) {
-                    // Check if already added
-                    if (!state.attackers.some(a => a.weapon_id === weapon.id && a.weapon_type === 'ranged')) {
-                        state.attackers.push({
-                            weapon_id: weapon.id,
-                            weapon_type: 'ranged',
-                            label: `${unitName} - ${weapon.name}`,
-                            unit_name: unitName,
-                            points: (unit.points_cost || 0) + (weapon.points_cost || 0)
-                        });
-                        weaponsAdded++;
-                    }
-                }
+            if (state.pickerMode === 'attacker') {
+                state.attackers.push({
+                    unit_id: unit.id,
+                    unit_name: unit.name,
+                    faction: unit.faction,
+                    faction_id: unit.faction_id,
+                    default_models: unit.default_models || null,
+                    unit_size: unit.default_models || null,
+                    points_by_size: unit.points_by_size || [],
+                    weapons: [
+                        ...defaultIncluded((unit.ranged_weapons || []).map(toWeaponEntry)),
+                        ...defaultIncluded((unit.melee_weapons || []).map(toWeaponEntry)),
+                    ],
+                });
+                renderAttackerTable();
+            } else {
+                state.defenders.push(toDefenderEntry(unit, unit.default_models || DEFAULT_DEFENDER_MODELS));
+                renderDefenderTable();
             }
-
-            // Add melee weapons
-            if ((filter === 'both' || filter === 'melee') && unit.melee_weapons) {
-                for (const weapon of unit.melee_weapons) {
-                    // Check if already added
-                    if (!state.attackers.some(a => a.weapon_id === weapon.id && a.weapon_type === 'melee')) {
-                        state.attackers.push({
-                            weapon_id: weapon.id,
-                            weapon_type: 'melee',
-                            label: `${unitName} - ${weapon.name}`,
-                            unit_name: unitName,
-                            points: (unit.points_cost || 0) + (weapon.points_cost || 0)
-                        });
-                        weaponsAdded++;
-                    }
-                }
-            }
-
-            if (weaponsAdded === 0) {
-                alert(`No ${filter === 'both' ? '' : filter + ' '}weapons found for ${unitName}`);
-            }
-
-            renderAttackerList();
-
+            closeUnitPicker();
         } catch (err) {
             console.error('Error adding unit:', err);
-            alert('Error loading unit weapons');
+            alert('Error loading unit');
         }
     }
 
-    function removeAttacker(index) {
-        state.attackers.splice(index, 1);
-        renderAttackerList();
-    }
+    // =========================
+    // Attacker / Defender tables
+    // =========================
 
-    function removeAttackersByUnit(unitName) {
-        state.attackers = state.attackers.filter(a => a.unit_name !== unitName);
-        renderAttackerList();
-    }
-
-    function addDefender(unitId, modelCount, unitName) {
-        // Check if already added with same model count
-        if (state.defenders.some(d => d.unit_id === unitId && d.model_count === modelCount)) {
-            return;
-        }
-
-        state.defenders.push({
-            unit_id: unitId,
-            model_count: modelCount,
-            label: `${unitName} (x${modelCount})`
-        });
-
-        renderDefenderList();
-    }
-
-    function removeDefender(index) {
-        state.defenders.splice(index, 1);
-        renderDefenderList();
-    }
-
-    function renderAttackerList() {
+    function renderAttackerTable() {
+        refreshRules('attacker');
         if (state.attackers.length === 0) {
-            elements.attackerList.innerHTML = '<p class="empty-message">No attackers selected</p>';
+            elements.attackerBody.innerHTML =
+                '<tr class="roster-empty"><td colspan="13">No attackers yet. Click "+ Add Unit".</td></tr>';
             return;
         }
 
-        // Group by unit
-        const byUnit = {};
-        state.attackers.forEach((a, idx) => {
-            const unit = a.unit_name || 'Unknown';
-            if (!byUnit[unit]) byUnit[unit] = [];
-            byUnit[unit].push({ ...a, index: idx });
-        });
-
+        const typeName = { ranged: 'shooting', melee: 'melee' };
         let html = '';
-        for (const [unitName, weapons] of Object.entries(byUnit)) {
-            html += `<div class="unit-group">
-                <div class="unit-group-header">
-                    <span class="unit-group-name">${unitName}</span>
-                    <button class="btn-remove-group" data-unit="${unitName}">&times;</button>
-                </div>
-                <div class="unit-group-weapons">`;
 
-            for (const w of weapons) {
-                const typeIcon = w.weapon_type === 'ranged' ? '🎯' : '⚔️';
-                html += `<div class="selection-item">
-                    <span class="weapon-icon">${typeIcon}</span>
-                    <span class="selection-label">${w.label.replace(unitName + ' - ', '')}</span>
-                    <button class="btn-remove" data-index="${w.index}">&times;</button>
-                </div>`;
+        state.attackers.forEach((atk, a) => {
+            const label = escapeHtml(copyLabel(state.attackers, a));
+            const visible = atk.weapons.map((w, idx) => ({ w, idx })).filter(({ w }) => weaponVisible(w));
+            const unitCell = (rowspan) => `
+                <td class="roster-unit" rowspan="${rowspan}">
+                    <span class="roster-unit-name">${label}</span>
+                    <span class="roster-unit-faction">${escapeHtml(atk.faction || '')}</span>
+                    ${atk.default_models ? `
+                    <label class="unit-size" title="Unit size: scales points and weapon quantities">
+                        Size <input type="number" class="roster-models unit-size-input" data-a="${a}"
+                                    value="${atk.unit_size || atk.default_models}" min="1" max="99">
+                    </label>` : ''}
+                    <span class="unit-points">${pointsLabel(atk.points_by_size, atk.unit_size || atk.default_models)}</span>
+                </td>`;
+            const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit">&times;</button>`;
+
+            if (visible.length === 0) {
+                const msg = atk.weapons.length === 0
+                    ? 'This unit has no weapons'
+                    : `No ${typeName[state.weaponTypeFilter]} weapons`;
+                html += `<tr class="roster-group-start">
+                    <td></td>${unitCell(1)}
+                    <td colspan="10" class="roster-muted">${msg}</td>
+                    <td class="col-remove">${removeUnit}</td>
+                </tr>`;
+                return;
             }
 
-            html += '</div></div>';
-        }
-
-        elements.attackerList.innerHTML = html;
-
-        // Bind remove events
-        elements.attackerList.querySelectorAll('.btn-remove').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                removeAttacker(parseInt(btn.dataset.index));
+            visible.forEach(({ w, idx }, i) => {
+                const isRanged = w.weapon_type === 'ranged';
+                html += `<tr class="${i === 0 ? 'roster-group-start' : ''} ${w.include ? '' : 'excluded'}">
+                    <td class="col-check">
+                        <input type="checkbox" class="inc" data-a="${a}" data-w="${idx}" ${w.include ? 'checked' : ''}
+                               title="Include in matrix">
+                    </td>
+                    ${i === 0 ? unitCell(visible.length) : ''}
+                    <td class="roster-weapon">${escapeHtml(w.name)}</td>
+                    <td class="roster-type" title="${isRanged ? 'Shooting' : 'Melee'}">${isRanged ? '🎯' : '⚔️'}</td>
+                    <td>${isRanged ? (w.range ? escapeHtml(w.range) + '"' : '-') : 'Melee'}</td>
+                    <td>${escapeHtml(w.attacks)}</td>
+                    <td>${w.skill ? escapeHtml(w.skill) + '+' : '-'}</td>
+                    <td>${escapeHtml(w.strength)}</td>
+                    <td>${w.ap ? '-' + escapeHtml(w.ap) : '0'}</td>
+                    <td>${escapeHtml(w.damage)}</td>
+                    <td class="roster-abilities">${escapeHtml((w.abilities || []).join(', '))}</td>
+                    <td><input type="number" class="roster-models models" data-a="${a}" data-w="${idx}"
+                               value="${w.models}" min="1" max="99"></td>
+                    <td class="col-remove">${i === 0 ? removeUnit : ''}</td>
+                </tr>`;
             });
         });
 
-        elements.attackerList.querySelectorAll('.btn-remove-group').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                removeAttackersByUnit(btn.dataset.unit);
-            });
-        });
+        elements.attackerBody.innerHTML = html;
     }
 
-    function renderDefenderList() {
-        if (state.defenders.length === 0) {
-            elements.defenderList.innerHTML = '<p class="empty-message">No defenders selected</p>';
+    function onAttackerTableChange(e) {
+        const el = e.target;
+        if (el.classList.contains('unit-size-input')) {
+            setUnitSize(state.attackers[parseInt(el.dataset.a)], parseInt(el.value));
+            renderAttackerTable();
+            return;
+        }
+        const a = parseInt(el.dataset.a);
+        const w = parseInt(el.dataset.w);
+        if (isNaN(a) || isNaN(w)) return;
+        const weapon = state.attackers[a].weapons[w];
+
+        if (el.classList.contains('inc')) {
+            weapon.include = el.checked;
+            el.closest('tr').classList.toggle('excluded', !el.checked);
+        } else if (el.classList.contains('models')) {
+            weapon.models = Math.max(1, parseInt(el.value) || 1);
+            el.value = weapon.models;
+        }
+    }
+
+    function onAttackerTableClick(e) {
+        const btn = e.target.closest('.remove-unit');
+        if (!btn) return;
+        state.attackers.splice(parseInt(btn.dataset.a), 1);
+        renderAttackerTable();
+    }
+
+    function renderDefenderTable() {
+        refreshRules('defender');
+        document.querySelectorAll('.defender-mode-toggle .toggle-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === state.defenderMode);
+        });
+        document.getElementById('btn-add-defender').style.display = state.defenderMode === 'generic' ? 'none' : '';
+        const head = document.querySelector('#defender-table thead');
+
+        if (state.defenderMode === 'generic') {
+            head.innerHTML = `<tr><th class="col-check" title="Include"></th><th>Profile</th><th>Keywords</th>
+                <th>T</th><th>Sv</th><th>W</th><th>Inv</th><th>FNP</th><th>Models</th><th>Weight</th></tr>`;
+            const included = genericIncludedSet();
+            elements.defenderBody.innerHTML = state.genericProfiles.length ? state.genericProfiles.map(t => `
+                <tr class="${included.has(t.id) ? '' : 'excluded'}">
+                    <td class="col-check"><input type="checkbox" class="profile-inc" data-id="${t.id}" ${included.has(t.id) ? 'checked' : ''}></td>
+                    <td class="roster-unit-name">${escapeHtml(t.name)}</td>
+                    <td class="roster-muted">${escapeHtml((t.keywords || []).join(', '))}</td>
+                    <td>${t.toughness}</td>
+                    <td>${t.save}+</td>
+                    <td>${t.wounds}</td>
+                    <td>${t.invulnerable_save ? t.invulnerable_save + '+' : '-'}</td>
+                    <td>${t.feel_no_pain ? t.feel_no_pain + '+' : '-'}</td>
+                    <td>${t.models}</td>
+                    <td>${t.weight ?? '-'}</td>
+                </tr>
+            `).join('') : '<tr class="roster-empty"><td colspan="10">No generic profiles in the data file.</td></tr>';
             return;
         }
 
-        elements.defenderList.innerHTML = state.defenders.map((d, idx) => `
-            <div class="selection-item">
-                <span class="selection-label">${d.label}</span>
-                <button class="btn-remove" data-index="${idx}">&times;</button>
-            </div>
+        head.innerHTML = `<tr><th>Unit</th><th>Faction</th><th>T</th><th>Sv</th><th>W</th><th>Inv</th><th>FNP</th>
+            <th>Models</th><th>Pts</th><th title="One-off target modifiers for this defender only">Extra modifiers</th>
+            <th class="col-remove"></th></tr>`;
+        if (state.defenders.length === 0) {
+            elements.defenderBody.innerHTML =
+                '<tr class="roster-empty"><td colspan="11">No defenders yet. Click "+ Add Unit".</td></tr>';
+            return;
+        }
+
+        elements.defenderBody.innerHTML = state.defenders.map((d, idx) => `
+            <tr>
+                <td class="roster-unit-name">${escapeHtml(copyLabel(state.defenders, idx))}</td>
+                <td class="roster-muted">${escapeHtml(d.faction || '')}</td>
+                <td>${d.toughness}</td>
+                <td>${d.save}+</td>
+                <td>${d.wounds}</td>
+                <td>${d.invulnerable_save ? d.invulnerable_save + '+' : '-'}</td>
+                <td>${d.feel_no_pain ? d.feel_no_pain + '+' : '-'}</td>
+                <td><input type="number" class="roster-models def-models" data-d="${idx}"
+                           value="${d.model_count}" min="1" max="99"></td>
+                <td class="roster-muted def-points">${pointsLabel(d.points_by_size, d.model_count)}</td>
+                <td class="roster-extra">
+                    <input type="text" class="roster-text def-extra" data-d="${idx}" value="${escapeHtml(d.extra_modifiers || '')}"
+                           placeholder="e.g. Stealth" autocomplete="off" title="For this defender only; not saved to the datasheet">
+                    <div class="kw-hint" id="def-extra-hint-${idx}"></div>
+                </td>
+                <td class="col-remove"><button class="btn-remove remove-defender" data-d="${idx}" title="Remove">&times;</button></td>
+            </tr>
         `).join('');
 
-        elements.defenderList.querySelectorAll('.btn-remove').forEach(btn => {
-            btn.addEventListener('click', () => removeDefender(parseInt(btn.dataset.index)));
+        elements.defenderBody.querySelectorAll('.def-extra').forEach(input => {
+            KeywordHints.attach(input, document.getElementById(`def-extra-hint-${input.dataset.d}`), 'unit');
         });
+    }
+
+    // =========================
+    // Unit size, points and generic profiles
+    // =========================
+
+    /** Points for a unit size: the listed cost, else the nearest size below plus its per-model rate (as the server). */
+    function unitPoints(brackets, models) {
+        const sorted = (brackets || []).filter(b => b.models && b.points != null).sort((x, y) => x.models - y.models);
+        if (!sorted.length || !models) return null;
+        const below = sorted.filter(b => b.models <= models);
+        const base = below.length ? below[below.length - 1] : sorted[0];
+        const rate = base.points / base.models;
+        if (base.models === models) return base.points;
+        return Math.round(below.length ? base.points + (models - base.models) * rate : models * rate);
+    }
+
+    function pointsLabel(brackets, models) {
+        const points = unitPoints(brackets, models);
+        return points == null ? '' : `${points} pts`;
+    }
+
+    /** Change an attacker unit's size, scaling each weapon's model count from its loadout quantity. */
+    function setUnitSize(atk, size) {
+        size = Math.max(1, size || atk.default_models || 1);
+        atk.unit_size = size;
+        if (!atk.default_models) return;
+        for (const w of atk.weapons) {
+            const base = w.base_qty || w.models || 1;
+            w.models = Math.max(1, Math.round(base * size / atk.default_models));
+        }
+    }
+
+    async function loadGenericProfiles() {
+        try {
+            const profiles = await fetch('/api/data/target-profiles').then(r => r.json());
+            state.genericProfiles = profiles.filter(t => t.kind === 'generic');
+            if (state.defenderMode === 'generic') renderDefenderTable();
+        } catch (err) {
+            console.error('Error loading target profiles:', err);
+        }
+    }
+
+    function genericIncludedSet() {
+        if (!state.genericIncluded) {
+            state.genericIncluded = new Set(state.genericProfiles.filter(t => t.use).map(t => t.id));
+        }
+        return state.genericIncluded;
+    }
+
+    function includedProfiles() {
+        const included = genericIncludedSet();
+        return state.genericProfiles.filter(t => included.has(t.id));
+    }
+
+    function setDefenderMode(mode) {
+        state.defenderMode = mode;
+        state.rules.defender.factions = null;  // reload the defender rules for the new mode
+        renderDefenderTable();
+    }
+
+    function onDefenderTableChange(e) {
+        const el = e.target;
+        if (el.classList.contains('profile-inc')) {
+            const set = genericIncludedSet();
+            el.checked ? set.add(parseInt(el.dataset.id)) : set.delete(parseInt(el.dataset.id));
+            el.closest('tr').classList.toggle('excluded', !el.checked);
+            return;
+        }
+        if (!el.classList.contains('def-models')) return;
+        const d = state.defenders[parseInt(el.dataset.d)];
+        d.model_count = Math.max(1, parseInt(el.value) || 1);
+        el.value = d.model_count;
+        const pointsCell = el.closest('tr').querySelector('.def-points');
+        if (pointsCell) pointsCell.textContent = pointsLabel(d.points_by_size, d.model_count);
+    }
+
+    function onDefenderTableClick(e) {
+        const btn = e.target.closest('.remove-defender');
+        if (!btn) return;
+        state.defenders.splice(parseInt(btn.dataset.d), 1);
+        renderDefenderTable();
     }
 
     // =========================
     // Matrix Simulation
     // =========================
 
+    function buildMatrixRequest() {
+        const attackers = state.attackers.map((atk, a) => ({
+            label: copyLabel(state.attackers, a),
+            unit_id: atk.unit_id,
+            weapons: atk.weapons
+                .filter(w => w.include && weaponVisible(w))
+                .map(w => ({ weapon_id: w.weapon_id, weapon_type: w.weapon_type, models: w.models, label: w.name,
+                             unit_id: atk.unit_id })),
+            unit_size: atk.unit_size || atk.default_models || null,
+        })).filter(atk => atk.weapons.length > 0);
+
+        const defenders = state.defenderMode === 'generic'
+            ? includedProfiles().map(t => ({ profile_id: t.id, model_count: t.models, label: t.name }))
+            : state.defenders.map((d, idx) => ({
+                unit_id: d.unit_id,
+                model_count: d.model_count,
+                label: defenderLabel(idx),
+                extra_modifiers: d.extra_modifiers || '',
+            }));
+
+        return {
+            attackers, defenders, conditions: { ...state.conditions },
+            weapon_filter: state.weaponTypeFilter,
+            attacker_rules: rulesSelection('attacker'),
+            defender_rules: rulesSelection('defender'),
+        };
+    }
+
     async function runMatrix() {
-        if (state.attackers.length === 0 || state.defenders.length === 0) {
-            alert('Please add at least one attacker unit and one defender unit.');
+        const request = buildMatrixRequest();
+
+        if (request.attackers.length === 0 || request.defenders.length === 0) {
+            alert('Please add at least one attacker unit with an included weapon, and one defender unit.');
             return;
         }
 
@@ -392,15 +793,12 @@
             const response = await fetch('/api/matrix/simulate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    attackers: state.attackers,
-                    defenders: state.defenders,
-                    conditions: state.conditions,
-                    metrics: ['avg_damage', 'models_killed', 'damage_per_point', 'kill_probability']
-                })
+                body: JSON.stringify(request)
             });
 
             state.results = await response.json();
+            // Keep what was run so cell details match the matrix even after later edits
+            state.results.request = request;
             renderMatrix();
             renderSummary();
 
@@ -411,16 +809,15 @@
     }
 
     function renderMatrix() {
-        if (!state.results || !state.results.matrix.length) {
+        const results = state.results;
+        if (!results || !results.matrix || !results.matrix.length) {
             return;
         }
 
         const metric = state.currentMetric;
-        const matrix = state.results.matrix;
-        const attackers = state.results.attackers;
-        const defenders = state.results.defenders;
+        const { matrix, weapon_matrix: weaponMatrix, attackers, defenders, total } = results;
 
-        // Find min/max for color scaling
+        // Colour scale from the unit rows (the total row would always dominate)
         let minVal = Infinity, maxVal = -Infinity;
         for (const row of matrix) {
             for (const cell of row) {
@@ -430,46 +827,67 @@
             }
         }
 
-        // Build table HTML
-        let html = '<div class="matrix-scroll"><table class="matrix-table">';
+        const cellHtml = (cell, kind, a, w, d, rowLabel) => {
+            const value = cell[metric] || 0;
+            const displayVal = formatMetricValue(value, metric);
+            const style = kind === 'total' ? '' : `style="background-color: ${getHeatColor(Math.min(value, maxVal), minVal, maxVal)}"`;
+            const wiped = kind === 'total' && cell.wiped ? '<span class="wiped-badge" title="Wiped in one turn">✓ wiped</span>' : '';
+            return `<td class="matrix-cell ${kind === 'total' ? 'matrix-total-cell' : ''}" ${style}
+                        data-kind="${kind}" data-a="${a}" data-w="${w}" data-d="${d}"
+                        title="${escapeHtml(rowLabel)} vs ${escapeHtml(defenders[d].label)}: ${displayVal}">
+                        ${displayVal}${wiped}
+                    </td>`;
+        };
+
+        let html = `<div class="matrix-toolbar">
+            <label class="toggle-inline">
+                <input type="checkbox" id="matrix-show-weapons" ${state.showWeapons ? 'checked' : ''}> Show weapons
+            </label>
+        </div>`;
+        html += '<div class="matrix-scroll"><table class="matrix-table">';
 
         // Header row
         html += '<thead><tr><th class="matrix-corner"></th>';
         for (const def of defenders) {
-            html += `<th class="matrix-header-cell" title="${def.label}">${truncate(def.label, 20)}</th>`;
+            const weight = def.weight != null ? `<span class="matrix-weight">weight ${def.weight}</span>` : '';
+            html += `<th class="matrix-header-cell" title="${escapeHtml(def.label)}">${escapeHtml(truncate(def.label, 20))}${weight}</th>`;
         }
-        html += '</tr></thead>';
+        html += '</tr></thead><tbody>';
 
-        // Data rows
-        html += '<tbody>';
-        for (let atkIdx = 0; atkIdx < attackers.length; atkIdx++) {
-            html += '<tr>';
-            html += `<th class="matrix-row-header" title="${attackers[atkIdx].label}">${truncate(attackers[atkIdx].label, 25)}</th>`;
+        // One row per attacker unit, optionally followed by its weapons
+        attackers.forEach((atk, a) => {
+            html += `<tr class="matrix-unit-row"><th class="matrix-row-header" title="${escapeHtml(atk.label)}">${escapeHtml(truncate(atk.label, 28))}</th>`;
+            matrix[a].forEach((cell, d) => { html += cellHtml(cell, 'unit', a, -1, d, atk.label); });
+            html += '</tr>';
 
-            for (let defIdx = 0; defIdx < defenders.length; defIdx++) {
-                const cell = matrix[atkIdx][defIdx];
-                const value = cell[metric] || 0;
-                const color = getHeatColor(value, minVal, maxVal);
-                const displayVal = formatMetricValue(value, metric);
-
-                html += `<td class="matrix-cell" style="background-color: ${color}"
-                            data-atk-idx="${atkIdx}" data-def-idx="${defIdx}"
-                            title="${attackers[atkIdx].label} vs ${defenders[defIdx].label}: ${displayVal}">
-                            ${displayVal}
-                         </td>`;
+            if (state.showWeapons && weaponMatrix) {
+                atk.weapons.forEach((w, wi) => {
+                    const wLabel = `${w.label}${w.models > 1 ? ` ×${w.models}` : ''}`;
+                    html += `<tr class="matrix-weapon-row"><th class="matrix-row-header" title="${escapeHtml(atk.label + ' - ' + wLabel)}">↳ ${escapeHtml(truncate(wLabel, 26))}</th>`;
+                    weaponMatrix[a][wi].forEach((cell, d) => { html += cellHtml(cell, 'weapon', a, wi, d, `${atk.label} - ${wLabel}`); });
+                    html += '</tr>';
+                });
             }
+        });
+
+        // Army total row
+        if (total) {
+            html += `<tr class="matrix-total-row"><th class="matrix-row-header">${escapeHtml(total.label)}</th>`;
+            total.cells.forEach((cell, d) => { html += cellHtml(cell, 'total', -1, -1, d, total.label); });
             html += '</tr>';
         }
         html += '</tbody></table></div>';
 
         elements.matrixContainer.innerHTML = html;
 
-        // Bind cell click events
+        document.getElementById('matrix-show-weapons').addEventListener('change', (e) => {
+            state.showWeapons = e.target.checked;
+            renderMatrix();
+        });
+
         elements.matrixContainer.querySelectorAll('.matrix-cell').forEach(cell => {
             cell.addEventListener('click', () => {
-                const atkIdx = parseInt(cell.dataset.atkIdx);
-                const defIdx = parseInt(cell.dataset.defIdx);
-                showCellDetail(atkIdx, defIdx);
+                showCellDetail(cell.dataset.kind, parseInt(cell.dataset.a), parseInt(cell.dataset.w), parseInt(cell.dataset.d));
             });
         });
     }
@@ -478,7 +896,7 @@
         // Green (high) -> Yellow (mid) -> Red (low)
         if (max === min) return 'rgba(255, 235, 59, 0.5)'; // Yellow if all same
 
-        const ratio = (value - min) / (max - min);
+        const ratio = Math.max(0, (value - min) / (max - min));
 
         // Interpolate: red (0) -> yellow (0.5) -> green (1)
         let r, g, b;
@@ -502,7 +920,10 @@
     function formatMetricValue(value, metric) {
         switch (metric) {
             case 'kill_probability':
+            case 'pct_destroyed':
                 return `${value}%`;
+            case 'pct_per_100':
+                return (value || 0).toFixed(2);
             case 'damage_per_point':
                 return value.toFixed(3);
             default:
@@ -518,6 +939,7 @@
     function renderSummary() {
         if (!state.results || !state.results.summary) {
             elements.matrixSummary.style.display = 'none';
+            document.getElementById('army-analysis').style.display = 'none';
             return;
         }
 
@@ -526,61 +948,225 @@
         // Best attackers
         elements.bestAttackers.innerHTML = summary.best_attackers.map(item => `
             <li>
-                <strong>${item.defender}:</strong>
-                ${item.attacker || 'N/A'} (${item.efficiency ? item.efficiency.toFixed(3) : '-'} dmg/pt)
+                <strong>${escapeHtml(item.defender)}:</strong>
+                ${escapeHtml(item.attacker || 'N/A')} (${item.efficiency ? item.efficiency.toFixed(3) : '-'} dmg/pt)
             </li>
         `).join('');
 
         // Biggest threats
         elements.biggestThreats.innerHTML = summary.biggest_threats.map(item => `
             <li>
-                <strong>${item.defender}:</strong>
-                ${item.attacker || 'N/A'} (${item.damage ? item.damage.toFixed(2) : '-'} avg dmg)
+                <strong>${escapeHtml(item.defender)}:</strong>
+                ${escapeHtml(item.attacker || 'N/A')} (${item.damage ? item.damage.toFixed(2) : '-'} avg dmg)
             </li>
         `).join('');
 
         elements.matrixSummary.style.display = 'block';
+        renderAnalysis();
+    }
+
+    // =========================
+    // Army Analysis (Excel's Results tab)
+    // =========================
+
+    function renderAnalysis() {
+        const section = document.getElementById('army-analysis');
+        const analysis = state.results?.analysis;
+        if (!analysis) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = 'block';
+        document.querySelectorAll('.analysis-tabs .toggle-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === state.analysisTab);
+        });
+
+        const content = document.getElementById('analysis-content');
+        const render = {
+            summary: renderAnalysisSummary,
+            gaps: renderGaps,
+            roles: renderRoleScores,
+            coverage: renderCoverage,
+            reverse: renderReverse,
+        }[state.analysisTab] || renderAnalysisSummary;
+        content.innerHTML = render(analysis);
+        if (state.analysisTab === 'roles') drawRoleChart(analysis.roles);
+    }
+
+    function statTile(value, label, note = '') {
+        return `<div class="analysis-stat">
+            <span class="analysis-value">${value}</span>
+            <span class="analysis-label">${label}</span>
+            ${note ? `<span class="analysis-note">${note}</span>` : ''}
+        </div>`;
+    }
+
+    function renderAnalysisSummary(analysis) {
+        const s = analysis.summary;
+        const weighted = s.weighted ? 'weighted by profile' : 'all targets equal';
+        let html = `<h3>My army</h3><div class="analysis-stats">
+            ${statTile(s.units, 'Units')}
+            ${statTile(s.points, 'Points')}
+            ${statTile(`${s.wiped} of ${s.targets}`, 'Enemy units wiped in one turn')}
+            ${statTile(`${s.avg_pct_destroyed}%`, 'Avg % of each target destroyed', weighted)}
+            ${statTile(s.pct_per_100 != null ? s.pct_per_100.toFixed(2) : '-', 'Avg % per 100 pts')}
+            ${statTile(s.best_unit ? escapeHtml(s.best_unit.label) : '-', 'Best unit (% per 100 pts)',
+                       s.best_unit ? `${s.best_unit.pct_per_100.toFixed(2)} % per 100 pts` : '')}
+        </div>`;
+        const r = analysis.reverse?.summary;
+        if (r) {
+            html += `<h3>Opponent</h3><div class="analysis-stats">
+                ${statTile(r.points ?? '-', 'Points')}
+                ${statTile(`${r.wiped} of ${r.units}`, 'My units they wipe in one turn')}
+                ${statTile(`${r.avg_pct_destroyed}%`, 'Avg % of my units destroyed')}
+                ${statTile(r.biggest_threat ? escapeHtml(r.biggest_threat) : '-', 'Biggest threat')}
+            </div>`;
+        }
+        return html;
+    }
+
+    function renderGaps(analysis) {
+        if (!analysis.gaps.length) {
+            return '<p class="analysis-empty">✓ Your army can wipe every target in one turn.</p>';
+        }
+        return `<p class="analysis-intro">Targets your whole army can't wipe out in one turn, most survivors first.</p>
+            <table class="breakdown-table analysis-table">
+                <thead><tr><th>Target</th><th>Models</th><th>Survivors</th><th>% destroyed</th></tr></thead>
+                <tbody>${analysis.gaps.map(g => `<tr>
+                    <td>${escapeHtml(g.label)}</td><td>${g.models}</td><td>${g.survivors}</td><td>${g.pct_destroyed}%</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+    }
+
+    function renderRoleScores(analysis) {
+        if (!analysis.roles.length) {
+            return '<p class="analysis-empty">No role benchmarks in the data file.</p>';
+        }
+        return `<p class="analysis-intro">% of each benchmark unit your whole army destroys in one turn (100% = wiped; above 100% is spare killing power).</p>
+            <div class="analysis-columns">
+                <table class="breakdown-table analysis-table">
+                    <thead><tr><th>Role</th><th>Models</th><th>Army kills</th><th>Score</th></tr></thead>
+                    <tbody>${analysis.roles.map(r => `<tr>
+                        <td>${escapeHtml(r.name)}</td><td>${r.models}</td><td>${r.kills}</td>
+                        <td class="${r.score >= 100 ? 'score-good' : ''}">${r.score}%</td>
+                    </tr>`).join('')}</tbody>
+                </table>
+                <div id="roles-chart" class="roles-chart"></div>
+            </div>`;
+    }
+
+    function drawRoleChart(roles) {
+        const el = document.getElementById('roles-chart');
+        if (!el || !roles.length || typeof Plotly === 'undefined') return;
+        const names = roles.map(r => r.name);
+        const scores = roles.map(r => r.score);
+        const top = Math.max(100, ...scores);
+        Plotly.newPlot(el, [
+            { type: 'scatterpolar', r: names.map(() => 100).concat(100), theta: names.concat(names[0]),
+              mode: 'lines', line: { color: 'rgba(160,160,160,0.6)', dash: 'dot' }, name: 'Wiped (100%)', hoverinfo: 'skip' },
+            { type: 'scatterpolar', r: scores.concat(scores[0]), theta: names.concat(names[0]), fill: 'toself',
+              fillcolor: 'rgba(233,69,96,0.25)', line: { color: '#e94560' }, name: 'Army',
+              hovertemplate: '%{theta}: %{r}%<extra></extra>' },
+        ], {
+            polar: { bgcolor: 'transparent', radialaxis: { range: [0, top], ticksuffix: '%', gridcolor: '#2a2a4a', color: '#a0a0a0' },
+                     angularaxis: { gridcolor: '#2a2a4a', color: '#eaeaea' } },
+            paper_bgcolor: 'transparent', font: { color: '#eaeaea', size: 11 },
+            margin: { t: 30, r: 60, b: 30, l: 60 }, showlegend: false,
+        }, { responsive: true, displayModeBar: false });
+    }
+
+    function renderCoverage(analysis) {
+        const c = analysis.coverage;
+        const values = c.damage.flat();
+        const min = Math.min(...values), max = Math.max(...values);
+        return `<p class="analysis-intro">Expected damage from your whole army against each Toughness and Save
+            (no invulnerable save, Feel No Pain or keywords; damage not capped by wounds).</p>
+            <div class="matrix-scroll"><table class="matrix-table coverage-table">
+                <thead><tr><th class="matrix-corner">T ↓ Sv →</th>${c.saves.map(sv => `<th class="matrix-header-cell">${sv}+</th>`).join('')}</tr></thead>
+                <tbody>${c.toughness.map((t, i) => `<tr><th class="matrix-row-header">T${t}</th>
+                    ${c.damage[i].map(v => `<td class="matrix-cell coverage-cell" style="background-color: ${getHeatColor(v, min, max)}">${v.toFixed(1)}</td>`).join('')}
+                </tr>`).join('')}</tbody>
+            </table></div>`;
+    }
+
+    function renderReverse(analysis) {
+        const r = analysis.reverse;
+        if (!r) {
+            return '<p class="analysis-empty">Reverse durability needs real defender units: switch Defenders to <strong>Real units</strong> and run the matrix again.</p>';
+        }
+        if (!r.rows.length) return '<p class="analysis-empty">No attacker units to check.</p>';
+        return `<p class="analysis-intro">% of each of your units the opponent destroys in one turn (their default loadouts,
+            same conditions and phase filter, no opponent rules).</p>
+            <div class="matrix-scroll"><table class="matrix-table">
+                <thead><tr><th class="matrix-corner">My unit ↓ Enemy →</th>
+                    ${r.enemies.map(e => `<th class="matrix-header-cell" title="${escapeHtml(e)}">${escapeHtml(truncate(e, 20))}</th>`).join('')}
+                    <th class="matrix-header-cell">Total threat</th></tr></thead>
+                <tbody>${r.rows.map(row => `<tr><th class="matrix-row-header">${escapeHtml(truncate(row.label, 28))}</th>
+                    ${row.cells.map(v => `<td class="matrix-cell" style="background-color: ${getHeatColor(100 - v, 0, 100)}">${v}%</td>`).join('')}
+                    <td class="matrix-cell matrix-total-cell">${row.total}%</td>
+                </tr>`).join('')}</tbody>
+            </table></div>`;
     }
 
     // =========================
     // Cell Detail Panel
     // =========================
 
-    async function showCellDetail(atkIdx, defIdx) {
-        const atk = state.attackers[atkIdx];
-        const def = state.defenders[defIdx];
+    async function showCellDetail(kind, a, w, d) {
+        const request = state.results?.request;
+        if (!request) return;
+
+        // Labels come from the results (they match the matrix), weapons from the request that produced it
+        const resultAttackers = state.results.attackers;
+        let weapons, attackerLabel;
+        if (kind === 'total') {
+            weapons = request.attackers.flatMap(atk => atk.weapons);
+            attackerLabel = state.results.total.label;
+        } else if (kind === 'weapon') {
+            weapons = [request.attackers[a].weapons[w]];
+            attackerLabel = `${resultAttackers[a].label} - ${resultAttackers[a].weapons[w].label}`;
+        } else {
+            weapons = request.attackers[a].weapons;
+            attackerLabel = resultAttackers[a].label;
+        }
+        const defender = request.defenders[d];
 
         // Show panel with loading state
         elements.detailPanel.style.display = 'block';
         document.getElementById('detail-title').textContent = 'Loading...';
-        document.getElementById('detail-attacker').textContent = atk.label;
-        document.getElementById('detail-defender').textContent = def.label;
+        document.getElementById('detail-attacker').textContent = attackerLabel;
+        document.getElementById('detail-defender').textContent = state.results.defenders[d].label;
 
         try {
             const response = await fetch('/api/matrix/cell', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    weapon_id: atk.weapon_id,
-                    weapon_type: atk.weapon_type,
-                    unit_id: def.unit_id,
-                    model_count: def.model_count,
-                    conditions: state.conditions,
+                    weapons: weapons,
+                    unit_id: defender.unit_id,
+                    profile_id: defender.profile_id,
+                    extra_modifiers: defender.extra_modifiers || '',
+                    model_count: defender.model_count,
+                    conditions: request.conditions,
+                    attacker_rules: request.attacker_rules,
+                    defender_rules: request.defender_rules,
                     iterations: 1000
                 })
             });
 
             const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Request failed');
 
             document.getElementById('detail-title').textContent = 'Matchup Details';
             document.getElementById('detail-avg-damage').textContent = data.summary.average_damage.toFixed(2);
             document.getElementById('detail-models-killed').textContent = data.summary.models_killed.toFixed(2);
+            document.getElementById('detail-kill-prob').textContent = `${data.summary.kill_probability}%`;
+            document.getElementById('detail-wipe-prob').textContent = `${data.summary.wipe_probability}%`;
             document.getElementById('detail-attacks').textContent = data.breakdown.attacks.toFixed(2);
             document.getElementById('detail-hits').textContent = data.breakdown.hits.toFixed(2);
             document.getElementById('detail-wounds').textContent = data.breakdown.wounds.toFixed(2);
             document.getElementById('detail-failed-saves').textContent = data.breakdown.failed_saves.toFixed(2);
 
-            // Render distribution chart
             renderDetailChart(data.distribution);
 
         } catch (err) {
@@ -590,21 +1176,19 @@
     }
 
     function renderDetailChart(distribution) {
-        if (!distribution || Object.keys(distribution).length === 0) {
+        if (!distribution || !distribution.labels || distribution.labels.length === 0) {
             document.getElementById('detail-chart').innerHTML = '<p>No distribution data</p>';
             return;
         }
 
-        const damages = Object.keys(distribution).map(Number).sort((a, b) => a - b);
-        const probabilities = damages.map(d => distribution[d] * 100);
-
         Plotly.newPlot('detail-chart', [{
-            x: damages,
-            y: probabilities,
+            x: distribution.labels,
+            y: distribution.probabilities,
             type: 'bar',
             marker: {
                 color: '#4fc3f7'
-            }
+            },
+            hovertemplate: '%{x} damage: %{y:.1f}%<extra></extra>'
         }], {
             margin: { t: 10, r: 10, b: 30, l: 40 },
             paper_bgcolor: 'transparent',
@@ -612,6 +1196,7 @@
             font: { color: '#e0e0e0' },
             xaxis: {
                 title: 'Damage',
+                type: 'category',
                 gridcolor: 'rgba(255,255,255,0.1)'
             },
             yaxis: {
@@ -652,7 +1237,12 @@
                     name: name,
                     attackers: state.attackers,
                     defenders: state.defenders,
-                    conditions: state.conditions,
+                    conditions: {
+                        ...state.conditions,
+                        rules_ticked: ticksForSaving(),
+                        defender_mode: state.defenderMode,
+                        generic_included: state.genericIncluded ? [...state.genericIncluded] : null,
+                    },
                     results: state.results
                 })
             });
@@ -685,7 +1275,7 @@
             elements.comparisonList.innerHTML = comparisons.map(c => `
                 <div class="comparison-item" data-id="${c.id}">
                     <div class="comparison-info">
-                        <span class="comparison-name">${c.name}</span>
+                        <span class="comparison-name">${escapeHtml(c.name)}</span>
                         <span class="comparison-meta">${c.attacker_count} attackers vs ${c.defender_count} defenders</span>
                     </div>
                     <div class="comparison-actions">
@@ -708,24 +1298,89 @@
         }
     }
 
+    /**
+     * Older comparisons stored one attacker entry per weapon ({weapon_id, weapon_type, unit_name, ...})
+     * and defenders without stats. Rebuild them as unit entries: each saved weapon goes under its
+     * unit, ticked, with 1 model.
+     */
+    async function convertLegacyAttackers(entries) {
+        const groups = [];
+        const byKey = new Map();
+        for (const entry of entries) {
+            let weapon;
+            try {
+                const response = await fetch(`/api/data/weapons/${entry.weapon_type}/${entry.weapon_id}`);
+                if (!response.ok) continue;
+                weapon = await response.json();
+            } catch (err) {
+                continue;
+            }
+
+            const unitName = entry.unit_name || (entry.label || '').split(' - ')[0] || 'Unknown';
+            const key = `${entry.unit_id ?? ''}|${unitName}`;
+            if (!byKey.has(key)) {
+                const group = { unit_id: entry.unit_id ?? null, unit_name: unitName, faction: '', weapons: [] };
+                byKey.set(key, group);
+                groups.push(group);
+            }
+            byKey.get(key).weapons.push(toWeaponEntry(weapon));
+        }
+        return groups;
+    }
+
+    async function convertLegacyDefenders(entries) {
+        const defenders = [];
+        for (const entry of entries) {
+            try {
+                const response = await fetch(`/api/units/${entry.unit_id}`);
+                if (!response.ok) continue;
+                defenders.push(toDefenderEntry(await response.json(), entry.model_count || DEFAULT_DEFENDER_MODELS));
+            } catch (err) {
+                continue;
+            }
+        }
+        return defenders;
+    }
+
     async function loadComparison(id) {
         try {
             const response = await fetch(`/api/comparisons/${id}`);
             const data = await response.json();
 
-            state.attackers = data.attackers || [];
-            state.defenders = data.defenders || [];
-            state.conditions = data.battle_conditions || state.conditions;
-            state.results = data.results;
+            let attackers = data.attackers || [];
+            let defenders = data.defenders || [];
+            let results = data.results;
+
+            const legacyAttackers = attackers.some(a => !Array.isArray(a.weapons));
+            const legacyDefenders = defenders.some(d => d.toughness === undefined);
+            if (legacyAttackers) attackers = await convertLegacyAttackers(attackers);
+            if (legacyDefenders) defenders = await convertLegacyDefenders(defenders);
+            // Old results have a different shape; they need a re-run
+            if (legacyAttackers || legacyDefenders || !results?.request) results = null;
+
+            state.attackers = attackers;
+            state.defenders = defenders;
+            const { rules_ticked: savedTicks, defender_mode: savedMode, generic_included: savedIncluded,
+                    ...savedConditions } = data.battle_conditions || {};
+            state.defenderMode = savedMode === 'generic' ? 'generic' : 'real';
+            state.genericIncluded = savedIncluded ? new Set(savedIncluded) : null;
+            state.conditions = { ...state.conditions, ...savedConditions };
+            state.results = results;
+            restoreTicks(savedTicks);
 
             // Update UI
-            renderAttackerList();
-            renderDefenderList();
+            renderAttackerTable();
+            renderDefenderTable();
             updateConditionUI();
 
             if (state.results) {
                 renderMatrix();
                 renderSummary();
+            } else {
+                elements.matrixContainer.innerHTML = `<div class="matrix-placeholder">
+                    <p>Comparison loaded. Click "Run Matrix" to generate the comparison grid.</p></div>`;
+                elements.matrixSummary.style.display = 'none';
+            document.getElementById('army-analysis').style.display = 'none';
             }
 
             elements.loadModal.style.display = 'none';
@@ -752,19 +1407,16 @@
         document.getElementById('mat-charged').checked = state.conditions.charged;
         document.getElementById('mat-stationary').checked = state.conditions.stationary;
         document.getElementById('mat-cover').checked = state.conditions.cover;
+        document.getElementById('mat-damaged').checked = !!state.conditions.damaged;
         document.getElementById('mat-reroll-hits').value = state.conditions.reroll_hits;
         document.getElementById('mat-reroll-wounds').value = state.conditions.reroll_wounds;
     }
 
-    // =========================
-    // Utilities
-    // =========================
-
     function debounce(fn, delay) {
-        let timeout;
+        let timer;
         return function(...args) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => fn.apply(this, args), delay);
+            clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), delay);
         };
     }
 

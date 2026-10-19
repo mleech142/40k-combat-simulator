@@ -2,42 +2,356 @@
  * 40K Combat Simulator - Frontend Application
  */
 
+/**
+ * Page setup that survives switching tabs but not restarting the app.
+ * Stored in sessionStorage (cleared when the browser tab closes) and tagged with
+ * the server's boot ID (new on every start), so stale state from a previous run is ignored.
+ * Shared by every page, since base.html loads this script everywhere.
+ */
+const PageState = {
+    bootId: document.querySelector('meta[name="app-boot-id"]')?.content || '',
+
+    load(key) {
+        try {
+            const saved = JSON.parse(sessionStorage.getItem(key));
+            return saved && saved.bootId === this.bootId ? saved.data : null;
+        } catch (err) {
+            return null;
+        }
+    },
+
+    save(key, data) {
+        try {
+            sessionStorage.setItem(key, JSON.stringify({ bootId: this.bootId, data }));
+        } catch (err) {
+            // Storage unavailable or full: the page just won't be restored
+        }
+    },
+};
+
+const SIMULATOR_STATE_KEY = 'simulatorState';
+
+/**
+ * As-you-type warnings for keyword/modifier text boxes (same rules as the Data page forms).
+ * Usage: KeywordHints.attach(inputElement, hintElement, 'unit')
+ * mode 'unit': plain words are fine (they are unit keywords used by Anti); only entries with values are checked.
+ */
+const KeywordHints = {
+    names: null,
+    loading: null,
+
+    load() {
+        if (!this.loading) {
+            this.loading = fetch('/api/data/keywords')
+                .then(r => r.json())
+                .then(keywords => { this.names = new Map(keywords.map(k => [k.name.toLowerCase(), k.name])); })
+                .catch(() => { this.names = new Map(); });
+        }
+        return this.loading;
+    },
+
+    base(entry) {
+        const text = entry.trim();
+        if (text.toLowerCase().startsWith('anti-')) return 'anti';
+        return text.replace(/\s+[-+]?(\d+|D\d+)([-+]\d+)?\+?"?$/i, '').trim().toLowerCase();
+    },
+
+    async check(input, hint, mode = '') {
+        await this.load();
+        if (!this.names || !this.names.size) { hint.innerHTML = ''; return; }
+        const unknown = [], capitals = [];
+        for (const entry of input.value.split(',').map(e => e.trim()).filter(Boolean)) {
+            if (entry.toLowerCase() === 'none') continue;
+            const base = this.base(entry);
+            const canonical = this.names.get(base);
+            if (canonical) {
+                if (base !== 'anti' && entry.slice(0, canonical.length) !== canonical) capitals.push(`${entry} → ${canonical}`);
+            } else if (mode !== 'unit' || /\d/.test(entry)) {
+                unknown.push(entry);
+            }
+        }
+        const esc = v => { const d = document.createElement('div'); d.textContent = v; return d.innerHTML; };
+        hint.innerHTML =
+            (unknown.length ? `<span class="kw-hint-warn">⚠ Not recognised, so it won't change the results: ${unknown.map(esc).join(', ')}. Check the Data → Keywords tab.</span>` : '') +
+            (capitals.length ? `<span class="kw-hint-info">ℹ Works, but the capitals differ: ${capitals.map(esc).join(', ')}</span>` : '');
+    },
+
+    attach(input, hint, mode = '') {
+        const run = () => this.check(input, hint, mode);
+        input.addEventListener('input', run);
+        if (input.value) run();
+    },
+};
+
 // State management
 const state = {
     attacker: {
         unit: null,
-        weapon: null,
+        weapons: { ranged: [], melee: [] },
+        weaponType: 'ranged',
     },
     defender: {
         unit: null,
+        extraModifiers: '',  // One-off target modifiers for this run (never saved to the datasheet)
     },
     conditions: {
         half_range: false,
         charged: false,
         stationary: false,
         cover: false,
+        damaged: false,
         reroll_hits: 'none',
         reroll_wounds: 'none',
     },
     simulation: {
         method: 'analytical',
         iterations: 1000,
-    }
+    },
+    // Rules & stratagems that can be ticked for each side, and which are ticked ('rule:3', 'stratagem:7')
+    rules: {
+        attacker: { available: [], ticked: new Set() },
+        target: { available: [], ticked: new Set() },
+    },
 };
 
 // Last simulation result for saving
 let lastSimulationResult = null;
 
 // Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // app.js is loaded on every page; the rest is for the simulator page only
+    if (!document.getElementById('attacker-unit')) return;
+
     initAutocomplete();
+    initWeaponTypeToggle();
     initToggles();
     initRerollButtons();
     initSimulationOptions();
     initSimulateButton();
     initSaveButton();
-    checkForLoadedScenario();
+    initExtraModifiers();
+    loadRulesFor('attacker', null);
+    loadRulesFor('target', null);
+
+    // A scenario opened from the Scenarios tab replaces the remembered setup
+    if (sessionStorage.getItem('loadScenario')) {
+        checkForLoadedScenario();
+    } else {
+        await restoreSimulatorState();
+    }
+    window.addEventListener('pagehide', saveSimulatorState);
 });
+
+/**
+ * Extra modifiers: one-off target modifiers for this defender, e.g. "Stealth, Feel No Pain 5+"
+ */
+function initExtraModifiers() {
+    const input = document.getElementById('defender-extra-modifiers');
+    if (!input) return;
+    input.addEventListener('input', () => { state.defender.extraModifiers = input.value; });
+    KeywordHints.attach(input, document.getElementById('defender-extra-modifiers-hint'), 'unit');
+}
+
+function setExtraModifiers(text) {
+    state.defender.extraModifiers = text;
+    const input = document.getElementById('defender-extra-modifiers');
+    if (input) {
+        input.value = text;
+        input.dispatchEvent(new Event('input'));
+    }
+}
+
+/**
+ * Remember the simulator setup for when the user comes back to this tab
+ */
+function saveSimulatorState() {
+    PageState.save(SIMULATOR_STATE_KEY, {
+        attackerUnit: state.attacker.unit,
+        attackerUnitText: document.getElementById('attacker-unit').value,
+        weapons: state.attacker.weapons,
+        weaponType: state.attacker.weaponType,
+        defenderUnit: state.defender.unit,
+        defenderUnitText: document.getElementById('defender-unit').value,
+        modelCount: document.getElementById('model-count').value,
+        extraModifiers: state.defender.extraModifiers,
+        conditions: state.conditions,
+        simulation: state.simulation,
+        result: lastSimulationResult,
+        rulesTicked: {
+            attacker: [...state.rules.attacker.ticked],
+            target: [...state.rules.target.ticked],
+        },
+    });
+}
+
+async function restoreSimulatorState() {
+    const saved = PageState.load(SIMULATOR_STATE_KEY);
+    if (!saved) return;
+
+    applyConditions(saved.conditions || {});
+
+    state.simulation = { ...state.simulation, ...(saved.simulation || {}) };
+    const monteCarlo = document.getElementById('monte-carlo');
+    monteCarlo.checked = state.simulation.method === 'monte_carlo';
+    monteCarlo.closest('.toggle')?.classList.toggle('active', monteCarlo.checked);
+    document.getElementById('iterations').value = state.simulation.iterations;
+    document.getElementById('model-count').value = saved.modelCount || 5;
+    setExtraModifiers(saved.extraModifiers || '');
+
+    document.getElementById('defender-unit').value = saved.defenderUnitText || '';
+    if (saved.defenderUnit) {
+        state.defender.unit = saved.defenderUnit;
+        showUnitStats('defender', saved.defenderUnit);
+    }
+
+    document.getElementById('attacker-unit').value = saved.attackerUnitText || '';
+    if (saved.attackerUnit) {
+        state.attacker.unit = saved.attackerUnit;
+        showUnitStats('attacker', saved.attackerUnit);
+    }
+
+    // Reload the unit's weapons so edits made on the Data tab show up; fall back to the saved list
+    let restored = false;
+    if (saved.attackerUnit?.id) {
+        try {
+            await loadWeaponsForUnit(saved.attackerUnit.id);
+            for (const t of ['ranged', 'melee']) {
+                for (const w of state.attacker.weapons[t]) {
+                    const before = (saved.weapons?.[t] || []).find(s => s.id === w.id);
+                    if (before?.qty) w.qty = before.qty;
+                    if (typeof before?.use === 'boolean') w.use = before.use;
+                }
+            }
+            setWeaponType(saved.weaponType || 'ranged');
+            restored = true;
+        } catch (err) {
+            console.error('Error reloading weapons:', err);
+        }
+    }
+    if (!restored && saved.weapons) {
+        state.attacker.weapons = saved.weapons;
+        setWeaponType(saved.weaponType || 'ranged');
+    }
+
+    loadRulesFor('attacker', saved.attackerUnit?.faction_id ?? null, saved.rulesTicked?.attacker);
+    loadRulesFor('target', saved.defenderUnit?.faction_id ?? null, saved.rulesTicked?.target);
+
+    if (saved.result) {
+        lastSimulationResult = saved.result;
+        displayResults(saved.result);
+    }
+}
+
+// =========================
+// Rules & stratagems panels
+// =========================
+
+const PHASE_FOR_WEAPON = { ranged: 'Shooting', melee: 'Fighting' };
+const RULE_GROUPS = [
+    ['rule', 'Faction rules'],
+    ['stratagem', 'Faction stratagems'],
+    ['core', 'Core stratagems'],
+];
+
+/** Load the rules/stratagems one side can tick (its faction's plus core); keep ticks that still exist. */
+async function loadRulesFor(side, factionId, ticked = null) {
+    const params = new URLSearchParams({ side: side === 'attacker' ? 'Attacker' : 'Target' });
+    if (factionId) params.append('faction_id', factionId);
+    try {
+        const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
+        const panel = state.rules[side];
+        const keys = new Set(available.map(e => e.key));
+        panel.available = available;
+        panel.ticked = new Set([...(ticked || panel.ticked)].filter(k => keys.has(k)));
+        renderRulesPanel(side);
+    } catch (err) {
+        console.error('Error loading rules:', err);
+    }
+}
+
+/** Entries usable in the current phase (from the attacker's Shooting/Melee choice). */
+function visibleRules(side) {
+    const phase = PHASE_FOR_WEAPON[state.attacker.weaponType] || 'Shooting';
+    return state.rules[side].available.filter(e => e.phase === 'Both' || e.phase === phase);
+}
+
+function renderRulesPanel(side) {
+    const listEl = document.getElementById(`${side}-rules-list`);
+    if (!listEl) return;
+    const panel = state.rules[side];
+    const visible = visibleRules(side);
+
+    let html = '';
+    for (const [kind, title] of RULE_GROUPS) {
+        const group = visible.filter(e => e.kind === kind);
+        if (!group.length) continue;
+        html += `<div class="rules-group-title">${title}</div>`;
+        html += group.map(e => `
+            <label class="rule-row${e.has_effect ? '' : ' rule-no-effect'}"
+                   title="${e.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)'}">
+                <input type="checkbox" data-key="${e.key}" ${panel.ticked.has(e.key) ? 'checked' : ''}>
+                <span class="rule-name">${escapeHtml(e.name)}</span>
+                ${e.cp ? `<span class="rule-cp">${escapeHtml(e.cp)} CP</span>` : ''}
+                <span class="rule-modifier">${e.has_effect ? escapeHtml(e.modifier) : 'No effect on the calculations'}</span>
+            </label>`).join('');
+    }
+    listEl.innerHTML = html || '<div class="rules-empty">No rules or stratagems for this phase</div>';
+
+    listEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            cb.checked ? panel.ticked.add(cb.dataset.key) : panel.ticked.delete(cb.dataset.key);
+            updateRulesSummary(side);
+        });
+    });
+    updateRulesSummary(side);
+}
+
+function updateRulesSummary(side) {
+    const summaryEl = document.getElementById(`${side}-rules-summary`);
+    if (!summaryEl) return;
+    const active = visibleRules(side).filter(e => state.rules[side].ticked.has(e.key) && e.has_effect);
+    summaryEl.textContent = active.length
+        ? 'Active: ' + active.map(e => e.modifier).join(', ')
+        : (state.rules[side].ticked.size ? 'Ticked, but no effect in this phase' : 'None ticked');
+    summaryEl.classList.toggle('rules-summary-active', active.length > 0);
+}
+
+/** {rule_ids, stratagem_ids} for the request (the server applies only those matching side/phase). */
+function rulesSelection(side) {
+    const selection = { rule_ids: [], stratagem_ids: [] };
+    for (const key of state.rules[side].ticked) {
+        const [kind, id] = key.split(':');
+        (kind === 'rule' ? selection.rule_ids : selection.stratagem_ids).push(parseInt(id));
+    }
+    return selection;
+}
+
+/**
+ * Set the battle condition toggles and re-roll buttons (and state) to match `conditions`
+ */
+function applyConditions(conditions) {
+    ['half_range', 'charged', 'stationary', 'cover', 'damaged'].forEach(cond => {
+        const toggle = document.querySelector(`[data-condition="${cond}"]`);
+        const on = !!conditions[cond];
+        if (toggle) {
+            const input = toggle.querySelector('input');
+            if (input) input.checked = on;
+            toggle.classList.toggle('active', on);
+        }
+        state.conditions[cond] = on;
+    });
+
+    ['hits', 'wounds'].forEach(type => {
+        const value = conditions[`reroll_${type}`] || 'none';
+        const group = document.querySelector(`[data-reroll="${type}"]`);
+        if (group) {
+            group.querySelectorAll('.btn-option').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.value === value);
+            });
+        }
+        state.conditions[`reroll_${type}`] = value;
+    });
+}
 
 /**
  * Initialize autocomplete inputs
@@ -51,20 +365,8 @@ function initAutocomplete() {
         state.attacker.unit = item;
         showUnitStats('attacker', item);
         loadWeaponsForUnit(item.id);
+        loadRulesFor('attacker', item.faction_id);
     }, formatUnitItem);
-
-    // Attacker weapon autocomplete
-    setupAutocomplete('attacker-weapon', async (search) => {
-        const unitId = state.attacker.unit?.id;
-        const url = unitId
-            ? `/api/weapons?unit_id=${unitId}&search=${encodeURIComponent(search)}`
-            : `/api/weapons?search=${encodeURIComponent(search)}`;
-        const response = await fetch(url);
-        return response.json();
-    }, (item) => {
-        state.attacker.weapon = item;
-        showWeaponStats(item);
-    }, formatWeaponItem);
 
     // Defender unit autocomplete
     setupAutocomplete('defender-unit', async (search) => {
@@ -73,6 +375,8 @@ function initAutocomplete() {
     }, (item) => {
         state.defender.unit = item;
         showUnitStats('defender', item);
+        document.getElementById('model-count').value = item.default_models || 5;
+        loadRulesFor('target', item.faction_id);
     }, formatUnitItem);
 }
 
@@ -150,19 +454,6 @@ function formatUnitItem(unit) {
 }
 
 /**
- * Format weapon item for dropdown
- */
-function formatWeaponItem(weapon) {
-    const abilities = weapon.abilities?.join(', ') || '';
-    return `
-        <div class="autocomplete-item" data-id="${weapon.id}">
-            <div class="item-name">${weapon.name}</div>
-            <div class="item-faction">${weapon.type} · ${abilities || 'No abilities'}</div>
-        </div>
-    `;
-}
-
-/**
  * Show unit stats in the panel
  */
 function showUnitStats(side, unit) {
@@ -179,37 +470,171 @@ function showUnitStats(side, unit) {
     document.getElementById(`${prefix}-fnp`).textContent = unit.feel_no_pain ? unit.feel_no_pain + '+' : '-';
 }
 
-/**
- * Show weapon stats
- */
-function showWeaponStats(weapon) {
-    const statsEl = document.getElementById('attacker-weapon-stats');
-    const abilitiesEl = document.getElementById('wpn-abilities');
-
-    if (!statsEl) return;
-
-    statsEl.style.display = 'grid';
-    document.getElementById('wpn-a').textContent = weapon.attacks;
-    document.getElementById('wpn-skill').textContent = weapon.skill + '+';
-    document.getElementById('wpn-s').textContent = weapon.strength;
-    document.getElementById('wpn-ap').textContent = weapon.ap === 0 ? '0' : '-' + weapon.ap;
-    document.getElementById('wpn-d').textContent = weapon.damage;
-
-    if (abilitiesEl) {
-        abilitiesEl.textContent = weapon.abilities?.join(', ') || '';
-    }
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value ?? '';
+    return div.innerHTML;
 }
 
 /**
- * Load weapons for selected unit
+ * Load weapons for selected unit and show them in the weapon list
+ */
+/**
+ * Weapons named "Weapon - Profile" are alternative profiles of one gun (e.g. Plasma Gun - Standard /
+ * Supercharged). Tick every weapon, but only the first profile of each such family, so a gun isn't
+ * counted twice by default.
+ */
+function applyDefaultUse(weapons) {
+    const families = new Set();
+    for (const w of weapons) {
+        const family = w.name.includes(' - ') ? w.name.split(' - ')[0].trim().toLowerCase() : null;
+        w.use = !family || !families.has(family);
+        if (family) families.add(family);
+    }
+    return weapons;
+}
+
+/**
+ * Load the unit's loadout. qty = models carrying the weapon (pre-filled from the loadout, editable
+ * per run); use = ticked for the simulation. Neither is saved to the data.
  */
 async function loadWeaponsForUnit(unitId) {
-    // Pre-populate weapon dropdown with this unit's weapons
     const response = await fetch(`/api/units/${unitId}`);
     const unitData = await response.json();
 
-    // Could auto-select first weapon or show suggestions
-    console.log('Available weapons:', unitData.ranged_weapons, unitData.melee_weapons);
+    const prepare = list => applyDefaultUse((list || []).map(w => ({ ...w, qty: w.qty || 1 })));
+    state.attacker.weapons = {
+        ranged: prepare(unitData.ranged_weapons),
+        melee: prepare(unitData.melee_weapons),
+    };
+    setWeaponType(state.attacker.weapons.ranged.length ? 'ranged' : 'melee');
+}
+
+/**
+ * Initialize the shooting / melee toggle above the weapon list
+ */
+function initWeaponTypeToggle() {
+    document.querySelectorAll('#weapon-type-toggle .toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => setWeaponType(btn.dataset.type));
+    });
+}
+
+/**
+ * Switch the weapon list to ranged or melee, selecting a weapon of that type
+ */
+function setWeaponType(type) {
+    state.attacker.weaponType = type;
+    renderRulesPanel('attacker');
+    renderRulesPanel('target');
+    document.querySelectorAll('#weapon-type-toggle .toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.type === type);
+    });
+    renderWeaponList();
+}
+
+/** Ticked weapons of the current phase. */
+function usedWeapons() {
+    return (state.attacker.weapons[state.attacker.weaponType] || []).filter(w => w.use);
+}
+
+function weaponPayload(w) {
+    return {
+        name: w.name,
+        type: w.type || state.attacker.weaponType,
+        attacks: w.attacks,
+        skill: w.skill,
+        strength: w.strength,
+        ap: w.ap,
+        damage: w.damage,
+        abilities: w.abilities || [],
+        models: w.qty || 1,
+    };
+}
+
+/**
+ * Render the attacker's weapons of the active type, one per row
+ */
+function renderWeaponList() {
+    const listEl = document.getElementById('attacker-weapon-list');
+    if (!listEl) return;
+
+    const type = state.attacker.weaponType;
+    const weapons = state.attacker.weapons[type];
+
+    if (!state.attacker.unit && weapons.length === 0) {
+        listEl.innerHTML = '<div class="weapon-list-empty">Select a unit to see its weapons</div>';
+        return;
+    }
+
+    if (weapons.length === 0) {
+        listEl.innerHTML = `<div class="weapon-list-empty">No ${type === 'ranged' ? 'shooting' : 'melee'} weapons</div>`;
+        return;
+    }
+
+    const isRanged = type === 'ranged';
+    const rows = weapons.map((w, idx) => {
+        const abilities = w.abilities?.length
+            ? `<div class="weapon-row-abilities">${escapeHtml(w.abilities.join(', '))}</div>`
+            : '';
+        return `
+            <tr class="weapon-row${w.use ? ' selected' : ' excluded'}" data-idx="${idx}">
+                <td class="weapon-use"><input type="checkbox" class="weapon-use-box" data-idx="${idx}" ${w.use ? 'checked' : ''}
+                           title="Use this weapon in the simulation"></td>
+                <td class="weapon-row-name">${escapeHtml(w.name)}${abilities}</td>
+                ${isRanged ? `<td>${w.range ? escapeHtml(w.range) + '"' : '-'}</td>` : ''}
+                <td>${escapeHtml(w.attacks)}</td>
+                <td>${w.skill ? escapeHtml(w.skill) + '+' : '-'}</td>
+                <td>${escapeHtml(w.strength)}</td>
+                <td>${w.ap === 0 ? '0' : '-' + escapeHtml(w.ap)}</td>
+                <td>${escapeHtml(w.damage)}</td>
+                <td><input type="number" class="weapon-qty" data-idx="${idx}" value="${w.qty || 1}" min="1" max="99"
+                           title="Models with this weapon (this run only)"></td>
+            </tr>
+        `;
+    }).join('');
+
+    listEl.innerHTML = `
+        <table class="weapon-table">
+            <thead>
+                <tr>
+                    <th title="Use">Use</th>
+                    <th>Weapon</th>
+                    ${isRanged ? '<th>Range</th>' : ''}
+                    <th>A</th>
+                    <th>${isRanged ? 'BS' : 'WS'}</th>
+                    <th>S</th>
+                    <th>AP</th>
+                    <th>D</th>
+                    <th title="Models with this weapon">Qty</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+
+    // Clicking a row toggles it (except on the inputs themselves)
+    listEl.querySelectorAll('.weapon-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            const w = weapons[parseInt(row.dataset.idx)];
+            w.use = !w.use;
+            renderWeaponList();
+        });
+    });
+    listEl.querySelectorAll('.weapon-use-box').forEach(box => {
+        box.addEventListener('change', () => {
+            weapons[parseInt(box.dataset.idx)].use = box.checked;
+            box.closest('tr').classList.toggle('selected', box.checked);
+            box.closest('tr').classList.toggle('excluded', !box.checked);
+        });
+    });
+    listEl.querySelectorAll('.weapon-qty').forEach(input => {
+        input.addEventListener('change', () => {
+            const qty = Math.max(1, parseInt(input.value) || 1);
+            input.value = qty;
+            weapons[parseInt(input.dataset.idx)].qty = qty;
+        });
+    });
 }
 
 /**
@@ -289,11 +714,11 @@ function initSimulateButton() {
  * Run simulation
  */
 async function runSimulation() {
-    const weapon = state.attacker.weapon;
+    const weapons = usedWeapons();
     const defender = state.defender.unit;
 
-    if (!weapon || !defender) {
-        alert('Please select an attacker weapon and defender unit');
+    if (!weapons.length || !defender) {
+        alert('Please tick at least one attacker weapon and select a defender unit');
         return;
     }
 
@@ -301,12 +726,8 @@ async function runSimulation() {
 
     const payload = {
         attacker: {
-            attacks: weapon.attacks,
-            skill: weapon.skill,
-            strength: weapon.strength,
-            ap: weapon.ap,
-            damage: weapon.damage,
-            abilities: weapon.abilities || [],
+            faction_id: state.attacker.unit?.faction_id ?? null,
+            weapons: weapons.map(weaponPayload),
         },
         defender: {
             toughness: defender.toughness,
@@ -314,12 +735,16 @@ async function runSimulation() {
             wounds: defender.wounds,
             invulnerable_save: defender.invulnerable_save,
             feel_no_pain: defender.feel_no_pain,
-            keywords: defender.keywords || [],
+            keywords: [...(defender.keywords || []), ...(defender.modifiers || [])],
+            faction_id: defender.faction_id ?? null,
             model_count: modelCount,
+            extra_modifiers: state.defender.extraModifiers,
         },
         conditions: state.conditions,
         method: state.simulation.method,
         iterations: state.simulation.iterations,
+        attacker_rules: rulesSelection('attacker'),
+        target_rules: rulesSelection('target'),
     };
 
     try {
@@ -330,6 +755,7 @@ async function runSimulation() {
         });
 
         const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Simulation failed');
         lastSimulationResult = result;
         displayResults(result);
     } catch (err) {
@@ -342,10 +768,18 @@ async function runSimulation() {
  * Display simulation results
  */
 function displayResults(result) {
-    // Summary
+    // Summary (totals across the ticked weapons)
     document.getElementById('res-avg-damage').textContent = result.summary.average_damage;
     document.getElementById('res-models-killed').textContent = result.summary.models_killed;
     document.getElementById('res-overkill').textContent = result.summary.overkill;
+
+    const extra = document.getElementById('res-mc-extra');
+    if (extra) {
+        extra.textContent = result.summary.wipe_probability != null
+            ? `Monte Carlo (${result.iterations} runs, all weapons rolled together): ` +
+              `${result.summary.kill_probability}% chance to kill at least one model, ${result.summary.wipe_probability}% to wipe the unit`
+            : '';
+    }
 
     // Breakdown
     document.getElementById('res-attacks').textContent = result.breakdown.attacks;
@@ -354,8 +788,46 @@ function displayResults(result) {
     document.getElementById('res-failed-saves').textContent = result.breakdown.failed_saves;
     document.getElementById('res-damage').textContent = result.breakdown.damage;
 
+    renderWeaponResults(result.weapons || []);
+
     // Chart
     drawChart(result.distribution);
+}
+
+/** Per-weapon results table (Excel's Sim-sheet columns), with a total row. */
+function renderWeaponResults(rows) {
+    const el = document.getElementById('weapon-results');
+    if (!el) return;
+    if (!rows.length) {
+        el.innerHTML = '';
+        return;
+    }
+
+    const fmt = v => (v === null || v === undefined) ? '-' : (Math.round(v * 100) / 100).toString();
+    const sum = key => rows.reduce((total, r) => total + (r[key] || 0), 0);
+    const cols = [
+        ['attacks', 'Attacks'], ['hits', 'Hits'], ['auto_wounds', 'Auto Wounds'], ['wounds', 'Wounds'],
+        ['mortal_wounds', 'Mortal Wounds'], ['unsaved', 'Unsaved'], ['damage_per_attack', 'Dmg / Attack'],
+        ['total_damage', 'Total Damage'], ['models_killed', 'Models Killed'],
+    ];
+
+    el.innerHTML = `
+        <h3>Per Weapon <span class="weapon-results-note">(average results)</span></h3>
+        <div class="weapon-results-scroll">
+            <table class="breakdown-table weapon-results-table">
+                <thead><tr><th>Weapon</th><th>Qty</th>${cols.map(([, label]) => `<th>${label}</th>`).join('')}</tr></thead>
+                <tbody>
+                    ${rows.map(r => `<tr>
+                        <td>${escapeHtml(r.name)}</td><td>${r.models}</td>
+                        ${cols.map(([key]) => `<td>${fmt(r[key])}</td>`).join('')}
+                    </tr>`).join('')}
+                </tbody>
+                ${rows.length > 1 ? `<tfoot><tr><td>Total</td><td></td>
+                    ${cols.map(([key]) => `<td>${key === 'damage_per_attack' || key === 'models_killed' ? '' : fmt(sum(key))}</td>`).join('')}
+                </tr></tfoot>` : ''}
+            </table>
+        </div>
+    `;
 }
 
 /**
@@ -417,11 +889,11 @@ function initSaveButton() {
  * Save current scenario
  */
 async function saveScenario() {
-    const weapon = state.attacker.weapon;
+    const weapons = usedWeapons();
     const attackerUnit = state.attacker.unit;
     const defender = state.defender.unit;
 
-    if (!weapon || !defender) {
+    if (!weapons.length || !defender) {
         alert('Please run a simulation first');
         return;
     }
@@ -438,13 +910,11 @@ async function saveScenario() {
         name: name,
         attacker: {
             unit_name: attackerUnit?.name,
-            weapon_name: weapon.name,
-            attacks: weapon.attacks,
-            skill: weapon.skill,
-            strength: weapon.strength,
-            ap: weapon.ap,
-            damage: weapon.damage,
-            abilities: weapon.abilities || [],
+            weapon_name: weapons.map(w => w.qty > 1 ? `${w.name} x${w.qty}` : w.name).join(', '),
+            faction_id: state.attacker.unit?.faction_id ?? null,
+            type: state.attacker.weaponType,
+            weapons: weapons.map(weaponPayload),
+            rules: [...state.rules.attacker.ticked],
         },
         defender: {
             unit_name: defender.name,
@@ -453,26 +923,86 @@ async function saveScenario() {
             wounds: defender.wounds,
             invulnerable_save: defender.invulnerable_save,
             feel_no_pain: defender.feel_no_pain,
-            keywords: defender.keywords || [],
+            keywords: [...(defender.keywords || []), ...(defender.modifiers || [])],
+            faction_id: defender.faction_id ?? null,
             model_count: modelCount,
+            extra_modifiers: state.defender.extraModifiers,
+            rules: [...state.rules.target.ticked],
         },
         conditions: state.conditions,
         results: lastSimulationResult
     };
 
     try {
-        const response = await fetch('/api/scenarios', {
+        await fetch('/api/scenarios', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(scenario)
         });
-
-        const result = await response.json();
         alert('Scenario saved successfully!');
     } catch (err) {
         console.error('Save error:', err);
         alert('Error saving scenario');
     }
+}
+
+/**
+ * Restore the attacker from a saved scenario. Loads the unit's full weapon list
+ * if the unit still exists; otherwise shows just the saved weapon profile.
+ */
+/**
+ * Restore the attacker from a saved scenario: the unit's current loadout with the saved weapons
+ * ticked (and their quantities), or just the saved weapon profiles if the unit no longer exists.
+ * Older scenarios saved a single weapon directly in the config.
+ */
+async function loadScenarioAttacker(config) {
+    const savedWeapons = (config.weapons || [{ ...config, name: config.weapon_name }]).map(w => ({
+        name: w.name,
+        type: w.type === 'melee' ? 'melee' : 'ranged',
+        attacks: w.attacks,
+        skill: w.skill,
+        strength: w.strength,
+        ap: w.ap,
+        damage: w.damage,
+        abilities: w.abilities || [],
+        qty: w.models || 1,
+        use: true,
+    }));
+    const type = savedWeapons[0]?.type || 'ranged';
+
+    try {
+        if (config.unit_name) {
+            const response = await fetch(`/api/units?search=${encodeURIComponent(config.unit_name)}`);
+            const units = await response.json();
+            const unit = units.find(u => u.name === config.unit_name);
+            if (unit) {
+                state.attacker.unit = unit;
+                showUnitStats('attacker', unit);
+                await loadWeaponsForUnit(unit.id);
+                let matched = 0;
+                for (const t of ['ranged', 'melee']) {
+                    for (const w of state.attacker.weapons[t]) {
+                        const saved = savedWeapons.find(sw => sw.type === t && sw.name === w.name);
+                        w.use = !!saved;
+                        if (saved) {
+                            w.qty = saved.qty;
+                            matched++;
+                        }
+                    }
+                }
+                if (matched) {
+                    setWeaponType(type);
+                    return;
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Error loading scenario unit:', err);
+    }
+
+    state.attacker.weapons = { ranged: [], melee: [] };
+    savedWeapons.forEach(w => state.attacker.weapons[w.type].push(w));
+    setWeaponType(type);
 }
 
 /**
@@ -490,16 +1020,11 @@ function checkForLoadedScenario() {
         // We need to find the actual unit and weapon objects
         // For now, just set the names in the inputs
         const attackerUnitInput = document.getElementById('attacker-unit');
-        const attackerWeaponInput = document.getElementById('attacker-weapon');
         const defenderUnitInput = document.getElementById('defender-unit');
         const modelCountInput = document.getElementById('model-count');
 
         if (attackerUnitInput && scenario.attacker_config?.unit_name) {
             attackerUnitInput.value = scenario.attacker_config.unit_name;
-        }
-
-        if (attackerWeaponInput && scenario.attacker_config?.weapon_name) {
-            attackerWeaponInput.value = scenario.attacker_config.weapon_name;
         }
 
         if (defenderUnitInput && scenario.defender_config?.unit_name) {
@@ -509,67 +1034,19 @@ function checkForLoadedScenario() {
         if (modelCountInput && scenario.defender_config?.model_count) {
             modelCountInput.value = scenario.defender_config.model_count;
         }
+        setExtraModifiers(scenario.defender_config?.extra_modifiers || '');
 
         // Set conditions
         if (scenario.battle_conditions) {
-            const conditions = scenario.battle_conditions;
-
-            // Set toggles
-            ['half_range', 'charged', 'stationary', 'cover'].forEach(cond => {
-                const toggle = document.querySelector(`[data-condition="${cond}"]`);
-                if (toggle && conditions[cond]) {
-                    const input = toggle.querySelector('input');
-                    if (input) input.checked = true;
-                    toggle.classList.add('active');
-                    state.conditions[cond] = true;
-                }
-            });
-
-            // Set reroll buttons
-            if (conditions.reroll_hits) {
-                const group = document.querySelector('[data-reroll="hits"]');
-                if (group) {
-                    group.querySelectorAll('.btn-option').forEach(btn => {
-                        btn.classList.toggle('active', btn.dataset.value === conditions.reroll_hits);
-                    });
-                    state.conditions.reroll_hits = conditions.reroll_hits;
-                }
-            }
-
-            if (conditions.reroll_wounds) {
-                const group = document.querySelector('[data-reroll="wounds"]');
-                if (group) {
-                    group.querySelectorAll('.btn-option').forEach(btn => {
-                        btn.classList.toggle('active', btn.dataset.value === conditions.reroll_wounds);
-                    });
-                    state.conditions.reroll_wounds = conditions.reroll_wounds;
-                }
-            }
+            applyConditions(scenario.battle_conditions);
         }
 
         // Store the attacker and defender config for simulation
         // We need to reconstruct the weapon and unit objects
         if (scenario.attacker_config) {
-            state.attacker.weapon = {
-                name: scenario.attacker_config.weapon_name,
-                attacks: scenario.attacker_config.attacks,
-                skill: scenario.attacker_config.skill,
-                strength: scenario.attacker_config.strength,
-                ap: scenario.attacker_config.ap,
-                damage: scenario.attacker_config.damage,
-                abilities: scenario.attacker_config.abilities || []
-            };
-
-            // Show weapon stats
-            const statsEl = document.getElementById('attacker-weapon-stats');
-            if (statsEl) {
-                statsEl.style.display = 'grid';
-                document.getElementById('wpn-a').textContent = scenario.attacker_config.attacks;
-                document.getElementById('wpn-skill').textContent = scenario.attacker_config.skill + '+';
-                document.getElementById('wpn-s').textContent = scenario.attacker_config.strength;
-                document.getElementById('wpn-ap').textContent = scenario.attacker_config.ap === 0 ? '0' : '-' + scenario.attacker_config.ap;
-                document.getElementById('wpn-d').textContent = scenario.attacker_config.damage;
-            }
+            const config = scenario.attacker_config;
+            loadScenarioAttacker(config).then(() =>
+                loadRulesFor('attacker', state.attacker.unit?.faction_id ?? config.faction_id ?? null, config.rules || []));
         }
 
         if (scenario.defender_config) {
@@ -580,11 +1057,13 @@ function checkForLoadedScenario() {
                 wounds: scenario.defender_config.wounds,
                 invulnerable_save: scenario.defender_config.invulnerable_save,
                 feel_no_pain: scenario.defender_config.feel_no_pain,
-                keywords: scenario.defender_config.keywords || []
+                keywords: scenario.defender_config.keywords || [],
+                faction_id: scenario.defender_config.faction_id ?? null,
             };
 
             // Show defender stats
             showUnitStats('defender', state.defender.unit);
+            loadRulesFor('target', state.defender.unit.faction_id, scenario.defender_config.rules || []);
         }
 
         console.log('Loaded scenario:', scenario.name);

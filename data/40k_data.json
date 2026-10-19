@@ -1,0 +1,2267 @@
+{
+  "schema_version": 1,
+  "source": {
+    "workbook": "40KCombatSimulator_v2.xlsx",
+    "generated": "2026-10-19T09:41:37+00:00"
+  },
+  "factions": [
+    {
+      "id": 1,
+      "name": "DeathGuard"
+    },
+    {
+      "id": 2,
+      "name": "Space Marines"
+    },
+    {
+      "id": 3,
+      "name": "Drukhari"
+    },
+    {
+      "id": 4,
+      "name": "Daemons"
+    },
+    {
+      "id": 5,
+      "name": "T'Au"
+    },
+    {
+      "id": 6,
+      "name": "Imperial Guard"
+    },
+    {
+      "id": 7,
+      "name": "Sisters of Battle"
+    },
+    {
+      "id": 8,
+      "name": "Thousand Sons"
+    }
+  ],
+  "units": [
+    {
+      "id": 1,
+      "faction_id": 1,
+      "name": "Myphitic Blight Hauler",
+      "toughness": 9,
+      "save": 3,
+      "wounds": 10,
+      "invulnerable_save": 5,
+      "feel_no_pain": null,
+      "move": "10",
+      "oc": 3,
+      "leadership": 6,
+      "points_cost": 95,
+      "default_models": 1,
+      "keywords": [
+        "Vehicle",
+        "Smoke",
+        "Chaos",
+        "Nurgle",
+        "Daemon",
+        "Myphitic Blight Hauler"
+      ],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": "Deadly Demise D3\n\nTank Hunters - In your shooting phase, each time a model in this unit makea n attack that targets a monster or vehicle unit, add 1 to thje hit roll and add 1 to the wound roll.",
+      "ranged_weapons": [
+        {
+          "weapon_id": 1,
+          "qty": 1
+        },
+        {
+          "weapon_id": 2,
+          "qty": 1
+        },
+        {
+          "weapon_id": 3,
+          "qty": 1
+        },
+        {
+          "weapon_id": 4,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": [
+        {
+          "weapon_id": 7,
+          "qty": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "faction_id": 1,
+      "name": "Plague Marines (Ranged)",
+      "toughness": 6,
+      "save": 3,
+      "wounds": 2,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": "5",
+      "oc": 2,
+      "leadership": 6,
+      "points_cost": 175,
+      "default_models": 10,
+      "keywords": [
+        "Infantry",
+        "Battleline",
+        "Grenades",
+        "Chaos",
+        "Nurgle",
+        "Plague Marines"
+      ],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": "Infused with the blessing of Nurgle - In your shooting phase, each time this unit is selected to shoot after this unit has shot, select one enemy unit hit by one or more of those attacks. Until the start of your next turn, that enemy unit is afflicted.",
+      "ranged_weapons": [
+        {
+          "weapon_id": 5,
+          "qty": 2
+        },
+        {
+          "weapon_id": 6,
+          "qty": 3
+        },
+        {
+          "weapon_id": 7,
+          "qty": 2
+        },
+        {
+          "weapon_id": 8,
+          "qty": 2
+        },
+        {
+          "weapon_id": 9,
+          "qty": 1
+        },
+        {
+          "weapon_id": 10,
+          "qty": 1
+        },
+        {
+          "weapon_id": 11,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": [
+        {
+          "weapon_id": 3,
+          "qty": 9
+        },
+        {
+          "weapon_id": 4,
+          "qty": 1
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "faction_id": 1,
+      "name": "Deathshroud Terminators",
+      "toughness": 7,
+      "save": 2,
+      "wounds": 4,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "move": "5",
+      "oc": 1,
+      "leadership": 6,
+      "points_cost": 150,
+      "default_models": 3,
+      "keywords": [
+        "Infantry",
+        "Chaos",
+        "Nurgle",
+        "Terminator",
+        "Deathshroud Terminators"
+      ],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": "Deep Strike\n\nSilent Body Guard - While a character model is leading this unit, that character model has the feel no pain 4+ ability.\n\nDeath Approaches - In you rmovement phase, each time this unit is set up on the battlefield using the deep strike ability, it can be set up anywhere on the battlefield that is more than 6\" horizontally away from all afflicted enemy units, and more than 8\" horizontally away from all other enemy units.",
+      "ranged_weapons": [
+        {
+          "weapon_id": 12,
+          "qty": 3
+        }
+      ],
+      "melee_weapons": [
+        {
+          "weapon_id": 5,
+          "qty": 3
+        },
+        {
+          "weapon_id": 6,
+          "qty": 3
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "faction_id": 1,
+      "name": "Lord of Contagion",
+      "toughness": 7,
+      "save": 2,
+      "wounds": 6,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": 110,
+      "default_models": 1,
+      "keywords": [
+        "Infantry",
+        "character",
+        "Grenades",
+        "Chaos",
+        "Nurgle",
+        "Terminator",
+        "Lord of Contagion"
+      ],
+      "modifiers": [],
+      "can_lead": [
+        "Blightloard Terminators",
+        "Deathshroud Terminators"
+      ],
+      "abilities": "Deep Strike\n \nLeader\n\nVector of disease - While this model is leading a unit melee weapons equipped by models in that unit have the sustained hits 1 and lance abilities.\n\nUnholy resilience - The firest time a model with this ability is destroyed in a battle round, roll one D6 at the end of the phase. On a 2+ set that model back up on the battlefield as close as possible to where it was destroyed and not within engagement range of any enemty units with 3 wounds remaining. Each moidel can only be set up in ths way once per abttle.",
+      "ranged_weapons": [],
+      "melee_weapons": [
+        {
+          "weapon_id": 5,
+          "qty": 1
+        },
+        {
+          "weapon_id": 6,
+          "qty": 1
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "faction_id": 1,
+      "name": "Lord of Poxes",
+      "toughness": 6,
+      "save": 3,
+      "wounds": 5,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "move": "5",
+      "oc": 1,
+      "leadership": 6,
+      "points_cost": 65,
+      "default_models": 1,
+      "keywords": [
+        "Infantry",
+        "Character",
+        "Grenades",
+        "Chaos",
+        "Nurgle",
+        "Lord of Poxes"
+      ],
+      "modifiers": [],
+      "can_lead": [
+        "Plague Marines (Meele)",
+        "Plague Marines (Ranged)"
+      ],
+      "abilities": "Leader\n\nGift of Poxes - Add 3\" to the range of this models contagion range\n\nShroud of diseas - while this model is leading a unit, that unit cannot be targeted by ranged attacks unless the attacking model is within 18\".",
+      "ranged_weapons": [
+        {
+          "weapon_id": 10,
+          "qty": 1
+        },
+        {
+          "weapon_id": 11,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": [
+        {
+          "weapon_id": 8,
+          "qty": 1
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "faction_id": 1,
+      "name": "Tallyman",
+      "toughness": 6,
+      "save": 3,
+      "wounds": 4,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": 60,
+      "default_models": 1,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 10,
+          "qty": 1
+        },
+        {
+          "weapon_id": 11,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": [
+        {
+          "weapon_id": 9,
+          "qty": 1
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "faction_id": 1,
+      "name": "Typhus",
+      "toughness": 7,
+      "save": 2,
+      "wounds": 6,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "move": "5",
+      "oc": 1,
+      "leadership": 6,
+      "points_cost": 90,
+      "default_models": 1,
+      "keywords": [
+        "Infantry",
+        "Character",
+        "Psyker",
+        "Epic Hero",
+        "chaos",
+        "Nurgle",
+        "Terminator",
+        "Typhus"
+      ],
+      "modifiers": [],
+      "can_lead": [
+        "Blightloard Terminators",
+        "Deathshroud Terminators",
+        "Poxwalkers"
+      ],
+      "abilities": "Deep Strike\n\nLeader\n\nDestroyer Hive - While this model is leading a unit, each time a melee attack targets that unit, subtract 1 from the hit roll.\n\nEater Plauge (Psychic)",
+      "ranged_weapons": [],
+      "melee_weapons": [
+        {
+          "weapon_id": 10,
+          "qty": 1
+        },
+        {
+          "weapon_id": 11,
+          "qty": 1
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "faction_id": 1,
+      "name": "Chaos Spawn",
+      "toughness": 7,
+      "save": 4,
+      "wounds": 4,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": "8",
+      "oc": 1,
+      "leadership": 7,
+      "points_cost": 80,
+      "default_models": 2,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [],
+      "melee_weapons": [
+        {
+          "weapon_id": 12,
+          "qty": 2
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "faction_id": 1,
+      "name": "Plague Marines (Meele)",
+      "toughness": 6,
+      "save": 3,
+      "wounds": 2,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": "5",
+      "oc": 2,
+      "leadership": 6,
+      "points_cost": 175,
+      "default_models": 10,
+      "keywords": [
+        "Infantry",
+        "Battleline",
+        "Grenades",
+        "Chaos",
+        "Nurgle",
+        "Plague Marines"
+      ],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": "Infused with the blessing of Nurgle - In your shooting phase, each time this unit is selected to shoot after this unit has shot, select one enemy unit hit by one or more of those attacks. Until the start of your next turn, that enemy unit is afflicted.",
+      "ranged_weapons": [
+        {
+          "weapon_id": 10,
+          "qty": 1
+        },
+        {
+          "weapon_id": 11,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": [
+        {
+          "weapon_id": 1,
+          "qty": 4
+        },
+        {
+          "weapon_id": 2,
+          "qty": 4
+        },
+        {
+          "weapon_id": 4,
+          "qty": 1
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "faction_id": 2,
+      "name": "Intercessor",
+      "toughness": 5,
+      "save": 3,
+      "wounds": 2,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [],
+      "melee_weapons": []
+    },
+    {
+      "id": 11,
+      "faction_id": 3,
+      "name": "Kabalite Warrior",
+      "toughness": 3,
+      "save": 4,
+      "wounds": 1,
+      "invulnerable_save": 6,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [],
+      "melee_weapons": []
+    },
+    {
+      "id": 12,
+      "faction_id": 3,
+      "name": "Ravager",
+      "toughness": 9,
+      "save": 4,
+      "wounds": 11,
+      "invulnerable_save": 6,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [],
+      "melee_weapons": []
+    },
+    {
+      "id": 13,
+      "faction_id": 6,
+      "name": "Guardsman",
+      "toughness": 3,
+      "save": 5,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [],
+      "melee_weapons": []
+    },
+    {
+      "id": 14,
+      "faction_id": 6,
+      "name": "Tempestus Scion",
+      "toughness": 3,
+      "save": 4,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 13,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 15,
+      "faction_id": 6,
+      "name": "Tempestus Scion",
+      "toughness": 3,
+      "save": 4,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 14,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 16,
+      "faction_id": 6,
+      "name": "Tempestus Scion",
+      "toughness": 3,
+      "save": 4,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 15,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 17,
+      "faction_id": 6,
+      "name": "Tempestus Scion",
+      "toughness": 3,
+      "save": 4,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 16,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 18,
+      "faction_id": 6,
+      "name": "HWT",
+      "toughness": 3,
+      "save": 5,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 18,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 19,
+      "faction_id": 6,
+      "name": "HWT",
+      "toughness": 3,
+      "save": 5,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 18,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 20,
+      "faction_id": 6,
+      "name": "HWT",
+      "toughness": 3,
+      "save": 5,
+      "wounds": 1,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 17,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 21,
+      "faction_id": 6,
+      "name": "Artillery Team",
+      "toughness": 7,
+      "save": 3,
+      "wounds": 10,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 19,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 22,
+      "faction_id": 6,
+      "name": "Artillery Team",
+      "toughness": 7,
+      "save": 3,
+      "wounds": 10,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 20,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 23,
+      "faction_id": 6,
+      "name": "Field Ordinance Battery",
+      "toughness": 5,
+      "save": 4,
+      "wounds": 6,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 21,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 24,
+      "faction_id": 6,
+      "name": "Field Ordinance Battery",
+      "toughness": 5,
+      "save": 4,
+      "wounds": 6,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": null,
+      "oc": null,
+      "leadership": null,
+      "points_cost": null,
+      "default_models": null,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [
+        {
+          "weapon_id": 21,
+          "qty": 1
+        }
+      ],
+      "melee_weapons": []
+    },
+    {
+      "id": 25,
+      "faction_id": 6,
+      "name": "Rogal Dorn Battle Tank",
+      "toughness": 12,
+      "save": 2,
+      "wounds": 17,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "move": "10",
+      "oc": 5,
+      "leadership": 7,
+      "points_cost": null,
+      "default_models": 1,
+      "keywords": [],
+      "modifiers": [],
+      "can_lead": [],
+      "abilities": null,
+      "ranged_weapons": [],
+      "melee_weapons": []
+    }
+  ],
+  "ranged_weapons": [
+    {
+      "id": 1,
+      "faction_id": 1,
+      "name": "Bile Spurt",
+      "attacks": "3",
+      "ballistic_skill": 3,
+      "strength": 5,
+      "armor_penetration": 0,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": [
+        "Lethal Hits"
+      ]
+    },
+    {
+      "id": 2,
+      "faction_id": 1,
+      "name": "Missile Launcher - frag",
+      "attacks": "D6",
+      "ballistic_skill": 3,
+      "strength": 4,
+      "armor_penetration": 0,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": [
+        "Blast"
+      ]
+    },
+    {
+      "id": 3,
+      "faction_id": 1,
+      "name": "Missile Launcher - krak",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 9,
+      "armor_penetration": 2,
+      "damage": "D6",
+      "range_inches": null,
+      "abilities": []
+    },
+    {
+      "id": 4,
+      "faction_id": 1,
+      "name": "Multi-melta",
+      "attacks": "2",
+      "ballistic_skill": 3,
+      "strength": 9,
+      "armor_penetration": 4,
+      "damage": "D6",
+      "range_inches": null,
+      "abilities": [
+        "Melta 2",
+        "Lethal Hits"
+      ]
+    },
+    {
+      "id": 5,
+      "faction_id": 1,
+      "name": "Blight Launcher",
+      "attacks": "D3",
+      "ballistic_skill": 3,
+      "strength": 6,
+      "armor_penetration": 1,
+      "damage": "2",
+      "range_inches": null,
+      "abilities": [
+        "Blast",
+        "Lethal Hits"
+      ]
+    },
+    {
+      "id": 6,
+      "faction_id": 1,
+      "name": "Boltgun",
+      "attacks": "2",
+      "ballistic_skill": 3,
+      "strength": 5,
+      "armor_penetration": 1,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": [
+        "Lethal Hits"
+      ]
+    },
+    {
+      "id": 7,
+      "faction_id": 1,
+      "name": "Plague Spewer",
+      "attacks": "D6",
+      "ballistic_skill": null,
+      "strength": 5,
+      "armor_penetration": 1,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": [
+        "Anti-Infantry 2+",
+        "Torrent"
+      ]
+    },
+    {
+      "id": 8,
+      "faction_id": 1,
+      "name": "Plasma Gun - Standard",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 7,
+      "armor_penetration": 2,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": [
+        "Rapid Fire 1"
+      ]
+    },
+    {
+      "id": 9,
+      "faction_id": 1,
+      "name": "Plasma Gun - Supercharged",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 8,
+      "armor_penetration": 3,
+      "damage": "2",
+      "range_inches": null,
+      "abilities": [
+        "Rapid Fire 1"
+      ]
+    },
+    {
+      "id": 10,
+      "faction_id": 1,
+      "name": "Plasma Pistol - Standard",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 7,
+      "armor_penetration": 2,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": []
+    },
+    {
+      "id": 11,
+      "faction_id": 1,
+      "name": "Plasma Pistol Supercharged",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 8,
+      "armor_penetration": 3,
+      "damage": "2",
+      "range_inches": null,
+      "abilities": []
+    },
+    {
+      "id": 12,
+      "faction_id": 1,
+      "name": "Plaguespurt Gauntlet",
+      "attacks": "D6",
+      "ballistic_skill": null,
+      "strength": 3,
+      "armor_penetration": 0,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": [
+        "Anti-Infantry 2+",
+        "Torrent",
+        "Ignores Cover",
+        "Pistol"
+      ]
+    },
+    {
+      "id": 13,
+      "faction_id": 6,
+      "name": "Plasma Gun - Supercharged",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 8,
+      "armor_penetration": 3,
+      "damage": "2",
+      "range_inches": null,
+      "abilities": [
+        "Rapid Fire 1",
+        "Lethal hits",
+        "Sustained hits 1",
+        "Reroll Hits 1",
+        "Attacks Modifier +1",
+        "BS Modifier -1"
+      ]
+    },
+    {
+      "id": 14,
+      "faction_id": 6,
+      "name": "Meltagun",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 9,
+      "armor_penetration": 4,
+      "damage": "D6",
+      "range_inches": null,
+      "abilities": [
+        "Lethal hits",
+        "Sustained hits 1",
+        "Reroll Hits 1",
+        "BS Modifier -1"
+      ]
+    },
+    {
+      "id": 15,
+      "faction_id": 6,
+      "name": "Grenade launcher - krak",
+      "attacks": "1",
+      "ballistic_skill": 3,
+      "strength": 9,
+      "armor_penetration": 2,
+      "damage": "D3",
+      "range_inches": null,
+      "abilities": [
+        "Lethal hits",
+        "Sustained hits 1",
+        "Reroll Hits 1",
+        "BS Modifier -1"
+      ]
+    },
+    {
+      "id": 16,
+      "faction_id": 6,
+      "name": "Hot-shot volley gun",
+      "attacks": "2",
+      "ballistic_skill": 3,
+      "strength": 4,
+      "armor_penetration": 1,
+      "damage": "1",
+      "range_inches": null,
+      "abilities": [
+        "Rapid Fire 2",
+        "Lethal hits",
+        "Sustained hits 1",
+        "Reroll Hits 1",
+        "Hit Modifier +1",
+        "Attacks Modifier +1",
+        "BS Modifier -1"
+      ]
+    },
+    {
+      "id": 17,
+      "faction_id": 6,
+      "name": "Lascannon",
+      "attacks": "1",
+      "ballistic_skill": 5,
+      "strength": 12,
+      "armor_penetration": 3,
+      "damage": "D6+1",
+      "range_inches": null,
+      "abilities": [
+        "Heavy",
+        "Hit Modifier +1",
+        "Ignores Cover",
+        "BS Modifier -1",
+        "Reroll Hits 1"
+      ]
+    },
+    {
+      "id": 18,
+      "faction_id": 6,
+      "name": "K.H. Flamer",
+      "attacks": "D6",
+      "ballistic_skill": 4,
+      "strength": 5,
+      "armor_penetration": 1,
+      "damage": "2",
+      "range_inches": null,
+      "abilities": [
+        "Ignores Cover",
+        "Torrent"
+      ]
+    },
+    {
+      "id": 19,
+      "faction_id": 6,
+      "name": "Heavy Mortar",
+      "attacks": "D6+3",
+      "ballistic_skill": 5,
+      "strength": 8,
+      "armor_penetration": 1,
+      "damage": "2",
+      "range_inches": null,
+      "abilities": [
+        "Heavy",
+        "Reroll Hits 1"
+      ]
+    },
+    {
+      "id": 20,
+      "faction_id": 6,
+      "name": "Siege Cannon",
+      "attacks": "D6",
+      "ballistic_skill": 5,
+      "strength": 12,
+      "armor_penetration": 2,
+      "damage": "3",
+      "range_inches": null,
+      "abilities": [
+        "Heavy",
+        "Reroll Hits 1",
+        "Ignores Cover",
+        "BS Modifier -1"
+      ]
+    },
+    {
+      "id": 21,
+      "faction_id": 6,
+      "name": "Heavy Lascannon",
+      "attacks": "2",
+      "ballistic_skill": 5,
+      "strength": 14,
+      "armor_penetration": 3,
+      "damage": "D6+1",
+      "range_inches": null,
+      "abilities": [
+        "Heavy",
+        "Reroll Hits 1",
+        "Ignores Cover",
+        "BS Modifier -1",
+        "Sustained hits 1"
+      ]
+    }
+  ],
+  "melee_weapons": [
+    {
+      "id": 1,
+      "faction_id": 1,
+      "name": "Bubotic Weapons",
+      "attacks": "4",
+      "weapon_skill": 3,
+      "strength": 5,
+      "armor_penetration": 2,
+      "damage": "1",
+      "abilities": [
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 2,
+      "faction_id": 1,
+      "name": "Heavy Plague Weapon",
+      "attacks": "3",
+      "weapon_skill": 4,
+      "strength": 8,
+      "armor_penetration": 2,
+      "damage": "2",
+      "abilities": [
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 3,
+      "faction_id": 1,
+      "name": "Plague Knives",
+      "attacks": "3",
+      "weapon_skill": 3,
+      "strength": 5,
+      "armor_penetration": 1,
+      "damage": "1",
+      "abilities": [
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 4,
+      "faction_id": 1,
+      "name": "Power Fist",
+      "attacks": "3",
+      "weapon_skill": 3,
+      "strength": 8,
+      "armor_penetration": 2,
+      "damage": "2",
+      "abilities": [
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 5,
+      "faction_id": 1,
+      "name": "Manreaper - Strike",
+      "attacks": "4",
+      "weapon_skill": 2,
+      "strength": 8,
+      "armor_penetration": 2,
+      "damage": "2",
+      "abilities": [
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 6,
+      "faction_id": 1,
+      "name": "Manreaper - Sweep",
+      "attacks": "8",
+      "weapon_skill": 3,
+      "strength": 4,
+      "armor_penetration": 1,
+      "damage": "1",
+      "abilities": [
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 7,
+      "faction_id": 1,
+      "name": "Gnashing Maw",
+      "attacks": "4",
+      "weapon_skill": 3,
+      "strength": 6,
+      "armor_penetration": 1,
+      "damage": "1",
+      "abilities": [
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 8,
+      "faction_id": 1,
+      "name": "Great Plague Blade",
+      "attacks": "6",
+      "weapon_skill": 2,
+      "strength": 8,
+      "armor_penetration": 2,
+      "damage": "2",
+      "abilities": [
+        "Devastating Wounds",
+        "Lethal hits"
+      ]
+    },
+    {
+      "id": 9,
+      "faction_id": 1,
+      "name": "Close Combat Weapon",
+      "attacks": "4",
+      "weapon_skill": 3,
+      "strength": 5,
+      "armor_penetration": 0,
+      "damage": "1",
+      "abilities": []
+    },
+    {
+      "id": 10,
+      "faction_id": 1,
+      "name": "Lakrimae - Strike",
+      "attacks": "6",
+      "weapon_skill": 2,
+      "strength": 9,
+      "armor_penetration": 2,
+      "damage": "3",
+      "abilities": [
+        "Lethal Hits"
+      ]
+    },
+    {
+      "id": 11,
+      "faction_id": 1,
+      "name": "Lakrimae - Sweep",
+      "attacks": "12",
+      "weapon_skill": 2,
+      "strength": 6,
+      "armor_penetration": 1,
+      "damage": "1",
+      "abilities": [
+        "Lethal Hits"
+      ]
+    },
+    {
+      "id": 12,
+      "faction_id": 1,
+      "name": "Hideous Mutations",
+      "attacks": "D6+2",
+      "weapon_skill": 4,
+      "strength": 5,
+      "armor_penetration": 1,
+      "damage": "2",
+      "abilities": []
+    }
+  ],
+  "faction_rules": [
+    {
+      "id": 1,
+      "faction_id": 1,
+      "name": "Lord Of Contagion",
+      "applies_to": "Attacker",
+      "phase": "Fighting",
+      "modifier": "Sustained Hits 1, Lance"
+    }
+  ],
+  "stratagems": [
+    {
+      "id": 1,
+      "faction_id": null,
+      "name": "Command Re-roll",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Both",
+      "modifier": null,
+      "notes": "Re-roll one hit, wound, damage or attacks roll. A single re-roll isn't modelled in the averages."
+    },
+    {
+      "id": 2,
+      "faction_id": null,
+      "name": "Epic Challenge",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Fighting",
+      "modifier": "Precision",
+      "notes": "One Character's melee weapons gain Precision. No effect on damage maths."
+    },
+    {
+      "id": 3,
+      "faction_id": null,
+      "name": "Explosives",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Shooting",
+      "modifier": null,
+      "notes": "Separate grenade attack sequence; not modelled."
+    },
+    {
+      "id": 4,
+      "faction_id": null,
+      "name": "Fire Overwatch",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Shooting",
+      "modifier": "Snap Shooting",
+      "notes": "Shoot using snap shooting: hits only on unmodified 6s, or 4+ if the unit remained stationary. No hit re-rolls."
+    },
+    {
+      "id": 5,
+      "faction_id": null,
+      "name": "Counteroffensive",
+      "cp": "2",
+      "applies_to": "Attacker",
+      "phase": "Fighting",
+      "modifier": null,
+      "notes": "Unit gains Fights First. No effect on damage maths."
+    },
+    {
+      "id": 6,
+      "faction_id": null,
+      "name": "Smokescreen",
+      "cp": "1",
+      "applies_to": "Target",
+      "phase": "Shooting",
+      "modifier": "Stealth",
+      "notes": "SMOKE unit gains the benefit of cover against ranged attacks."
+    },
+    {
+      "id": 7,
+      "faction_id": null,
+      "name": "Insane Bravery",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Auto-pass a battle-shock roll."
+    },
+    {
+      "id": 8,
+      "faction_id": null,
+      "name": "Crushing Impact",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Charge-phase mortal wounds from a Monster/Vehicle; not modelled."
+    },
+    {
+      "id": 9,
+      "faction_id": null,
+      "name": "Rapid Ingress",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Ingress move at end of opponent's Movement phase."
+    },
+    {
+      "id": 10,
+      "faction_id": null,
+      "name": "Heroic Intervention",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Charge at end of opponent's Charge phase."
+    }
+  ],
+  "keywords": [
+    {
+      "id": 1,
+      "name": "Anti",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Anti-X Y+",
+      "summary": "Unmodified wound roll of Y+ is a Critical Wound vs targets with keyword X.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "24.03"
+    },
+    {
+      "id": 2,
+      "name": "Assault",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Assault",
+      "summary": "Unit can use Assault Shooting (shoot after Advancing).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.04"
+    },
+    {
+      "id": 3,
+      "name": "Blast",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Blast / Blast X",
+      "summary": "+1 (or +X) attack dice per 5 models in the target unit (round down).",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "24.05"
+    },
+    {
+      "id": 4,
+      "name": "Cleave",
+      "category": "Weapon",
+      "applies_to": "Melee",
+      "format": "Cleave X",
+      "summary": "+X attack dice per 5 models in the target unit, if all attacks target one unit.",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "24.06"
+    },
+    {
+      "id": 5,
+      "name": "Close-Quarters",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Close-Quarters",
+      "summary": "Unit can use Close-Quarters Shooting while engaged; limits weapon choice with other shooting types.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.07"
+    },
+    {
+      "id": 6,
+      "name": "Devastating Wounds",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Devastating Wounds",
+      "summary": "A Critical Wound ends the attack sequence and inflicts mortal wounds equal to the weapon's D.",
+      "sim_step": "Save",
+      "modelled": true,
+      "rule_ref": "24.10"
+    },
+    {
+      "id": 7,
+      "name": "Extra Attacks",
+      "category": "Weapon",
+      "applies_to": "Melee",
+      "format": "Extra Attacks",
+      "summary": "These weapons are used in addition to one other melee weapon.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.11"
+    },
+    {
+      "id": 8,
+      "name": "Hazardous",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Hazardous",
+      "summary": "After attacking, make one hazard roll per Hazardous weapon selected.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.15"
+    },
+    {
+      "id": 9,
+      "name": "Heavy",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Heavy",
+      "summary": "+1 to hit if unengaged, not set up this turn and no model moved more than 3\".",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.16"
+    },
+    {
+      "id": 10,
+      "name": "Ignores Cover",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Ignores Cover",
+      "summary": "Target cannot gain the benefit of cover, so the attacker's BS is not worsened.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.18"
+    },
+    {
+      "id": 11,
+      "name": "Indirect Fire",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Indirect Fire",
+      "summary": "Unit can use Indirect Shooting (no line of sight needed).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.19"
+    },
+    {
+      "id": 12,
+      "name": "Lance",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Lance",
+      "summary": "+1 to wound if the attacking unit charged this turn.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "24.21"
+    },
+    {
+      "id": 13,
+      "name": "Lethal Hits",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Lethal Hits",
+      "summary": "A Critical Hit can automatically wound (no wound roll).",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.23"
+    },
+    {
+      "id": 14,
+      "name": "Melta",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Melta X",
+      "summary": "+X to D if the target is within half range.",
+      "sim_step": "Damage",
+      "modelled": true,
+      "rule_ref": "24.25"
+    },
+    {
+      "id": 15,
+      "name": "One Shot",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "One Shot",
+      "summary": "Weapon can only be used once per battle.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.26"
+    },
+    {
+      "id": 16,
+      "name": "Pistol",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Pistol",
+      "summary": "Identical to Close-Quarters for all rules purposes (being phased out).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.27"
+    },
+    {
+      "id": 17,
+      "name": "Precision",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Precision",
+      "summary": "Attacks can be allocated to a visible Character in the target unit first.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.28"
+    },
+    {
+      "id": 18,
+      "name": "Psychic",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Psychic",
+      "summary": "Can ignore modifiers to BS/WS (including cover) and negative modifiers to the hit roll; counts as a psychic attack.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.29"
+    },
+    {
+      "id": 19,
+      "name": "Rapid Fire",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Rapid Fire X",
+      "summary": "+X attack dice if the target is within half range.",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "24.30"
+    },
+    {
+      "id": 20,
+      "name": "Sustained Hits",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Sustained Hits X",
+      "summary": "A Critical Hit scores X additional hits.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.36"
+    },
+    {
+      "id": 21,
+      "name": "Torrent",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Torrent",
+      "summary": "Attacks automatically hit. Cannot also have Indirect Fire or Precision.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.37"
+    },
+    {
+      "id": 22,
+      "name": "Twin-Linked",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Twin-Linked",
+      "summary": "Can re-roll the wound roll.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "24.38"
+    },
+    {
+      "id": 23,
+      "name": "Damaged",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Damaged X",
+      "summary": "While remaining wounds are X or fewer, the model's attacks get -1 to hit.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.39"
+    },
+    {
+      "id": 24,
+      "name": "Deadly Demise",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Deadly Demise X",
+      "summary": "When destroyed, on a 6 each unit within 6\" suffers X mortal wounds.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.08"
+    },
+    {
+      "id": 25,
+      "name": "Deep Strike",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Deep Strike",
+      "summary": "On an ingress move, can set up anywhere more than 8\" horizontally from enemies.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.09"
+    },
+    {
+      "id": 26,
+      "name": "Feel No Pain",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Feel No Pain X+",
+      "summary": "Each time a wound would be lost, roll a D6: on X+ it is not lost.",
+      "sim_step": "Damage",
+      "modelled": true,
+      "rule_ref": "24.12"
+    },
+    {
+      "id": 27,
+      "name": "Fights First",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Fights First",
+      "summary": "Unit fights in the Fights First step of the Fight phase.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.13"
+    },
+    {
+      "id": 28,
+      "name": "Firing Deck",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Firing Deck X",
+      "summary": "Transport can shoot with weapons from up to X embarked models.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.14"
+    },
+    {
+      "id": 29,
+      "name": "Hover",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Hover",
+      "summary": "Don't subtract 2\" from max distance when taking to the skies.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.17"
+    },
+    {
+      "id": 30,
+      "name": "Infiltrators",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Infiltrators",
+      "summary": "Deploy anywhere more than 8\" from the enemy deployment zone and enemy units.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.20"
+    },
+    {
+      "id": 31,
+      "name": "Leader",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Leader",
+      "summary": "Can be attached to a bodyguard unit before the battle.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.22"
+    },
+    {
+      "id": 32,
+      "name": "Lone Operative",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Lone Operative / Lone Operative X\"",
+      "summary": "Unless attached, can't be seen or targeted by Indirect Fire beyond 12\" (or X\").",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.24"
+    },
+    {
+      "id": 33,
+      "name": "Scouts",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Scouts X\"",
+      "summary": "Pre-battle, can make a scout move of up to X\" (or redeploy from strategic reserves).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.31"
+    },
+    {
+      "id": 34,
+      "name": "Stealth",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Stealth",
+      "summary": "If every model has it, unit gets the benefit of cover against ranged attacks (attacker's BS worsened by 1).",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.33"
+    },
+    {
+      "id": 35,
+      "name": "Super-Heavy Walker",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Super-Heavy Walker",
+      "summary": "Can move through models (not Titanic) and terrain 4\" or less in height.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.35"
+    },
+    {
+      "id": 36,
+      "name": "Support",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Support",
+      "summary": "Can be attached to a bodyguard alongside a Leader unit.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.34"
+    },
+    {
+      "id": 37,
+      "name": "Hit Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Hit Modifier +X / -X",
+      "summary": "Adds X to the hit roll (total modifier capped at ±1).",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 38,
+      "name": "Wound Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Wound Modifier +X / -X",
+      "summary": "Adds X to the wound roll (total modifier capped at ±1).",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 39,
+      "name": "AP Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "AP Modifier -X / +X",
+      "summary": "Changes the weapon's AP by X (-1 makes AP -1 into AP -2).",
+      "sim_step": "Save",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 40,
+      "name": "Damage Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Damage Modifier +X / -X",
+      "summary": "Changes damage per attack by X (minimum 1). Use -1 on a Target rule for damage reduction.",
+      "sim_step": "Damage",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 41,
+      "name": "Toughness Modifier",
+      "category": "Stat",
+      "applies_to": "Unit",
+      "format": "Toughness Modifier +X / -X",
+      "summary": "Changes the target's T by X (minimum 1). Use on a Target rule.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 42,
+      "name": "Save Modifier",
+      "category": "Stat",
+      "applies_to": "Unit",
+      "format": "Save Modifier +X / -X",
+      "summary": "On a target: +X improves its save, -X worsens it. On an attacker or weapon: -X worsens the target's save (e.g. a rule that worsens Sv by 1).",
+      "sim_step": "Save",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 43,
+      "name": "Reroll Hits",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Reroll Hits / Reroll Hits 1",
+      "summary": "Re-roll failed hit rolls, or only hit rolls of 1 when written as Reroll Hits 1.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 44,
+      "name": "Reroll Wounds",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Reroll Wounds / Reroll Wounds 1",
+      "summary": "Re-roll failed wound rolls, or only wound rolls of 1 when written as Reroll Wounds 1.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 45,
+      "name": "Snap Shooting",
+      "category": "Stat",
+      "applies_to": "Ranged",
+      "format": "Snap Shooting",
+      "summary": "Hits only on an unmodified 6 (4+ if the unit remained stationary), ignoring BS and modifiers. Hit rolls cannot be re-rolled.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "15.09"
+    },
+    {
+      "id": 46,
+      "name": "Attacks Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Attacks Modifier +X / -X",
+      "summary": "Adds/subtracts X to the weapon's A characteristic (A cannot be less than 1).",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 47,
+      "name": "Strength Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Strength Modifier +X / -X",
+      "summary": "Adds/subtracts X to the weapon's S characteristic (S cannot be less than 1).",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 48,
+      "name": "BS Modifier",
+      "category": "Stat",
+      "applies_to": "Ranged",
+      "format": "BS Modifier -X / +X",
+      "summary": "Changes the BS number: -1 improves (3+ to 2+), +1 worsens. BS stays between 2+ and 6+. Not limited by the ±1 hit roll cap.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 49,
+      "name": "WS Modifier",
+      "category": "Stat",
+      "applies_to": "Melee",
+      "format": "WS Modifier -X / +X",
+      "summary": "Changes the WS number: -1 improves (3+ to 2+), +1 worsens. WS stays between 2+ and 6+. Not limited by the ±1 hit roll cap.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 50,
+      "name": "Critical Hits",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Critical Hits X+",
+      "summary": "Unmodified hit rolls of X+ are Critical Hits (and always hit). Lowest value applies. Not used when snap shooting.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "05.01"
+    },
+    {
+      "id": 51,
+      "name": "Critical Wounds",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Critical Wounds X+",
+      "summary": "Unmodified wound rolls of X+ are Critical Wounds (and always wound). Combines with Anti; lowest value applies.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "05.02"
+    }
+  ],
+  "target_profiles": [
+    {
+      "id": 1,
+      "kind": "generic",
+      "name": "Horde Infantry (GEQ)",
+      "models": 10,
+      "toughness": 3,
+      "wounds": 1,
+      "save": 5,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 2,
+      "kind": "generic",
+      "name": "Marine Infantry (MEQ)",
+      "models": 5,
+      "toughness": 4,
+      "wounds": 2,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 3,
+      "kind": "generic",
+      "name": "Terminator (TEQ)",
+      "models": 5,
+      "toughness": 5,
+      "wounds": 3,
+      "save": 2,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry",
+        "Terminator"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 4,
+      "kind": "generic",
+      "name": "Heavy Infantry",
+      "models": 3,
+      "toughness": 6,
+      "wounds": 3,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 5,
+      "kind": "generic",
+      "name": "Character (Infantry)",
+      "models": 1,
+      "toughness": 4,
+      "wounds": 5,
+      "save": 3,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry",
+        "Character"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 6,
+      "kind": "generic",
+      "name": "Light Vehicle",
+      "models": 1,
+      "toughness": 9,
+      "wounds": 10,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 7,
+      "kind": "generic",
+      "name": "Monster",
+      "models": 1,
+      "toughness": 10,
+      "wounds": 12,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Monster"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 8,
+      "kind": "generic",
+      "name": "Battle Tank",
+      "models": 1,
+      "toughness": 11,
+      "wounds": 13,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 9,
+      "kind": "generic",
+      "name": "Heavy Tank",
+      "models": 1,
+      "toughness": 12,
+      "wounds": 16,
+      "save": 2,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 10,
+      "kind": "generic",
+      "name": "Knight / Titanic",
+      "models": 1,
+      "toughness": 12,
+      "wounds": 22,
+      "save": 3,
+      "invulnerable_save": 5,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle",
+        "Titanic"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 11,
+      "kind": "role",
+      "name": "Anti-Horde",
+      "models": 10,
+      "toughness": 3,
+      "wounds": 1,
+      "save": 5,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 12,
+      "kind": "role",
+      "name": "Anti-Marine",
+      "models": 5,
+      "toughness": 4,
+      "wounds": 2,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 13,
+      "kind": "role",
+      "name": "Anti-Elite",
+      "models": 5,
+      "toughness": 5,
+      "wounds": 3,
+      "save": 2,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry",
+        "Terminator"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 14,
+      "kind": "role",
+      "name": "Anti-Heavy Infantry",
+      "models": 3,
+      "toughness": 6,
+      "wounds": 3,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 15,
+      "kind": "role",
+      "name": "Anti-Vehicle",
+      "models": 1,
+      "toughness": 10,
+      "wounds": 12,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 16,
+      "kind": "role",
+      "name": "Anti-Monster",
+      "models": 1,
+      "toughness": 10,
+      "wounds": 14,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Monster"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 17,
+      "kind": "role",
+      "name": "Anti-Tank",
+      "models": 1,
+      "toughness": 12,
+      "wounds": 16,
+      "save": 2,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": null,
+      "use": true
+    }
+  ]
+}

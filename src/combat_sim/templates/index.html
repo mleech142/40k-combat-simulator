@@ -24,22 +24,22 @@
         </div>
 
         <div class="form-group">
-            <label for="attacker-weapon">Weapon</label>
-            <div class="autocomplete-wrapper">
-                <input type="text" class="autocomplete-input" id="attacker-weapon"
-                       placeholder="Search weapons..." autocomplete="off">
-                <div class="autocomplete-dropdown" id="attacker-weapon-dropdown"></div>
+            <label>Weapons</label>
+            <div class="toggle-bar weapon-type-toggle" id="weapon-type-toggle">
+                <button class="toggle-btn active" data-type="ranged">Shooting</button>
+                <button class="toggle-btn" data-type="melee">Melee</button>
+            </div>
+            <div class="weapon-list" id="attacker-weapon-list">
+                <div class="weapon-list-empty">Select a unit to see its weapons</div>
             </div>
         </div>
-
-        <div class="weapon-stats" id="attacker-weapon-stats" style="display: none;">
-            <div class="stat"><span class="stat-label">A</span><span class="stat-value" id="wpn-a">-</span></div>
-            <div class="stat"><span class="stat-label">BS/WS</span><span class="stat-value" id="wpn-skill">-</span></div>
-            <div class="stat"><span class="stat-label">S</span><span class="stat-value" id="wpn-s">-</span></div>
-            <div class="stat"><span class="stat-label">AP</span><span class="stat-value" id="wpn-ap">-</span></div>
-            <div class="stat"><span class="stat-label">D</span><span class="stat-value" id="wpn-d">-</span></div>
-        </div>
-        <div class="weapon-abilities" id="wpn-abilities"></div>
+        <details class="rules-panel" id="attacker-rules-panel" open>
+            <summary>
+                <span class="rules-panel-title">Attacker rules &amp; stratagems</span>
+                <span class="rules-summary" id="attacker-rules-summary">None ticked</span>
+            </summary>
+            <div class="rules-list" id="attacker-rules-list"></div>
+        </details>
     </section>
 
     <!-- Defender Panel -->
@@ -67,6 +67,21 @@
             <label for="model-count">Model Count</label>
             <input type="number" class="input-small" id="model-count" value="5" min="1" max="30">
         </div>
+
+        <div class="form-group">
+            <label for="defender-extra-modifiers">Extra modifiers</label>
+            <input type="text" class="text-input" id="defender-extra-modifiers" autocomplete="off"
+                   placeholder="e.g. Stealth, Feel No Pain 5+, Damage Modifier -1">
+            <div class="kw-hint" id="defender-extra-modifiers-hint"></div>
+            <p class="field-hint">For this target in this simulation only; not saved to the datasheet.</p>
+        </div>
+        <details class="rules-panel" id="target-rules-panel" open>
+            <summary>
+                <span class="rules-panel-title">Target rules &amp; stratagems</span>
+                <span class="rules-summary" id="target-rules-summary">None ticked</span>
+            </summary>
+            <div class="rules-list" id="target-rules-list"></div>
+        </details>
     </section>
 </div>
 
@@ -86,8 +101,11 @@
                 <label class="toggle" data-condition="stationary">
                     <input type="checkbox" id="cond-stationary"> Stationary
                 </label>
-                <label class="toggle" data-condition="cover">
+                <label class="toggle" data-condition="cover" title="Target in cover: the attacker's BS is worsened by 1 (unless Ignores Cover / Psychic)">
                     <input type="checkbox" id="cond-cover"> Cover
+                </label>
+                <label class="toggle" data-condition="damaged" title="Attacker damaged: -1 to hit">
+                    <input type="checkbox" id="cond-damaged"> Attacker Damaged
                 </label>
             </div>
         </div>
@@ -153,9 +171,13 @@
         </div>
     </div>
 
+    <p class="results-mc-extra" id="res-mc-extra"></p>
+
+    <div class="weapon-results" id="weapon-results"></div>
+
     <div class="results-detail">
         <div class="breakdown">
-            <h3>Attack Breakdown</h3>
+            <h3>Attack Breakdown (all ticked weapons)</h3>
             <table class="breakdown-table">
                 <thead>
                     <tr><th>Phase</th><th>Value</th></tr>

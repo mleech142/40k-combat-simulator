@@ -33,10 +33,10 @@ call venv\Scripts\activate.bat
 echo Checking dependencies...
 pip install -q -r requirements.txt
 
-:: Run migration if database doesn't exist
-if not exist "data\combat_sim.db" (
+:: Build the data file from the Excel workbook if it doesn't exist yet
+if not exist "data k_data.json" (
     echo.
-    echo Running initial database setup...
+    echo Building data k_data.json from the Excel workbook...
     python scripts\migrate_excel.py
 )
 

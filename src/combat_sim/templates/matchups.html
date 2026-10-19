@@ -3,165 +3,239 @@
 {% block title %}Matchups - 40K Combat Simulator{% endblock %}
 
 {% block content %}
-<div class="matchups-layout">
-    <!-- Left Sidebar: Unit/Weapon Selection -->
-    <aside class="matchups-sidebar">
-        <!-- Weapon Type Toggle -->
-        <div class="sidebar-section weapon-type-toggle">
-            <div class="toggle-bar">
+<div class="matchups-page">
+    <!-- Conditions Bar -->
+    <section class="conditions-bar card">
+        <div class="conditions-inline">
+            <div class="condition-toggles">
+                <label class="toggle-inline">
+                    <input type="checkbox" id="mat-half-range"> Half Range
+                </label>
+                <label class="toggle-inline">
+                    <input type="checkbox" id="mat-charged"> Charged
+                </label>
+                <label class="toggle-inline">
+                    <input type="checkbox" id="mat-stationary"> Stationary
+                </label>
+                <label class="toggle-inline" title="Target in cover: the attacker's BS is worsened by 1 (unless Ignores Cover / Psychic)">
+                    <input type="checkbox" id="mat-cover"> Cover
+                </label>
+                <label class="toggle-inline" title="Attackers damaged: -1 to hit">
+                    <input type="checkbox" id="mat-damaged"> Attacker Damaged
+                </label>
+            </div>
+            <div class="condition-rerolls">
+                <span class="reroll-label">Hits:</span>
+                <select id="mat-reroll-hits" class="select-small">
+                    <option value="none">None</option>
+                    <option value="ones">1s</option>
+                    <option value="all">All</option>
+                </select>
+                <span class="reroll-label">Wounds:</span>
+                <select id="mat-reroll-wounds" class="select-small">
+                    <option value="none">None</option>
+                    <option value="ones">1s</option>
+                    <option value="all">All</option>
+                </select>
+            </div>
+            <div class="metric-selector">
+                <label for="mat-metric">Display:</label>
+                <select id="mat-metric" class="select-small">
+                    <option value="avg_damage">Avg Damage</option>
+                    <option value="models_killed">Models Killed</option>
+                    <option value="damage_per_point">Dmg/Point</option>
+                    <option value="kill_probability">Kill %</option>
+                    <option value="pct_destroyed">% Destroyed</option>
+                    <option value="pct_per_100">% per 100 pts</option>
+                </select>
+            </div>
+        </div>
+    </section>
+
+    <!-- Attackers Table -->
+    <section class="card roster-card">
+        <div class="roster-header">
+            <h2>⚔️ Attackers</h2>
+            <div class="toggle-bar weapon-type-toggle">
                 <button class="toggle-btn" data-type="ranged">Shooting</button>
                 <button class="toggle-btn active" data-type="both">Both</button>
                 <button class="toggle-btn" data-type="melee">Melee</button>
             </div>
+            <button class="btn btn-primary btn-add-unit" id="btn-add-attacker">+ Add Unit</button>
         </div>
-
-        <div class="sidebar-section">
-            <h3>Attackers</h3>
-            <div class="search-add">
-                <input type="text" class="search-input" id="attacker-search"
-                       placeholder="Search units to add..." autocomplete="off">
-                <div class="search-dropdown" id="attacker-dropdown"></div>
-            </div>
-            <div class="selection-list" id="attacker-list">
-                <p class="empty-message">No attackers selected</p>
-            </div>
-        </div>
-
-        <div class="sidebar-section">
-            <h3>Defenders</h3>
-            <div class="search-add">
-                <input type="text" class="search-input" id="defender-search"
-                       placeholder="Search units to add..." autocomplete="off">
-                <div class="search-dropdown" id="defender-dropdown"></div>
-            </div>
-            <div class="selection-list" id="defender-list">
-                <p class="empty-message">No defenders selected</p>
-            </div>
-        </div>
-
-        <div class="sidebar-actions">
-            <button class="btn btn-primary btn-block" id="btn-run-matrix">
-                Run Matrix
-            </button>
-            <button class="btn btn-secondary btn-block" id="btn-save-comparison">
-                Save Comparison
-            </button>
-            <button class="btn btn-secondary btn-block" id="btn-load-comparison">
-                Load Comparison
-            </button>
-        </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="matchups-main">
-        <!-- Conditions Bar -->
-        <section class="conditions-bar card">
-            <div class="conditions-inline">
-                <div class="condition-toggles">
-                    <label class="toggle-inline">
-                        <input type="checkbox" id="mat-half-range"> Half Range
-                    </label>
-                    <label class="toggle-inline">
-                        <input type="checkbox" id="mat-charged"> Charged
-                    </label>
-                    <label class="toggle-inline">
-                        <input type="checkbox" id="mat-stationary"> Stationary
-                    </label>
-                    <label class="toggle-inline">
-                        <input type="checkbox" id="mat-cover"> Cover
-                    </label>
-                </div>
-                <div class="condition-rerolls">
-                    <span class="reroll-label">Hits:</span>
-                    <select id="mat-reroll-hits" class="select-small">
-                        <option value="none">None</option>
-                        <option value="ones">1s</option>
-                        <option value="all">All</option>
-                    </select>
-                    <span class="reroll-label">Wounds:</span>
-                    <select id="mat-reroll-wounds" class="select-small">
-                        <option value="none">None</option>
-                        <option value="ones">1s</option>
-                        <option value="all">All</option>
-                    </select>
-                </div>
-                <div class="metric-selector">
-                    <label for="mat-metric">Display:</label>
-                    <select id="mat-metric" class="select-small">
-                        <option value="avg_damage">Avg Damage</option>
-                        <option value="models_killed">Models Killed</option>
-                        <option value="damage_per_point">Dmg/Point</option>
-                        <option value="kill_probability">Kill %</option>
-                    </select>
-                </div>
-            </div>
-        </section>
-
-        <!-- Matrix Grid -->
-        <section class="matrix-container card" id="matrix-container">
-            <div class="matrix-placeholder">
-                <p>Add attackers and defenders, then click "Run Matrix" to generate the comparison grid.</p>
-            </div>
-        </section>
-
-        <!-- Summary Section -->
-        <section class="matrix-summary card" id="matrix-summary" style="display: none;">
-            <h3>Summary</h3>
-            <div class="summary-columns">
-                <div class="summary-column">
-                    <h4>Best Attackers (by Efficiency)</h4>
-                    <ul id="best-attackers"></ul>
-                </div>
-                <div class="summary-column">
-                    <h4>Biggest Threats (by Damage)</h4>
-                    <ul id="biggest-threats"></ul>
-                </div>
-            </div>
-        </section>
-    </main>
-
-    <!-- Right Side Panel: Cell Details -->
-    <aside class="matchups-detail-panel" id="detail-panel" style="display: none;">
-        <div class="detail-header">
-            <h3 id="detail-title">Details</h3>
-            <button class="btn-close" id="close-detail">&times;</button>
-        </div>
-        <div class="detail-matchup">
-            <div class="detail-attacker">
-                <strong>Attacker:</strong>
-                <span id="detail-attacker">-</span>
-            </div>
-            <div class="detail-defender">
-                <strong>Defender:</strong>
-                <span id="detail-defender">-</span>
-            </div>
-        </div>
-        <div class="detail-summary">
-            <div class="detail-stat">
-                <span class="detail-value" id="detail-avg-damage">-</span>
-                <span class="detail-label">Avg Damage</span>
-            </div>
-            <div class="detail-stat">
-                <span class="detail-value" id="detail-models-killed">-</span>
-                <span class="detail-label">Models Killed</span>
-            </div>
-        </div>
-        <div class="detail-breakdown">
-            <h4>Attack Flow</h4>
-            <table class="breakdown-table">
-                <tbody>
-                    <tr><td>Attacks</td><td id="detail-attacks">-</td></tr>
-                    <tr><td>Hits</td><td id="detail-hits">-</td></tr>
-                    <tr><td>Wounds</td><td id="detail-wounds">-</td></tr>
-                    <tr><td>Failed Saves</td><td id="detail-failed-saves">-</td></tr>
-                </tbody>
+        <div class="roster-scroll">
+            <table class="roster-table" id="attacker-table">
+                <thead>
+                    <tr>
+                        <th class="col-check" title="Include in matrix"></th>
+                        <th>Unit</th>
+                        <th>Weapon</th>
+                        <th></th>
+                        <th>Range</th>
+                        <th>A</th>
+                        <th>BS/WS</th>
+                        <th>S</th>
+                        <th>AP</th>
+                        <th>D</th>
+                        <th>Abilities</th>
+                        <th>Models</th>
+                        <th class="col-remove"></th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
             </table>
         </div>
-        <div class="detail-distribution">
-            <h4>Damage Distribution</h4>
-            <div id="detail-chart" class="chart-container-small"></div>
+    </section>
+
+    <!-- Defenders Table -->
+    <section class="card roster-card">
+        <div class="roster-header">
+            <h2>🛡️ Defenders</h2>
+            <div class="toggle-bar defender-mode-toggle">
+                <button class="toggle-btn active" data-mode="real">Real units</button>
+                <button class="toggle-btn" data-mode="generic">Generic profiles</button>
+            </div>
+            <button class="btn btn-primary btn-add-unit" id="btn-add-defender">+ Add Unit</button>
         </div>
-    </aside>
+        <div class="roster-scroll">
+            <table class="roster-table" id="defender-table">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Rules & Stratagems (army-wide) -->
+    <section class="card roster-card">
+        <div class="roster-header">
+            <h2>📜 Rules &amp; Stratagems</h2>
+            <span class="rules-hint">Ticked entries apply to every unit of their faction (core stratagems to every unit), in the phases they list.</span>
+        </div>
+        <div class="matchup-rules">
+            <div class="matchup-rules-column">
+                <h3>⚔️ Attackers <span class="rules-summary" id="attacker-rules-summary">None ticked</span></h3>
+                <div class="rules-list" id="attacker-rules-list"></div>
+            </div>
+            <div class="matchup-rules-column">
+                <h3>🛡️ Defenders <span class="rules-summary" id="defender-rules-summary">None ticked</span></h3>
+                <div class="rules-list" id="defender-rules-list"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Actions -->
+    <div class="matchups-actions">
+        <button class="btn btn-primary" id="btn-run-matrix">▶ Run Matrix</button>
+        <button class="btn btn-secondary" id="btn-save-comparison">💾 Save Comparison</button>
+        <button class="btn btn-secondary" id="btn-load-comparison">📂 Load Comparison</button>
+    </div>
+
+    <!-- Matrix Grid -->
+    <section class="matrix-container card" id="matrix-container">
+        <div class="matrix-placeholder">
+            <p>Add attackers and defenders, then click "Run Matrix" to generate the comparison grid.</p>
+        </div>
+    </section>
+
+    <!-- Summary Section -->
+    <section class="matrix-summary card" id="matrix-summary" style="display: none;">
+        <h3>Summary</h3>
+        <div class="summary-columns">
+            <div class="summary-column">
+                <h4>Best Attackers (by Efficiency)</h4>
+                <ul id="best-attackers"></ul>
+            </div>
+            <div class="summary-column">
+                <h4>Biggest Threats (by Damage)</h4>
+                <ul id="biggest-threats"></ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- Army Analysis (Excel's Results tab) -->
+    <section class="card army-analysis" id="army-analysis" style="display: none;">
+        <div class="roster-header">
+            <h2>📈 Army Analysis</h2>
+            <div class="toggle-bar analysis-tabs">
+                <button class="toggle-btn active" data-tab="summary">Summary</button>
+                <button class="toggle-btn" data-tab="gaps">Gaps</button>
+                <button class="toggle-btn" data-tab="roles">Role Scores</button>
+                <button class="toggle-btn" data-tab="coverage">Coverage</button>
+                <button class="toggle-btn" data-tab="reverse">Reverse Durability</button>
+            </div>
+        </div>
+        <div id="analysis-content"></div>
+    </section>
+</div>
+
+<!-- Cell Details (slides in from the right) -->
+<aside class="matchups-detail-panel" id="detail-panel" style="display: none;">
+    <div class="detail-header">
+        <h3 id="detail-title">Details</h3>
+        <button class="btn-close" id="close-detail">&times;</button>
+    </div>
+    <div class="detail-matchup">
+        <div class="detail-attacker">
+            <strong>Attacker:</strong>
+            <span id="detail-attacker">-</span>
+        </div>
+        <div class="detail-defender">
+            <strong>Defender:</strong>
+            <span id="detail-defender">-</span>
+        </div>
+    </div>
+    <div class="detail-summary">
+        <div class="detail-stat">
+            <span class="detail-value" id="detail-avg-damage">-</span>
+            <span class="detail-label">Avg Damage</span>
+        </div>
+        <div class="detail-stat">
+            <span class="detail-value" id="detail-models-killed">-</span>
+            <span class="detail-label">Models Killed</span>
+        </div>
+        <div class="detail-stat">
+            <span class="detail-value" id="detail-kill-prob">-</span>
+            <span class="detail-label">Kill 1+ %</span>
+        </div>
+        <div class="detail-stat">
+            <span class="detail-value" id="detail-wipe-prob">-</span>
+            <span class="detail-label">Wipe %</span>
+        </div>
+    </div>
+    <div class="detail-breakdown">
+        <h4>Attack Flow</h4>
+        <table class="breakdown-table">
+            <tbody>
+                <tr><td>Attacks</td><td id="detail-attacks">-</td></tr>
+                <tr><td>Hits</td><td id="detail-hits">-</td></tr>
+                <tr><td>Wounds</td><td id="detail-wounds">-</td></tr>
+                <tr><td>Failed Saves</td><td id="detail-failed-saves">-</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="detail-distribution">
+        <h4>Damage Distribution</h4>
+        <div id="detail-chart" class="chart-container-small"></div>
+    </div>
+</aside>
+
+<!-- Add Unit Modal (shared by both tables) -->
+<div class="modal" id="unit-picker-modal" style="display: none;">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3 id="unit-picker-title">Add Unit</h3>
+            <button class="btn-close" id="close-unit-picker">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="unit-picker-filters">
+                <input type="text" class="filter-input" id="unit-picker-search" placeholder="Search units..." autocomplete="off">
+                <select class="filter-select" id="unit-picker-faction">
+                    <option value="">All Factions</option>
+                </select>
+            </div>
+            <div class="unit-picker-list" id="unit-picker-list"></div>
+        </div>
+    </div>
 </div>
 
 <!-- Load Comparison Modal -->

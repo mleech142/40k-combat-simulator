@@ -1,119 +1,122 @@
 # 40K Combat Simulator
 
-A local web application for simulating Warhammer 40,000 11th Edition combat. Calculate expected damage, compare weapon effectiveness, and analyze army matchups with both analytical probability calculations and Monte Carlo simulations.
+A local web application for simulating Warhammer 40,000 (11th edition) combat. It works out the expected damage of a unit's weapons against a target, compares whole armies in a matchup grid, and analyses where an army is strong or weak — with both fast analytical averages and Monte Carlo dice simulations.
+
+It replaces the `40KCombatSimulator_v2.xlsx` spreadsheet: its maths is reproduced formula for formula (and checked against the spreadsheet's own results in the tests). See [docs/excel-parity.md](docs/excel-parity.md) for the feature-by-feature comparison.
 
 ## Features
 
-- **Single Combat Simulation**: Calculate damage output for any attacker vs defender matchup
-- **Matrix Comparison (Matchups)**: Compare N attackers vs M defenders in a heat map grid
-- **Data Management**: Full CRUD for factions, units, and weapons
-- **Scenario Saving**: Save and compare simulation results
-- **Analytical & Monte Carlo**: Choose between fast probability calculations or detailed distributions
-- **11th Edition Rules**: Supports Lethal Hits, Sustained Hits, Devastating Wounds, Anti-X, Blast, Melta, and more
+- **Simulator** — one attacking unit against one target: tick any of the unit's weapons (with how many models carry each), set battle conditions, tick faction rules and stratagems for either side, and add one-off *extra modifiers* to the target. Shows per-weapon results, totals and (in Monte Carlo mode) a damage distribution with kill and wipe chances.
+- **Matchups** — your army against an opponent's real units or generic benchmark profiles (MEQ, TEQ, vehicles…): a heat-map grid per unit and for the whole army, unit sizes with correct points, army-wide rules and stratagems, and an **Army Analysis** panel (summary, gaps, role scores with a spider chart, Toughness/Save coverage, reverse durability).
+- **Data** — edit factions (with their rules and stratagems), units (datasheet stats, points per unit size, loadout with quantities) and weapons. Read-only reference tabs list every rules keyword and the benchmark target profiles. Every confirmed change is saved straight to the data file.
+- **Scenarios** — save Simulator setups, compare and re-run them.
+- **Rules coverage** — every keyword and stat modifier the spreadsheet models: Lethal/Sustained Hits, Devastating Wounds, Anti-X, Blast, Cleave, Melta, Rapid Fire, Torrent, Twin-Linked, Lance, Heavy, Psychic, Ignores Cover, Stealth, Feel No Pain, Critical Hits/Wounds X+, Snap Shooting, re-rolls, and Hit/Wound/AP/Damage/Attacks/Strength/Toughness/Save/BS/WS modifiers. The **Data → Keywords** tab lists them all with the exact format to write.
 
 ## Installation
 
 ### Prerequisites
-- Python 3.8+
+
+- Python 3.10+
 - pip
 
 ### Setup
 
-1. Clone the repository:
-```bash
-git clone https://github.com/YOUR_USERNAME/40k-combat-simulator.git
-cd 40k-combat-simulator
-```
-
-2. Install dependencies:
 ```bash
 pip install -r requirements.txt
-```
-
-3. Run the application:
-```bash
 python run.py
 ```
 
-4. Open in browser: http://localhost:5000
+Then open <http://localhost:5000> (the launcher opens it for you).
 
-### Quick Start (Windows)
-Double-click `launcher.bat`
+### Quick start
 
-### Quick Start (Linux/Mac)
+- Windows: double-click `launcher.bat`
+- Linux/Mac: `chmod +x launcher.sh && ./launcher.sh`
+
+The launchers create a virtual environment, install the requirements, build `data/40k_data.json` from the workbook if it is missing, and start the app.
+
+## Using the app
+
+### Simulator
+
+1. Pick an attacking unit; its weapons appear with **Use** ticks and a **Qty** (models carrying each weapon). Alternative profiles of one gun ("Plasma Gun - Standard / Supercharged") start with only the first ticked.
+2. Choose **Shooting** or **Melee**, pick a defender and its model count.
+3. Set conditions (half range, stationary, cover, charged, attacker damaged, re-rolls), tick rules and stratagems, and optionally type **Extra modifiers** for the target (e.g. `Stealth, Feel No Pain 5+`).
+4. **Run Simulation**. Tick **Monte Carlo** for a dice-rolled distribution.
+
+### Matchups
+
+1. **+ Add Unit** to the Attackers table (all of its weapons are added; a unit can be added more than once). Set each unit's **Size** — points and weapon quantities follow.
+2. Switch Defenders between **Real units** (with per-unit model counts and extra modifiers) and **Generic profiles**.
+3. Tick army-wide rules and stratagems, set conditions, then **Run Matrix**.
+4. Change the **Display** metric (damage, models killed, % destroyed, points efficiency…), toggle **Show weapons**, click any cell for a Monte Carlo breakdown, and read the **Army Analysis** tabs.
+5. **Save / Load Comparison** to keep a setup.
+
+Both pages remember their setup while you move between tabs; it is cleared when the app restarts.
+
+## Data
+
+| File | What it holds |
+| --- | --- |
+| `data/40k_data.json` | **The data** — factions, units, weapons, loadouts, rules, stratagems, keywords and target profiles. Committed and distributed; the app reads it on every start and writes every edit back to it. |
+| `data/combat_sim.db` | SQLite working copy (rebuilt from the JSON on start) plus your saved scenarios and comparisons. Not committed. |
+| `40KCombatSimulator_v2.xlsx` | The original spreadsheet the data was imported from. Frozen — edit data in the app. |
+
+Building or refreshing the JSON from the spreadsheet:
+
 ```bash
-chmod +x launcher.sh
-./launcher.sh
+python scripts/migrate_excel.py                   # first build (refuses if data/40k_data.json already exists)
+python scripts/migrate_excel.py --force           # rebuild from Excel, discarding edits made in the app
+python scripts/migrate_excel.py --output x.json   # write elsewhere, e.g. to compare
+python scripts/migrate_excel.py --reference-only  # refresh only keywords and target profiles; keeps everything else
 ```
 
-## Usage
+IDs stay stable across rebuilds, so saved scenarios and comparisons keep pointing at the right units. The script prints a report of likely typos and skipped rows.
 
-### Simulator Page
-1. Search and select an attacker unit and weapon
-2. Search and select a defender unit
-3. Set model count and battle conditions
-4. Click "Run Simulation" to see results
+**Export JSON / Import JSON** on the Data page download or replace the whole data file (with a review screen before replacing).
 
-### Matchups Page
-1. Select weapon type filter (Shooting/Both/Melee)
-2. Search and add attacker units (adds all their weapons)
-3. Search and add defender units with model counts
-4. Set battle conditions
-5. Click "Run Matrix" to generate the comparison grid
-6. Click any cell for detailed Monte Carlo breakdown
+## Tests
 
-### Data Management
-- Add/edit/delete factions, units, and weapons
-- Import/export data as JSON for backup or sharing
-
-## Project Structure
-
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests                                         # 83 tests
+python -m coverage run --source=src/combat_sim,scripts -m pytest tests && python -m coverage report
 ```
+
+The tests never touch `data/` — each starts the app on its own temporary data file. They include the spreadsheet's own cached results as parity checks and an analytical-vs-Monte-Carlo agreement check.
+
+## Project structure
+
+```text
 40k-combat-simulator/
-├── src/
-│   └── combat_sim/
-│       ├── app.py           # Flask application and routes
-│       ├── models.py        # SQLAlchemy database models
-│       ├── simulation.py    # Combat calculation engine
-│       ├── templates/       # Jinja2 HTML templates
-│       └── static/          # CSS and JavaScript
-├── data/                    # SQLite database location
-├── scripts/                 # Migration and utility scripts
-├── run.py                   # Application entry point
-├── requirements.txt         # Python dependencies
-└── README.md
+├── src/combat_sim/
+│   ├── app.py            # Flask app factory and all routes (pages + JSON API)
+│   ├── models.py         # SQLAlchemy models; points-by-size logic
+│   ├── data_store.py     # Reads/validates/writes data/40k_data.json
+│   ├── simulation.py     # Combat engine: resolve() + analytical and Monte Carlo engines
+│   ├── templates/        # Jinja2 pages (Simulator, Matchups, Scenarios, Data)
+│   └── static/           # CSS and JavaScript (app.js is loaded on every page)
+├── data/                 # 40k_data.json (committed) and combat_sim.db (local)
+├── scripts/migrate_excel.py
+├── tests/                # pytest suite (conftest.py provides a temporary-data app)
+├── docs/
+│   ├── architecture.md   # How the pieces fit, conventions, maintainability notes
+│   └── excel-parity.md   # Feature-by-feature comparison with the spreadsheet
+├── archive/              # Superseded v1 workbook
+├── run.py                # Entry point
+├── requirements.txt      # Runtime dependencies
+└── requirements-dev.txt  # Test tools
 ```
 
-## Supported Abilities
+## Tech stack
 
-- **Lethal Hits**: Critical hits (6s) auto-wound
-- **Sustained Hits X**: Critical hits generate X extra hits
-- **Devastating Wounds**: Critical wounds deal mortal wounds
-- **Anti-X Y+**: +1 to wound vs keyword X, or auto-wound on Y+
-- **Blast**: +1 attack per 5 models in target unit
-- **Melta X**: +X damage at half range
-- **Twin-linked**: Re-roll wounds
-- **Lance**: +1 to wound on charge
-- **Heavy**: +1 to hit when stationary
-- **Assault**: Can advance and shoot
-- **Rapid Fire X**: +X attacks at half range
-- **Torrent**: Auto-hit
-- **Ignores Cover**: Target doesn't benefit from cover
-- **Feel No Pain X+**: Ignore wounds on X+
-
-## Tech Stack
-
-- **Backend**: Flask, SQLAlchemy, SQLite
-- **Frontend**: Vanilla JavaScript, Plotly.js for charts
-- **Styling**: Custom CSS with dark theme
+- **Backend**: Python, Flask, Flask-SQLAlchemy, SQLite, NumPy
+- **Frontend**: vanilla JavaScript, Plotly.js (charts, loaded from a CDN)
+- **Data import**: openpyxl
 
 ## License
 
 MIT License - feel free to use and modify for your own gaming needs.
-
-## Contributing
-
-Contributions welcome! Please feel free to submit issues and pull requests.
 
 ---
 

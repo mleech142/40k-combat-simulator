@@ -1,0 +1,4 @@
+# Test tools (python -m pytest tests)
+-r requirements.txt
+pytest>=8.0
+coverage>=7.0

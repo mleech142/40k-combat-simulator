@@ -33,10 +33,10 @@ source venv/bin/activate
 echo "Checking dependencies..."
 pip install -q -r requirements.txt
 
-# Run migration if database doesn't exist
-if [ ! -f "data/combat_sim.db" ]; then
+# Build the data file from the Excel workbook if it doesn't exist yet
+if [ ! -f "data/40k_data.json" ]; then
     echo
-    echo "Running initial database setup..."
+    echo "Building data/40k_data.json from the Excel workbook..."
     python scripts/migrate_excel.py
 fi
 

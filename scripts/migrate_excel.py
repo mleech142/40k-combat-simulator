@@ -1,332 +1,531 @@
 #!/usr/bin/env python
 """
-Excel Migration Script - Updated for actual 40KCombatSimulator.xlsx structure
+Build the app's data JSON from the v2 Excel workbook.
 
-Parses the Excel file and populates the SQLite database.
+Reads 40KCombatSimulator_v2.xlsx (units, loadouts, weapons, faction rules and
+stratagems from each faction tab, core stratagems from the Keywords tab) and writes
+data/40k_data.json. The app loads that file on every start and edits it from then on,
+so this script never touches the database.
 
-Excel Structure (per faction sheet):
-- Unit Stats: Columns B-H (Name, T, W, Sv, InSv, FNP, Modifiers)
-- Ranged Weapons: Columns I-S (Weapon, Type, ..., A, BS, S, AP, D, Modifier)
-- Melee Weapons: Columns V-AB (Weapon, A, WS, S, AP, D, Modifier)
-- Faction Rules: Columns AE-AH (Rule, Applies To, Phase, Modifier)
-- Stratagems: Columns AJ-AO (Stratagem, CP, Applies To, Phase, Modifier, Notes)
+Usage:
+    python scripts/migrate_excel.py                  # refuses if data/40k_data.json exists
+    python scripts/migrate_excel.py --force          # rebuild it from Excel (app edits are lost)
+    python scripts/migrate_excel.py --output x.json  # write elsewhere, e.g. to compare
+    python scripts/migrate_excel.py --reference-only # refresh only the read-only reference data (keywords,
+                                                     # generic target profiles, role benchmarks) in the existing JSON
 
-Headers in Row 3, Data starts Row 4.
+IDs are stable: anything whose name matches an entry in the previous JSON keeps its ID,
+so saved scenarios and comparisons keep pointing at the right units and weapons.
+Names are written exactly as in the workbook; likely problems are listed in the report.
 """
 
-import os
-import sys
+import argparse
 import re
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / 'src'))
 
-import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string
 
-from combat_sim.app import create_app
-from combat_sim.models import db, Faction, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem
+from combat_sim.data_store import DEFAULT_DATA_PATH, SCHEMA_VERSION, read_data_file, write_data_file
 
+DEFAULT_WORKBOOK = ROOT / '40KCombatSimulator_v2.xlsx'
 
-FACTION_SHEETS = [
-    'DeathGuard',
-    'Space Marines',
-    'Drukhari',
-    'Daemons',
-    "T'Au",
-    'Imperial Guard',
-    'Sisters of Battle',
-    'Thousand Sons',
-]
+HEADER_ROW = 3
+FIRST_DATA_ROW = 4
 
-# Column mappings (0-indexed)
+# Faction tab layout (v2). Header text per column, checked before reading.
 UNIT_COLS = {
-    'name': 1,      # B
-    't': 2,         # C
-    'w': 3,         # D
-    'sv': 4,        # E
-    'inv': 5,       # F
-    'fnp': 6,       # G
-    'modifiers': 7, # H
+    'name': ('B', 'Name'), 'toughness': ('C', 'T'), 'wounds': ('D', 'W'), 'save': ('E', 'Sv'),
+    'invulnerable_save': ('F', 'InSv'), 'feel_no_pain': ('G', 'FNP'), 'modifiers': ('H', 'Modifiers'),
+    'move': ('I', 'M'), 'oc': ('J', 'OC'), 'leadership': ('K', 'Ld'), 'points_cost': ('L', 'Points'),
+    'default_models': ('M', 'Models'), 'keywords': ('N', 'Keywords'), 'can_lead': ('O', 'Leader (can lead)'),
+    'abilities': ('P', 'Abilities'),
 }
-
-RANGED_COLS = {
-    'name': 8,      # I
-    'type': 9,      # J
-    'name2': 12,    # M (duplicate name)
-    'a': 13,        # N
-    'bs': 14,       # O
-    's': 15,        # P
-    'ap': 16,       # Q
-    'd': 17,        # R
-    'abilities': 18, # S
-}
-
-MELEE_COLS = {
-    'name': 21,     # V
-    'a': 22,        # W
-    'ws': 23,       # X
-    's': 24,        # Y
-    'ap': 25,       # Z
-    'd': 26,        # AA
-    'abilities': 27, # AB
-}
-
-RULE_COLS = {
-    'name': 30,      # AE
-    'applies_to': 31, # AF
-    'phase': 32,     # AG
-    'modifier': 33,  # AH
-}
-
-STRATAGEM_COLS = {
-    'name': 35,      # AJ
-    'cp': 36,        # AK
-    'applies_to': 37, # AL
-    'phase': 38,     # AM
-    'modifier': 39,  # AN
-    'notes': 40,     # AO
-}
+LOADOUT_COLS = {'weapon': ('Q', 'Weapon'), 'type': ('R', 'Type'), 'qty': ('S', 'Qty')}
+RANGED_COLS = {'name': ('U', 'Weapon'), 'attacks': ('V', 'A'), 'skill': ('W', 'BS'), 'strength': ('X', 'S'),
+               'ap': ('Y', 'AP'), 'damage': ('Z', 'D'), 'abilities': ('AA', 'Modifier')}
+MELEE_COLS = {'name': ('AD', 'Weapon'), 'attacks': ('AE', 'A'), 'skill': ('AF', 'BS'), 'strength': ('AG', 'S'),
+              'ap': ('AH', 'AP'), 'damage': ('AI', 'D'), 'abilities': ('AJ', 'Modifier')}
+RULE_COLS = {'name': ('AM', 'Rule'), 'applies_to': ('AN', 'Applies To'), 'phase': ('AO', 'Phase'),
+             'modifier': ('AP', 'Modifier')}
+STRAT_COLS = {'name': ('AR', 'Stratagem'), 'cp': ('AS', 'CP'), 'applies_to': ('AT', 'Applies To'),
+              'phase': ('AU', 'Phase'), 'modifier': ('AV', 'Modifier'), 'notes': ('AW', 'Notes')}
 
 
-def clean_value(val):
-    """Clean a cell value."""
-    if pd.isna(val) or val is None:
+class Report:
+    def __init__(self):
+        self.lines = {}
+
+    def add(self, section, message):
+        self.lines.setdefault(section, []).append(message)
+
+    def print(self):
+        for section, messages in self.lines.items():
+            print(f'\n{section} ({len(messages)}):')
+            for message in messages:
+                print(f'  - {message}')
+
+
+# ---------------------------------------------------------------------------
+# Cell parsing
+# ---------------------------------------------------------------------------
+
+def clean(value):
+    """Stripped text, or None for blanks and '-'."""
+    if value is None:
         return None
-    val = str(val).strip()
-    if val in ('', '-', 'None', 'nan'):
+    if isinstance(value, str):
+        value = value.strip()
+        return None if value in ('', '-') else value
+    return value
+
+
+def to_int(value):
+    """Integer from 3, 3.0, '3', '3+' or '6"'; None for blanks and '-'."""
+    value = clean(value)
+    if value is None:
         return None
-    return val
+    if isinstance(value, (int, float)):
+        return int(value)
+    match = re.match(r'^-?\d+', str(value))
+    return int(match.group()) if match else None
 
 
-def parse_stat(val, default=None):
-    """Parse a numeric stat, handling 3+, -, etc."""
-    val = clean_value(val)
-    if val is None:
-        return default
-
-    # Remove + suffix
-    val = val.rstrip('+')
-
-    try:
-        return int(float(val))
-    except (ValueError, TypeError):
-        return default
+def dice(value):
+    """Attacks/Damage as text: 2 -> '2', 'd6+1' -> 'D6+1'."""
+    value = clean(value)
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip().upper().replace(' ', '')
 
 
-def parse_dice(val):
-    """Parse attacks/damage which can be numbers or dice expressions."""
-    val = clean_value(val)
-    if val is None:
-        return '1'
-    return val.upper()
-
-
-def parse_abilities(val):
-    """Parse abilities string into list."""
-    val = clean_value(val)
-    if val is None:
+def text_list(value):
+    value = clean(value)
+    if value is None:
         return []
-
-    # Split on comma, clean each
-    abilities = [a.strip() for a in val.split(',')]
-    return [a for a in abilities if a]
+    return [part.strip() for part in str(value).split(',') if part.strip() and part.strip() != '-']
 
 
-def migrate_faction(wb, sheet_name, app):
-    """Migrate a single faction sheet."""
-    print(f"\n  Processing: {sheet_name}")
+def cell(ws, row, col_letter):
+    return ws.cell(row, column_index_from_string(col_letter)).value
 
-    try:
-        ws = wb[sheet_name]
-    except KeyError:
-        print(f"    Sheet not found: {sheet_name}")
-        return
 
-    with app.app_context():
-        # Create or get faction
-        faction = Faction.query.filter_by(name=sheet_name).first()
-        if not faction:
-            faction = Faction(name=sheet_name)
-            db.session.add(faction)
-            db.session.flush()
+def check_headers(ws, *col_maps):
+    problems = []
+    for col_map in col_maps:
+        for letter, expected in col_map.values():
+            actual = cell(ws, HEADER_ROW, letter)
+            actual = actual.strip() if isinstance(actual, str) else actual
+            if actual != expected:
+                problems.append(f'{letter}{HEADER_ROW} is {actual!r}, expected {expected!r}')
+    if problems:
+        raise SystemExit(f'Sheet "{ws.title}" does not match the v2 layout:\n  ' + '\n  '.join(problems))
 
-        # Clear existing data for this faction
-        Unit.query.filter_by(faction_id=faction.id).delete()
-        FactionRule.query.filter_by(faction_id=faction.id).delete()
-        Stratagem.query.filter_by(faction_id=faction.id).delete()
-        db.session.flush()
 
-        units_added = 0
-        ranged_added = 0
-        melee_added = 0
-        rules_added = 0
+def keyword_base(ability):
+    """'Anti-Infantry 2+' -> 'Anti', 'Sustained Hits 1' -> 'Sustained Hits', 'Hit Modifier +1' -> 'Hit Modifier'."""
+    ability = ability.strip()
+    if ability.lower().startswith('anti-'):
+        return ability[:4]
+    return re.sub(r'\s+[-+]?(\d+|D\d+)([-+]\d+)?\+?$', '', ability, flags=re.IGNORECASE).strip()
 
-        # Read all data starting from row 4 (index 3)
-        # Create a mapping of unit names to unit objects for weapon assignment
-        unit_map = {}
 
-        for row_idx in range(4, ws.max_row + 1):
-            row = [ws.cell(row=row_idx, column=col+1).value for col in range(42)]
+# ---------------------------------------------------------------------------
+# Stable IDs
+# ---------------------------------------------------------------------------
 
-            # Parse unit
-            unit_name = clean_value(row[UNIT_COLS['name']])
-            if unit_name and unit_name.lower() not in ('name', 'unit'):
-                t = parse_stat(row[UNIT_COLS['t']])
-                w = parse_stat(row[UNIT_COLS['w']])
-                sv = parse_stat(row[UNIT_COLS['sv']])
-                inv = parse_stat(row[UNIT_COLS['inv']])
-                fnp = parse_stat(row[UNIT_COLS['fnp']])
-                modifiers = clean_value(row[UNIT_COLS['modifiers']])
+class IdAllocator:
+    """
+    Reuses IDs from the previous JSON by key; new keys get max+1.
 
-                if t is not None and sv is not None:
-                    # Parse keywords from modifiers if present
-                    keywords = []
-                    if modifiers:
-                        keywords = parse_abilities(modifiers)
+    A key can have several IDs (e.g. a unit name repeated for different loadouts);
+    they are handed out in their original order.
+    """
 
-                    unit = Unit(
-                        faction_id=faction.id,
-                        name=unit_name,
-                        toughness=t,
-                        save=sv,
-                        wounds=w or 1,
-                        invulnerable_save=inv,
-                        feel_no_pain=fnp,
-                        keywords=keywords
-                    )
-                    db.session.add(unit)
-                    db.session.flush()
-                    unit_map[unit_name] = unit
-                    units_added += 1
+    def __init__(self, previous):
+        self.previous = previous  # key -> [ids in ID order]
+        self.next_id = max((i for ids in previous.values() for i in ids), default=0) + 1
 
-            # Parse ranged weapon
-            weapon_name = clean_value(row[RANGED_COLS['name']]) or clean_value(row[RANGED_COLS['name2']])
-            if weapon_name and weapon_name.lower() not in ('weapon', 'name'):
-                a = parse_dice(row[RANGED_COLS['a']])
-                bs = parse_stat(row[RANGED_COLS['bs']])
-                s = parse_stat(row[RANGED_COLS['s']])
-                ap = parse_stat(row[RANGED_COLS['ap']], 0)
-                d = parse_dice(row[RANGED_COLS['d']])
-                abilities = parse_abilities(row[RANGED_COLS['abilities']])
+    def get(self, key):
+        if self.previous.get(key):
+            return self.previous[key].pop(0)
+        new_id = self.next_id
+        self.next_id += 1
+        return new_id
 
-                if bs is not None and s is not None:
-                    # Assign to most recent unit or first unit
-                    target_unit = list(unit_map.values())[-1] if unit_map else None
 
-                    if target_unit:
-                        weapon = RangedWeapon(
-                            unit_id=target_unit.id,
-                            name=weapon_name,
-                            attacks=a,
-                            ballistic_skill=bs,
-                            strength=s,
-                            armor_penetration=abs(ap) if ap else 0,
-                            damage=d,
-                            range_inches=24,
-                            abilities=abilities
-                        )
-                        db.session.add(weapon)
-                        ranged_added += 1
+def previous_id_maps(data):
+    faction_names = {f['id']: f['name'] for f in data.get('factions', [])}
 
-            # Parse melee weapon
-            melee_name = clean_value(row[MELEE_COLS['name']])
-            if melee_name and melee_name.lower() not in ('weapon', 'name'):
-                a = parse_dice(row[MELEE_COLS['a']])
-                ws = parse_stat(row[MELEE_COLS['ws']])
-                s = parse_stat(row[MELEE_COLS['s']])
-                ap = parse_stat(row[MELEE_COLS['ap']], 0)
-                d = parse_dice(row[MELEE_COLS['d']])
-                abilities = parse_abilities(row[MELEE_COLS['abilities']])
+    def collect(records, key):
+        ids = {}
+        for record in sorted(records, key=lambda r: r['id']):
+            ids.setdefault(key(record), []).append(record['id'])
+        return ids
 
-                if ws is not None and s is not None:
-                    target_unit = list(unit_map.values())[-1] if unit_map else None
+    by_faction_and_name = lambda r: (faction_names.get(r['faction_id']), r['name'])
+    return {
+        'factions': collect(data.get('factions', []), lambda f: f['name']),
+        'units': collect(data.get('units', []), by_faction_and_name),
+        'ranged_weapons': collect(data.get('ranged_weapons', []), by_faction_and_name),
+        'melee_weapons': collect(data.get('melee_weapons', []), by_faction_and_name),
+        'faction_rules': collect(data.get('faction_rules', []), by_faction_and_name),
+        'stratagems': collect(data.get('stratagems', []), by_faction_and_name),
+        'keywords': collect(data.get('keywords', []), lambda k: k['name']),
+        'target_profiles': collect(data.get('target_profiles', []), lambda t: (t['kind'], t['name'])),
+    }
 
-                    if target_unit:
-                        weapon = MeleeWeapon(
-                            unit_id=target_unit.id,
-                            name=melee_name,
-                            attacks=a,
-                            weapon_skill=ws,
-                            strength=s,
-                            armor_penetration=abs(ap) if ap else 0,
-                            damage=d,
-                            abilities=abilities
-                        )
-                        db.session.add(weapon)
-                        melee_added += 1
 
-            # Parse faction rule
-            rule_name = clean_value(row[RULE_COLS['name']])
-            if rule_name and rule_name.lower() not in ('rule', 'name', 'example rule (edit or delete)'):
-                applies_to = clean_value(row[RULE_COLS['applies_to']]) or 'Attacker'
-                phase = clean_value(row[RULE_COLS['phase']]) or 'Both'
-                modifier = clean_value(row[RULE_COLS['modifier']])
+# ---------------------------------------------------------------------------
+# Reading the workbook
+# ---------------------------------------------------------------------------
 
-                if modifier:
-                    effect = {'raw': modifier}
-                    # Try to parse modifier
-                    if 'Hit' in modifier and '+' in modifier:
-                        effect['hit_modifier'] = 1
-                    elif 'Wound' in modifier and '+' in modifier:
-                        effect['wound_modifier'] = 1
+def read_table(ws, table_name):
+    """Rows of an Excel table as dicts keyed by header."""
+    table = ws.tables[table_name]
+    rows = list(ws[table.ref])
+    headers = [str(c.value).strip() for c in rows[0]]
+    return [dict(zip(headers, (c.value for c in row))) for row in rows[1:]]
 
-                    rule = FactionRule(
-                        faction_id=faction.id,
-                        name=rule_name,
-                        description=modifier,
-                        effect=effect
-                    )
-                    db.session.add(rule)
-                    rules_added += 1
 
-        db.session.commit()
-        print(f"    Units: {units_added}, Ranged: {ranged_added}, Melee: {melee_added}, Rules: {rules_added}")
+def read_weapons(ws, cols, faction, weapon_type, ids, report):
+    weapons = {}
+    for row in range(FIRST_DATA_ROW, ws.max_row + 1):
+        name = clean(cell(ws, row, cols['name'][0]))
+        if not name:
+            continue
+        name = str(name)
+        if name in weapons:
+            report.add('Duplicate weapon names (first kept)', f'{faction["name"]}: {weapon_type} "{name}" (row {row})')
+            continue
+        skill = to_int(cell(ws, row, cols['skill'][0]))
+        record = {
+            'id': ids.get((faction['name'], name)),
+            'faction_id': faction['id'],
+            'name': name,
+            'attacks': dice(cell(ws, row, cols['attacks'][0])) or '1',
+            'strength': to_int(cell(ws, row, cols['strength'][0])) or 0,
+            'armor_penetration': abs(to_int(cell(ws, row, cols['ap'][0])) or 0),
+            'damage': dice(cell(ws, row, cols['damage'][0])) or '1',
+            'abilities': text_list(cell(ws, row, cols['abilities'][0])),
+        }
+        if weapon_type == 'ranged':
+            record['ballistic_skill'] = skill
+            record['range_inches'] = None  # Not in the workbook; filled in from the app
+        else:
+            record['weapon_skill'] = skill
+        weapons[name] = record
+    return weapons
+
+
+def read_faction(ws, faction, ids, known_keywords, report):
+    check_headers(ws, UNIT_COLS, LOADOUT_COLS, RANGED_COLS, MELEE_COLS, RULE_COLS, STRAT_COLS)
+
+    ranged = read_weapons(ws, RANGED_COLS, faction, 'ranged', ids['ranged_weapons'], report)
+    melee = read_weapons(ws, MELEE_COLS, faction, 'melee', ids['melee_weapons'], report)
+    by_type = {'ranged': ranged, 'melee': melee}
+
+    # Units, each followed by its loadout rows (Q:S) until the next unit
+    unit_rows = [r for r in range(FIRST_DATA_ROW, ws.max_row + 1) if clean(cell(ws, r, 'B'))]
+    units = []
+    for i, row in enumerate(unit_rows):
+        name = str(clean(cell(ws, row, 'B')))
+        values = {field: cell(ws, row, letter) for field, (letter, _) in UNIT_COLS.items()}
+        toughness, wounds, save = to_int(values['toughness']), to_int(values['wounds']), to_int(values['save'])
+        if toughness is None or wounds is None or save is None:
+            report.add('Units skipped (missing T, W or Sv)', f'{faction["name"]}: "{name}" (row {row})')
+            continue
+
+        abilities = clean(values['abilities'])
+        move = clean(values['move'])
+        unit = {
+            'id': ids['units'].get((faction['name'], name)),
+            'faction_id': faction['id'],
+            'name': name,
+            'toughness': toughness,
+            'wounds': wounds,
+            'save': save,
+            'invulnerable_save': to_int(values['invulnerable_save']),
+            'feel_no_pain': to_int(values['feel_no_pain']),
+            'move': str(int(move)) if isinstance(move, float) else (str(move) if move is not None else None),
+            'oc': to_int(values['oc']),
+            'leadership': to_int(values['leadership']),
+            'points_cost': to_int(values['points_cost']),
+            'default_models': to_int(values['default_models']),
+            'keywords': text_list(values['keywords']),
+            'modifiers': text_list(values['modifiers']),
+            'can_lead': text_list(values['can_lead']),
+            'abilities': str(abilities) if abilities is not None else None,
+            'points_by_size': [],
+            'ranged_weapons': [],
+            'melee_weapons': [],
+        }
+
+        if unit['points_cost'] is not None and unit['default_models']:
+            unit['points_by_size'] = [{'models': unit['default_models'], 'points': unit['points_cost']}]
+
+        end = unit_rows[i + 1] if i + 1 < len(unit_rows) else ws.max_row + 1
+        loadout = {'ranged': {}, 'melee': {}}
+        for lrow in range(row, end):
+            weapon_name = clean(cell(ws, lrow, 'Q'))
+            if not weapon_name:
+                continue
+            weapon_name = str(weapon_name)
+            weapon_type = str(clean(cell(ws, lrow, 'R')) or '').lower()
+            qty = to_int(cell(ws, lrow, 'S')) or 1
+            if weapon_type not in by_type:
+                report.add('Loadout rows skipped (no matching weapon)',
+                           f'{faction["name"]} / {name}: "{weapon_name}" has type {cell(ws, lrow, "R")!r} (row {lrow})')
+                continue
+            weapon = by_type[weapon_type].get(weapon_name)
+            if not weapon:
+                other = 'melee' if weapon_type == 'ranged' else 'ranged'
+                hint = f' (it is in the {other} table)' if weapon_name in by_type[other] else ''
+                report.add('Loadout rows skipped (no matching weapon)',
+                           f'{faction["name"]} / {name}: no {weapon_type} profile "{weapon_name}"{hint} (row {lrow})')
+                continue
+            if weapon['id'] in loadout[weapon_type]:
+                report.add('Weapons listed twice for one unit (quantities added)',
+                           f'{faction["name"]} / {name}: "{weapon_name}" (row {lrow})')
+                loadout[weapon_type][weapon['id']] += qty
+            else:
+                loadout[weapon_type][weapon['id']] = qty
+
+        unit['ranged_weapons'] = [{'weapon_id': wid, 'qty': q} for wid, q in sorted(loadout['ranged'].items())]
+        unit['melee_weapons'] = [{'weapon_id': wid, 'qty': q} for wid, q in sorted(loadout['melee'].items())]
+        units.append(unit)
+
+    # Rules and stratagems
+    rules, strats = [], []
+    for row in range(FIRST_DATA_ROW, ws.max_row + 1):
+        rule_name = clean(cell(ws, row, 'AM'))
+        if rule_name:
+            rules.append({
+                'id': ids['faction_rules'].get((faction['name'], str(rule_name))),
+                'faction_id': faction['id'],
+                'name': str(rule_name),
+                'applies_to': clean(cell(ws, row, 'AN')),
+                'phase': clean(cell(ws, row, 'AO')),
+                'modifier': clean(cell(ws, row, 'AP')),
+            })
+        strat_name = clean(cell(ws, row, 'AR'))
+        if strat_name:
+            cp = clean(cell(ws, row, 'AS'))
+            strats.append({
+                'id': ids['stratagems'].get((faction['name'], str(strat_name))),
+                'faction_id': faction['id'],
+                'name': str(strat_name),
+                'cp': str(int(cp)) if isinstance(cp, float) else (str(cp) if cp is not None else None),
+                'applies_to': clean(cell(ws, row, 'AT')),
+                'phase': clean(cell(ws, row, 'AU')),
+                'modifier': clean(cell(ws, row, 'AV')),
+                'notes': clean(cell(ws, row, 'AW')),
+            })
+
+    check_names(faction, units, ranged, melee, known_keywords, report)
+    return units, list(ranged.values()), list(melee.values()), rules, strats
+
+
+def check_names(faction, units, ranged, melee, known_keywords, report):
+    """Report likely typos: unknown weapon keywords and 'can lead' names that match no unit."""
+    lower_keywords = {k.lower(): k for k in known_keywords}
+    for weapon in list(ranged.values()) + list(melee.values()):
+        for ability in weapon['abilities']:
+            base = keyword_base(ability)
+            if base in known_keywords:
+                continue
+            if base.lower() in lower_keywords:
+                report.add('Weapon keywords with different capitals (still recognised; consider fixing)',
+                           f'{faction["name"]} / {weapon["name"]}: "{ability}" (Keywords tab has "{lower_keywords[base.lower()]}")')
+            else:
+                report.add('Weapon keywords not on the Keywords tab',
+                           f'{faction["name"]} / {weapon["name"]}: "{ability}"')
+
+    unit_names = {u['name'] for u in units}
+    seen = {}
+    for unit in units:
+        seen[unit['name']] = seen.get(unit['name'], 0) + 1
+    for name, count in seen.items():
+        if count > 1:
+            report.add('Unit names used more than once (kept as separate units)',
+                       f'{faction["name"]}: "{name}" x{count}')
+    for unit in units:
+        for target in unit['can_lead']:
+            if target not in unit_names:
+                report.add('"Can lead" names that match no unit in the faction',
+                           f'{faction["name"]} / {unit["name"]}: "{target}"')
+
+
+def build_keywords(keywords_ws, ids):
+    """The Keywords table: every rules keyword and modifier, how to write it and whether it's modelled."""
+    keywords = []
+    for row in read_table(keywords_ws, 'Keywords'):
+        name = clean(row.get('Keyword'))
+        if not name:
+            continue
+        keywords.append({
+            'id': ids.get(str(name)),
+            'name': str(name),
+            'category': clean(row.get('Category')),
+            'applies_to': clean(row.get('Applies To')),
+            'format': clean(row.get('Format')),
+            'summary': clean(row.get('Rule Summary')),
+            'sim_step': clean(row.get('Sim Step')),
+            'modelled': str(row.get('Modelled in Sim?') or '').strip().lower() == 'yes',
+            'rule_ref': str(clean(row.get('Rule Ref'))) if clean(row.get('Rule Ref')) is not None else None,
+        })
+    return sorted(keywords, key=lambda k: k['id'])
+
+
+def build_target_profiles(wb, ids):
+    """Generic opponent profiles (Roster tab) and role-score benchmarks (Results tab)."""
+    def profile(kind, name, models, t, w, sv, inv, fnp, keywords, weight=None, use=True):
+        return {
+            'id': ids.get((kind, name)),
+            'kind': kind,
+            'name': name,
+            'models': to_int(models) or 1,
+            'toughness': to_int(t),
+            'wounds': to_int(w),
+            'save': to_int(sv),
+            'invulnerable_save': to_int(inv),
+            'feel_no_pain': to_int(fnp),
+            'keywords': text_list(keywords),
+            'weight': float(weight) if isinstance(weight, (int, float)) else None,
+            'use': bool(use),
+        }
+
+    profiles = []
+    roster = wb['Roster']
+    for row in range(55, 67):  # "Opponent - Generic Profiles": Use, Profile, Models, T, W, Sv, InSv, FNP, Keywords, Weight
+        name = clean(cell(roster, row, 'C'))
+        if name:
+            values = [cell(roster, row, col) for col in 'DEFGHIJK']
+            profiles.append(profile('generic', str(name), *values, use=cell(roster, row, 'B') is not False))
+
+    results = wb['Results']
+    for row in range(81, 88):  # Role scores: Role, T, W, Sv, InSv, FNP, Keywords, Models
+        name = clean(cell(results, row, 'B'))
+        if name:
+            t, w, sv, inv, fnp, keywords, models = (cell(results, row, col) for col in 'CDEFGHI')
+            profiles.append(profile('role', str(name), models, t, w, sv, inv, fnp, keywords))
+
+    return sorted(profiles, key=lambda p: p['id'])
+
+
+def build(workbook_path, previous, report):
+    wb = load_workbook(workbook_path, data_only=True)
+    keywords_ws = wb['Keywords']
+    faction_names = [str(r['Faction']).strip() for r in read_table(keywords_ws, 'Factions') if clean(r['Faction'])]
+    known_keywords = {str(r['Keyword']).strip() for r in read_table(keywords_ws, 'Keywords') if clean(r['Keyword'])}
+
+    ids = {name: IdAllocator(id_map) for name, id_map in previous_id_maps(previous).items()}
+    data = {
+        'schema_version': SCHEMA_VERSION,
+        'source': {
+            'workbook': Path(workbook_path).name,
+            'generated': datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        },
+        'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [],
+        'faction_rules': [], 'stratagems': [], 'keywords': [], 'target_profiles': [],
+    }
+
+    for name in faction_names:
+        if name not in wb.sheetnames:
+            report.add('Factions without a tab', name)
+            continue
+        faction = {'id': ids['factions'].get(name), 'name': name}
+        data['factions'].append(faction)
+        units, ranged, melee, rules, strats = read_faction(wb[name], faction, ids, known_keywords, report)
+        data['units'] += units
+        data['ranged_weapons'] += ranged
+        data['melee_weapons'] += melee
+        data['faction_rules'] += rules
+        data['stratagems'] += strats
+        print(f'  {name:20} units={len(units):3}  ranged={len(ranged):3}  melee={len(melee):3}  '
+              f'rules={len(rules):2}  stratagems={len(strats):2}')
+
+    for row in read_table(keywords_ws, 'CoreStratagems'):
+        strat_name = clean(row.get('Stratagem'))
+        if not strat_name:
+            continue
+        modifier = clean(row.get('Modifier'))
+        cp = clean(row.get('CP'))
+        data['stratagems'].append({
+            'id': ids['stratagems'].get((None, str(strat_name))),
+            'faction_id': None,
+            'name': str(strat_name),
+            'cp': str(int(cp)) if isinstance(cp, float) else (str(cp) if cp is not None else None),
+            'applies_to': clean(row.get('Applies To')),
+            'phase': clean(row.get('Phase')),
+            'modifier': None if modifier == 'None' else modifier,
+            'notes': clean(row.get('Notes')),
+        })
+    print(f'  {"Core stratagems":20} {sum(1 for s in data["stratagems"] if s["faction_id"] is None)}')
+
+    data['keywords'] = build_keywords(keywords_ws, ids['keywords'])
+    print(f'  {"Keywords reference":20} {len(data["keywords"])}')
+    data['target_profiles'] = build_target_profiles(wb, ids['target_profiles'])
+    print(f'  {"Target profiles":20} {len(data["target_profiles"])}')
+
+    for section in ('factions', 'units', 'ranged_weapons', 'melee_weapons', 'faction_rules', 'stratagems'):
+        data[section].sort(key=lambda record: record['id'])
+    return data
 
 
 def main():
-    print("\n" + "="*60)
-    print("40K Combat Simulator - Excel Migration")
-    print("="*60)
+    parser = argparse.ArgumentParser(description='Build the data JSON from the v2 Excel workbook.')
+    parser.add_argument('--workbook', default=str(DEFAULT_WORKBOOK), help='Excel workbook to read')
+    parser.add_argument('--output', default=str(DEFAULT_DATA_PATH), help='JSON file to write')
+    parser.add_argument('--force', action='store_true', help='overwrite the output file if it exists')
+    parser.add_argument('--reference-only', action='store_true',
+                        help='only refresh the read-only reference data (keywords, generic target profiles, '
+                             'role benchmarks) in the existing output file; keeps all other data')
+    args = parser.parse_args()
 
-    excel_path = Path(__file__).parent.parent / '40KCombatSimulator.xlsx'
+    output = Path(args.output)
+    if args.reference_only:
+        if not output.exists():
+            print(f'{output} does not exist; run without --reference-only first.')
+            return 1
+        data = read_data_file(output)
+        id_maps = previous_id_maps(data)
+        wb = load_workbook(args.workbook, data_only=True)
+        data['keywords'] = build_keywords(wb['Keywords'], IdAllocator(id_maps['keywords']))
+        data['target_profiles'] = build_target_profiles(wb, IdAllocator(id_maps['target_profiles']))
+        write_data_file(output, data)
+        print(f'Updated the reference data in {output}: {len(data["keywords"])} keywords, '
+              f'{len(data["target_profiles"])} target profiles. Nothing else was changed.')
+        return 0
 
-    if not excel_path.exists():
-        print(f"\nExcel file not found: {excel_path}")
-        return
+    if output.exists() and not args.force:
+        print(f'{output} already exists. The app edits this file, so rebuilding it from Excel would lose those edits.')
+        print('Use --force to overwrite it, or --output <file> to write somewhere else.')
+        return 1
 
-    print(f"\nFound Excel file: {excel_path}")
+    # Keep IDs stable against the file being replaced, or the app's current data
+    id_source = output if output.exists() else Path(DEFAULT_DATA_PATH)
+    previous = read_data_file(id_source) if id_source.exists() else {}
 
-    app = create_app()
+    print(f'Reading {args.workbook}')
+    report = Report()
+    data = build(args.workbook, previous, report)
+    write_data_file(output, data)
 
-    with app.app_context():
-        db.create_all()
-        print("Database initialized.")
-
-    print("\nLoading workbook...")
-    wb = load_workbook(excel_path, data_only=True)
-
-    print("Migrating faction data...")
-    for sheet_name in FACTION_SHEETS:
-        migrate_faction(wb, sheet_name, app)
-
-    wb.close()
-
-    # Print summary
-    with app.app_context():
-        print("\n" + "-"*40)
-        print("Migration Summary:")
-        print(f"  Factions: {Faction.query.count()}")
-        print(f"  Units: {Unit.query.count()}")
-        print(f"  Ranged Weapons: {RangedWeapon.query.count()}")
-        print(f"  Melee Weapons: {MeleeWeapon.query.count()}")
-        print(f"  Faction Rules: {FactionRule.query.count()}")
-        print("-"*40)
-
-    print("\nMigration complete!")
-    print(f"Database: {Path(__file__).parent.parent / 'data' / 'combat_sim.db'}")
-    print("\nRun 'python run.py' to start the application.\n")
+    print(f'\nWrote {output}')
+    print(f'  {len(data["factions"])} factions, {len(data["units"])} units, '
+          f'{len(data["ranged_weapons"])} ranged + {len(data["melee_weapons"])} melee weapons, '
+          f'{len(data["faction_rules"])} faction rules, {len(data["stratagems"])} stratagems')
+    report.print()
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

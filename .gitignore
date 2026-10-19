@@ -56,3 +56,7 @@ skills-lock.json
 
 # Prototypes (development only)
 prototype/
+
+# Test coverage data
+.coverage
+htmlcov/
