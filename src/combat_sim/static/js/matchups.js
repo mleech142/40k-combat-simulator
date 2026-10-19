@@ -17,9 +17,11 @@
     // State
     const state = {
         // [{unit_id, unit_name, faction, weapons: [{weapon_id, weapon_type, name, range, attacks,
-        //   skill, strength, ap, damage, abilities, models, include}]}]
+        //   skill, strength, ap, damage, abilities, models, include, leader}], leaders, leader_id, leader_name,
+        //   leader_points}] (an attached leader's weapons are in `weapons`, marked leader: true)
         attackers: [],
-        // [{unit_id, unit_name, faction, toughness, save, wounds, invulnerable_save, feel_no_pain, model_count}]
+        // [{unit_id, unit_name, faction, toughness, save, wounds, invulnerable_save, feel_no_pain, model_count,
+        //   leaders, leader_id}] (a leader's buffs apply to the defender; its stats aren't part of it yet)
         defenders: [],
         results: null,
         currentMetric: 'avg_damage',
@@ -369,6 +371,8 @@
 
     function toDefenderEntry(unit, modelCount) {
         return {
+            leaders: unit.leaders || [],
+            leader_id: null,
             unit_id: unit.id,
             unit_name: unit.name,
             faction: unit.faction,
@@ -454,6 +458,8 @@
                     unit_size: unit.default_models || null,
                     points_table: unit.points_by_model_count || [],
                     weapons: Core.matchupWeapons(unit),  // Loadout, then wargear options (not included)
+                    leaders: unit.leaders || [],
+                    leader_id: null,
                 });
                 renderAttackerTable();
             } else {
@@ -494,7 +500,8 @@
                         Size <input type="number" class="roster-models unit-size-input" data-a="${a}"
                                     value="${atk.unit_size || atk.default_models}" min="1" max="99">
                     </label>` : ''}
-                    <span class="unit-points">${pointsLabel(atk.points_table, atk.unit_size || atk.default_models)}</span>
+                    <span class="unit-points">${unitPointsLabel(atk)}</span>
+                    ${leaderSelect(atk.leaders, atk.leader_id, `data-a="${a}"`, 'atk-leader')}
                 </td>`;
             const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit">&times;</button>`;
 
@@ -518,7 +525,7 @@
                                title="Include in matrix">
                     </td>
                     ${i === 0 ? unitCell(visible.length) : ''}
-                    <td class="roster-weapon">${escapeHtml(w.name)}${w.option ? ' <span class="option-tag" title="Wargear option: tick to include it">option</span>' : ''}</td>
+                    <td class="roster-weapon">${escapeHtml(w.name)}${w.option ? ' <span class="option-tag" title="Wargear option: tick to include it">option</span>' : ''}${w.leader ? ` <span class="option-tag" title="${escapeHtml(w.leader_name)}'s weapon">leader</span>` : ''}</td>
                     <td class="roster-type" title="${isRanged ? 'Shooting' : 'Melee'}">${isRanged ? '🎯' : '⚔️'}</td>
                     <td>${isRanged ? (w.range ? escapeHtml(w.range) + '"' : '-') : 'Melee'}</td>
                     <td>${escapeHtml(w.attacks)}</td>
@@ -537,8 +544,41 @@
         elements.attackerBody.innerHTML = html;
     }
 
+    /** Points of the unit at its size, plus its leader's. */
+    function unitPointsLabel(atk) {
+        const label = pointsLabel(atk.points_table, atk.unit_size || atk.default_models);
+        return atk.leader_points ? `${label} + ${atk.leader_points} leader` : label;
+    }
+
+    /** A "Leader" dropdown for a table row ('' when no leader can join the unit). */
+    function leaderSelect(leaders, selectedId, dataAttr, cls) {
+        if (!leaders?.length) return '';
+        const chosen = leaders.find(l => l.id === selectedId);
+        const summary = chosen ? Core.leaderBuffSummary(chosen.leader_buffs) : '';
+        return `<select class="roster-leader ${cls}" ${dataAttr} title="${escapeHtml(summary ? 'Grants: ' + summary : 'Attach a leader')}">
+            <option value="">No leader</option>
+            ${leaders.map(l => `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+        </select>${chosen ? `<span class="leader-buffs">${escapeHtml(summary || 'nothing the maths uses')}</span>` : ''}`;
+    }
+
+    /** Attach a leader to an attacker unit (its weapons and points join the unit) or detach it. */
+    async function setAttackerLeader(a, leaderId) {
+        const atk = state.attackers[a];
+        const choice = (atk.leaders || []).find(l => l.id === leaderId) || null;
+        const detail = choice ? await fetch(`/api/units/${choice.id}`).then(r => r.json()) : null;
+        atk.weapons = Core.withLeaderEntries(atk.weapons, detail);
+        atk.leader_id = choice?.id ?? null;
+        atk.leader_name = choice?.name ?? null;
+        atk.leader_points = choice?.points ?? null;
+        renderAttackerTable();
+    }
+
     function onAttackerTableChange(e) {
         const el = e.target;
+        if (el.classList.contains('atk-leader')) {
+            setAttackerLeader(parseInt(el.dataset.a), el.value ? parseInt(el.value) : null);
+            return;
+        }
         if (el.classList.contains('unit-size-input')) {
             Core.scaleUnitSize(state.attackers[parseInt(el.dataset.a)], parseInt(el.value));
             renderAttackerTable();
@@ -605,7 +645,8 @@
 
         elements.defenderBody.innerHTML = state.defenders.map((d, idx) => `
             <tr>
-                <td class="roster-unit-name">${escapeHtml(copyLabel(state.defenders, idx))}</td>
+                <td class="roster-unit-name">${escapeHtml(copyLabel(state.defenders, idx))}
+                    ${leaderSelect(d.leaders, d.leader_id, `data-d="${idx}"`, 'def-leader')}</td>
                 <td class="roster-muted">${escapeHtml(d.faction || '')}</td>
                 <td>${d.toughness}</td>
                 <td>${d.save}+</td>
@@ -665,6 +706,11 @@
     }
 
     function onDefenderTableChange(e) {
+        if (e.target.classList.contains('def-leader')) {
+            state.defenders[parseInt(e.target.dataset.d)].leader_id = e.target.value ? parseInt(e.target.value) : null;
+            renderDefenderTable();
+            return;
+        }
         const el = e.target;
         if (el.classList.contains('profile-inc')) {
             const set = genericIncludedSet();
@@ -942,6 +988,7 @@
                     unit_id: defender.unit_id,
                     profile_id: defender.profile_id,
                     extra_modifiers: defender.extra_modifiers || '',
+                    leader_id: defender.leader_id || null,
                     model_count: defender.model_count,
                     conditions: request.conditions,
                     attacker_rules: request.attacker_rules,

@@ -10,6 +10,7 @@ Run: BSData/wh40k-11e at commit `b8667d4` (2026-10-19), 46 files → 37 factions
 | `unknown_keyword` | 231 | A weapon keyword the simulator doesn't know. | See below: mostly conditional keywords the engine could support. |
 | `mixed_profile` | 81 | Models in a unit have different stat lines; the most numerous model's is used. | Model-level profiles (backlog item from the grilling session). |
 | `weapon_stats` | 37 | Weapon with strength `*`; skipped. All are Vortex Grenade (one per faction). | Leave skipped, or model it with an overlay entry. |
+| `leader_buff` | 94 | A sentence of a leader's "while leading" text that isn't a modifier the maths uses (charge re-rolls, Fights First, Feel No Pain only against mortal wounds…). 64 of 258 leader datasheets get modelled buffs. | Expected for most. Leaders whose buffs are worth modelling can get them on the Data tab (Leader buffs). |
 | `points` | 3 | Cost modifiers the importer can't evaluate; base costs used. Beasts of Nurgle, Ironstrider Ballistarii, Lokhust Heavy Destroyers. | Look at their modifiers individually. |
 | `missing_link` | 1 | Library - Astartes Heresy Legends: profile link "Terror of Khorne" points at nothing. | BSData bug; report upstream. |
 | `skipped_unit` | 1 | Unaligned Forces / Searchlight has no Unit profile. | Expected (it's a wargear token). |

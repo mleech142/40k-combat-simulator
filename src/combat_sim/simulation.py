@@ -13,7 +13,7 @@ Modifier language (comma-separated, exact names from the Keywords tab, capitals 
            Anti-<Keyword> X+, Snap Shooting, Critical Hits X+, Critical Wounds X+,
            Hit/Wound/AP/Damage/Attacks/Strength Modifier ±X, BS/WS Modifier ±X,
            Save Modifier -X, Reroll Hits [1], Reroll Wounds [1]
-  target:  its keywords (for Anti), Feel No Pain X+, Stealth,
+  target:  its keywords (for Anti), Feel No Pain X+, Invulnerable Save X+, Stealth,
            Toughness/Save/Damage/Hit/Wound/AP Modifier ±X
 X can be a number or dice (D3, D6+1); dice values are averaged in the analytical engine.
 """
@@ -68,6 +68,11 @@ class DefenderProfile:
         if fnp:
             fnp = int(fnp)
             self.feel_no_pain = min(self.feel_no_pain, fnp) if self.feel_no_pain else fnp
+        # So does an invulnerable save given by a modifier (e.g. a leader's), best value wins
+        invuln = keyword_min(self.keywords, "Invulnerable Save")
+        if invuln:
+            invuln = int(invuln)
+            self.invulnerable_save = min(self.invulnerable_save, invuln) if self.invulnerable_save else invuln
 
 
 @dataclass

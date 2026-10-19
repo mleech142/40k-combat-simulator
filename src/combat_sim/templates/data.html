@@ -340,6 +340,17 @@
                 <label>Can Lead (comma-separated unit names)</label>
                 <input type="text" id="unit-can-lead">
             </div>
+            <div class="form-group" id="unit-leader-buffs-group">
+                <label>Leader buffs</label>
+                <p class="weapon-picker-hint" id="unit-leader-buffs-note">What this unit grants the unit it leads, in the
+                    keyword format of the Keywords tab. "Target" buffs apply when the led unit is attacked.</p>
+                <table class="points-table leader-buffs-table">
+                    <thead><tr><th>Applies to</th><th>Phase</th><th>Modifier</th><th></th></tr></thead>
+                    <tbody id="unit-leader-buff-rows"></tbody>
+                </table>
+                <button type="button" class="btn-small" onclick="addLeaderBuffRow()">+ Add buff</button>
+                <button type="button" class="btn-small" id="unit-leader-buffs-reset" onclick="resetLeaderBuffs()">Use BSData's</button>
+            </div>
             <div class="form-group">
                 <label>Abilities</label>
                 <textarea id="unit-abilities" rows="4"></textarea>
@@ -961,7 +972,71 @@ async function loadTargetProfiles() {
 // Loadout picker: the unit's faction's weapons, ticked with a Qty if the unit carries them
 let pickerWeapons = [];
 let pickerSelected = {ranged: new Map(), melee: new Map()};  // weapon id -> qty
-let unitReadOnly = false;  // Viewing a BSData unit: only its added modifiers can change
+let unitReadOnly = false;  // Viewing a BSData unit: only its added modifiers and leader buffs can change
+let unitDatasheetBuffs = [];  // A BSData unit's leader buffs as read from its datasheet
+let leaderBuffsTouched = false;  // Leader buffs changed in the form (only then saved for a BSData unit)
+let leaderBuffsReset = false;  // "Use BSData's" clicked: drop the edited buffs
+
+function leaderBuffRowHtml(buff = {}) {
+    const option = (value, label, current) => `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+    return `<tr>
+        <td><select class="buff-side">${option('Attacker', 'Attacker', buff.applies_to || 'Attacker')}${option('Target', 'Target', buff.applies_to)}</select></td>
+        <td><select class="buff-phase">${option('Both', 'Both', buff.phase || 'Both')}${option('Shooting', 'Shooting', buff.phase)}${option('Fighting', 'Fighting', buff.phase)}</select></td>
+        <td><input type="text" class="buff-modifier" value="${esc(buff.modifier || '')}" placeholder="e.g. Lethal Hits"></td>
+        <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove(); leaderBuffsTouched = true" title="Remove buff">&times;</button></td>
+    </tr>`;
+}
+
+function renderLeaderBuffRows(buffs) {
+    const body = document.getElementById('unit-leader-buff-rows');
+    body.innerHTML = (buffs || []).map(leaderBuffRowHtml).join('');
+    body.oninput = body.onchange = () => { leaderBuffsTouched = true; leaderBuffsReset = false; };
+}
+
+function addLeaderBuffRow() {
+    document.getElementById('unit-leader-buff-rows').insertAdjacentHTML('beforeend', leaderBuffRowHtml());
+    leaderBuffsTouched = true;
+    leaderBuffsReset = false;
+}
+
+function resetLeaderBuffs() {
+    renderLeaderBuffRows(unitDatasheetBuffs);
+    leaderBuffsTouched = true;
+    leaderBuffsReset = true;
+}
+
+function readLeaderBuffRows() {
+    return [...document.querySelectorAll('#unit-leader-buff-rows tr')].map(tr => ({
+        applies_to: tr.querySelector('.buff-side').value,
+        phase: tr.querySelector('.buff-phase').value,
+        modifier: tr.querySelector('.buff-modifier').value.trim(),
+    })).filter(b => b.modifier);
+}
+
+/** The leader buffs section for a unit (null = a new custom unit). */
+function showLeaderBuffs(unit) {
+    const group = document.getElementById('unit-leader-buffs-group');
+    const note = document.getElementById('unit-leader-buffs-note');
+    const reset = document.getElementById('unit-leader-buffs-reset');
+    leaderBuffsTouched = false;
+    leaderBuffsReset = false;
+    unitDatasheetBuffs = unit?.datasheet_leader_buffs || [];
+    renderLeaderBuffRows(unit ? unit.leader_buffs : []);
+    const bsdata = unit && !unit.editable;
+    group.style.display = bsdata && !(unit.can_lead || []).length && !(unit.leader_buffs || []).length ? 'none' : '';
+    reset.style.display = bsdata && unit.leader_buffs_edited ? '' : 'none';
+    if (!bsdata) {
+        note.textContent = 'What this unit grants the unit it leads, in the keyword format of the Keywords tab. ' +
+            '"Target" buffs apply when the led unit is attacked.';
+    } else if (unit.leader_buffs_edited) {
+        note.textContent = 'Edited here. Read from its datasheet: ' +
+            (Core.leaderBuffSummary(unitDatasheetBuffs) || 'nothing') + '.';
+    } else {
+        note.textContent = unitDatasheetBuffs.length
+            ? 'Read from its Leader text in BSData. Edit them if they are wrong or incomplete.'
+            : 'Nothing its Leader text says could be read as a modifier. Add what the calculations should use.';
+    }
+}
 
 async function loadPickerWeapons() {
     const factionId = document.getElementById('unit-faction').value;
@@ -999,7 +1074,9 @@ function setUnitReadOnly(readOnly, unit = null) {
     }
     document.querySelectorAll('#unit-form input, #unit-form select, #unit-form textarea, #unit-form .btn-small, #unit-form .btn-remove')
         .forEach(el => {
-            if (el.id !== 'unit-modifiers' && el.id !== 'unit-weapon-search') el.disabled = readOnly;
+            const editable = el.id === 'unit-modifiers' || el.id === 'unit-weapon-search' ||
+                el.closest('#unit-leader-buffs-group');
+            if (!editable) el.disabled = readOnly;
         });
     document.getElementById('unit-readonly-note').style.display = readOnly ? '' : 'none';
     for (const id of ['unit-new-weapon', 'unit-add-size', 'unit-points-hint']) {
@@ -1087,6 +1164,7 @@ function showAddUnitModal() {
     document.getElementById('unit-modal-title').textContent = 'Add Unit';
     document.getElementById('unit-form').reset();
     setUnitReadOnly(false);
+    showLeaderBuffs(null);
     renderPointsRows([]);
     document.getElementById('unit-id').value = '';
     const filterFaction = document.getElementById('filter-faction').value;
@@ -1125,6 +1203,7 @@ async function editUnit(id) {
     document.getElementById('unit-can-lead').value = (unit.can_lead || []).join(', ');
     document.getElementById('unit-abilities').value = unit.abilities || '';
     setUnitReadOnly(!unit.editable, unit);
+    showLeaderBuffs(unit);
 
     const offered = unit.editable ? null : ['ranged', 'melee'].flatMap(type =>
         [...(unit[`${type}_weapons`] || []), ...(unit[`${type}_options`] || [])].map(w => ({...w, type})));
@@ -1137,7 +1216,9 @@ async function saveUnit(e) {
     const id = document.getElementById('unit-id').value;
     const value = elId => document.getElementById(elId).value;
     if (unitReadOnly) {
-        if (await api(`/api/data/units/${id}`, 'PUT', {added_modifiers: listValue(value('unit-modifiers'))})) {
+        const change = {added_modifiers: listValue(value('unit-modifiers'))};
+        if (leaderBuffsTouched) change.leader_buffs = leaderBuffsReset ? null : readLeaderBuffRows();
+        if (await api(`/api/data/units/${id}`, 'PUT', change)) {
             closeModal('unit-modal');
             loadUnits();
         }
@@ -1158,6 +1239,7 @@ async function saveUnit(e) {
         keywords: listValue(value('unit-keywords')),
         modifiers: listValue(value('unit-modifiers')),
         can_lead: listValue(value('unit-can-lead')),
+        leader_buffs: readLeaderBuffRows(),
         abilities: value('unit-abilities'),
         ranged_weapons: [...pickerSelected.ranged].map(([weapon_id, qty]) => ({weapon_id, qty})),
         melee_weapons: [...pickerSelected.melee].map(([weapon_id, qty]) => ({weapon_id, qty})),

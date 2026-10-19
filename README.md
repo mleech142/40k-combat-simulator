@@ -8,7 +8,7 @@ It replaces the `40KCombatSimulator_v2.xlsx` spreadsheet: its maths is reproduce
 
 ## Features
 
-- **Simulator** — one attacking unit against one target: tick any of the unit's weapons (with how many models carry each), swap in wargear options, set battle conditions, pick each side's detachment and tick faction rules and stratagems, and add one-off *extra modifiers* to the target. Shows per-weapon results, totals and (in Monte Carlo mode) a damage distribution with kill and wipe chances.
+- **Simulator** — one attacking unit against one target: tick any of the unit's weapons (with how many models carry each), swap in wargear options, attach a leader to either unit (its weapons join the attacker; its buffs apply to the unit it leads), set battle conditions, pick each side's detachment and tick faction rules and stratagems, and add one-off *extra modifiers* to the target. Shows per-weapon results, totals and (in Monte Carlo mode) a damage distribution with kill and wipe chances.
 - **Matchups** — your army against an opponent's real units or generic benchmark profiles (MEQ, TEQ, vehicles…): a heat-map grid per unit and for the whole army, unit sizes with correct points, army-wide rules and stratagems, and an **Army Analysis** panel (summary, gaps, role scores with a spider chart, Toughness/Save coverage, reverse durability).
 - **Data** — browse every BSData faction, unit and weapon (read-only), with each faction's army and detachment rules as reference text. Write the faction rules and stratagems the maths uses (for the whole faction or one detachment), add modifiers to BSData units, and build your own units and weapons in custom factions (copying BSData weapons if you like). Read-only reference tabs list every rules keyword and the benchmark target profiles. Every confirmed change is saved straight to the app data file.
 - **Setup** — download the latest BSData catalogues, point the app at a folder of them, or re-import; see what the import couldn't read.
@@ -62,7 +62,7 @@ The launchers create a virtual environment, install the requirements and start t
 
 ### Matchups
 
-1. **+ Add Unit** to the Attackers table (its loadout is added, plus its wargear options, excluded until you tick them; a unit can be added more than once). Set each unit's **Size** — points and weapon quantities follow.
+1. **+ Add Unit** to the Attackers table (its loadout is added, plus its wargear options, excluded until you tick them; a unit can be added more than once). Set each unit's **Size** — points and weapon quantities follow. Pick a **leader** for a unit to add its weapons, points and buffs; defenders can have a leader too (its defensive buffs apply).
 2. Switch Defenders between **Real units** (with per-unit model counts and extra modifiers) and **Generic profiles**.
 3. Choose each side's detachment, tick army-wide rules and stratagems, set conditions, then **Run Matrix**.
 4. Change the **Display** metric (damage, models killed, % destroyed, points efficiency…), toggle **Show weapons**, click any cell for a Monte Carlo breakdown, and read the **Army Analysis** tabs.
@@ -71,6 +71,8 @@ The launchers create a virtual environment, install the requirements and start t
 Both pages remember their setup while you move between tabs; it is cleared when the app restarts.
 
 ### Rules and stratagems
+
+**Leaders:** the "While this model is leading a unit, …" text of each BSData leader is read into buffs where it says something the maths models (weapon abilities, +1 to hit or wound, re-rolls, critical hits on 5+, invulnerable saves, Feel No Pain, -1 to be hit…); check or change them under **Leader buffs** in the unit's view on the Data tab. A defender's leader adds its buffs, but the target is still the bodyguard unit's own stat line.
 
 BSData describes rules in words; it has no stratagems and nothing the maths can use. The calculations use the faction rules and stratagems written on the **Data** tab, in the keyword format the **Keywords** tab lists (e.g. `Sustained Hits 1, Lance`). The app ships with the core stratagems; add your armies' rules and stratagems there, each for the whole faction or for one detachment (BSData's own text for each army rule and detachment is shown alongside to write from).
 
@@ -93,7 +95,7 @@ The Data page shows whether the BSData folder loaded. BSData units keep their ID
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests                                         # 169 tests (Python + JavaScript)
+python -m pytest tests                                         # 197 tests (Python + JavaScript)
 node --test "tests/js/*.test.js"                               # JavaScript only (Node 18+)
 python -m coverage run --source=src/combat_sim -m pytest tests && python -m coverage report
 ```

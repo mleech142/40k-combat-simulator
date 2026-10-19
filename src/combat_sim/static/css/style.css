@@ -3014,3 +3014,37 @@ body {
     border: 1px solid var(--border);
     border-radius: 6px;
 }
+
+/* Leaders */
+.roster-leader {
+    display: block;
+    margin-top: 0.35rem;
+    max-width: 100%;
+    font-size: 0.75rem;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.15rem 0.3rem;
+}
+
+.leader-buffs {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.7rem;
+    color: var(--warning);
+    white-space: normal;
+}
+
+.leader-group .filter-select {
+    width: 100%;
+}
+
+.leader-buffs-table select,
+.leader-buffs-table input {
+    width: 100%;
+}
+
+.leader-buffs-table td:nth-child(3) {
+    width: 55%;
+}

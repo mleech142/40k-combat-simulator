@@ -873,6 +873,19 @@
         "$text": "This model has the Feel No Pain 5+ ability."
        }
       ]
+     },
+     {
+      "name": "Captain's Command",
+      "id": "a-captain-command",
+      "hidden": false,
+      "typeId": "pt-abil",
+      "typeName": "Abilities",
+      "characteristics": [
+       {
+        "name": "Description",
+        "$text": "While this model is leading a unit, ranged weapons equipped by models in that unit have the **[LETHAL HITS]** ability. In addition, each time an attack targets that unit, subtract 1 from the Hit roll. You can re-roll Charge rolls made for that unit."
+       }
+      ]
      }
     ],
     "infoLinks": [

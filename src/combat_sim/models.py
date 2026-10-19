@@ -114,6 +114,10 @@ class Unit(db.Model):
     # Modifiers added in the app to a read-only BSData unit (saved as the app data's unit_modifiers)
     added_modifiers = db.Column(JSON, default=list)
     can_lead = db.Column(JSON, default=list)  # Names of units this unit can lead
+    # What this unit grants the unit it leads, as rows like faction rules:
+    # [{"applies_to": "Attacker"|"Target", "phase": "Shooting"|"Fighting"|"Both", "modifier": "Lethal Hits"}]
+    leader_buffs = db.Column(JSON, default=list)  # BSData: parsed from its Leader text; custom: edited
+    leader_buffs_override = db.Column(JSON, nullable=True)  # BSData units: edited in the app (null = parsed)
     abilities = db.Column(db.Text, nullable=True)  # Free text from the datasheet
 
     bsdata_id = db.Column(db.String(40), nullable=True)  # Selection entry ID (BSData units only)
@@ -170,6 +174,16 @@ class Unit(db.Model):
     def editable(self):
         return self.faction.editable
 
+    @property
+    def effective_leader_buffs(self):
+        """The buffs it grants when leading: edited in the app if so, else its own."""
+        return list(self.leader_buffs_override if self.leader_buffs_override is not None else (self.leader_buffs or []))
+
+    def leaders(self):
+        """Units of the same faction that can lead this one (by name, as their Leader lists say)."""
+        candidates = Unit.query.filter(Unit.faction_id == self.faction_id, Unit.id != self.id).order_by(Unit.name)
+        return [u for u in candidates if self.name in (u.can_lead or [])]
+
     def loadout(self, weapon_type):
         """[(weapon, qty)] for this unit's ranged or melee weapons, in datasheet order."""
         table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
@@ -215,6 +229,9 @@ class Unit(db.Model):
             'datasheet_modifiers': self.modifiers or [],
             'added_modifiers': self.added_modifiers or [],
             'can_lead': self.can_lead or [],
+            'leader_buffs': self.effective_leader_buffs,
+            'datasheet_leader_buffs': self.leader_buffs or [],
+            'leader_buffs_edited': self.leader_buffs_override is not None,
             'abilities': self.abilities or '',
             'source': self.faction.source,
             'editable': self.editable,

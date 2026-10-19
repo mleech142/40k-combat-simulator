@@ -343,3 +343,63 @@ def test_marked_up_and_oddly_spaced_text_is_still_parsed(tmp_path):
     assert unit(result, 'Star Captain')['can_lead'] == ['Void Warriors']
     assert ' ' not in unit(result, 'Scout Drone')['abilities']
     assert '^^**this model^^**' in unit(result, 'Scout Drone')['abilities']  # Markup kept for display
+
+
+# --- Leader buffs -----------------------------------------------------------------------------
+
+from combat_sim.bsdata import parse_leader_buffs  # noqa: E402
+
+LEADING = 'While this model is leading a unit, '
+
+
+@pytest.mark.parametrize('text,expected', [
+    # Real BSData phrasings
+    ('melee weapons equipped by models in that unit have the [Sustained Hits 1] and [Lance] abilties.',
+     [('Attacker', 'Fighting', 'Sustained Hits 1'), ('Attacker', 'Fighting', 'Lance')]),
+    ('weapons equipped by models in that unit have the [LETHAL HITS] ability.', [('Attacker', 'Both', 'Lethal Hits')]),
+    ('ranged weapons equipped by models in that unit have the [ASSAULT] ability.', [('Attacker', 'Shooting', 'Assault')]),
+    ('each time a model in that unit makes an attack, add 1 to the Wound roll.', [('Attacker', 'Both', 'Wound Modifier +1')]),
+    ('each time a model in that unit makes a melee attack, you can re-roll the Hit roll.',
+     [('Attacker', 'Fighting', 'Reroll Hits')]),
+    ('each time a model in that unit makes an attack, re-roll a Hit roll of 1.', [('Attacker', 'Both', 'Reroll Hits 1')]),
+    ('each time a model in that unit makes a ranged attack, a successful unmodifed Hit roll of 5+ scores a Critical Hit.',
+     [('Attacker', 'Shooting', 'Critical Hits 5+')]),
+    ('improve the Strength and Armour Penetration characteristic of melee weapons equipped by models in that unit by 1.',
+     [('Attacker', 'Fighting', 'Strength Modifier +1'), ('Attacker', 'Fighting', 'AP Modifier -1')]),
+    ('models in that unit have a 4+ invulnerable save.', [('Target', 'Both', 'Invulnerable Save 4+')]),
+    ('models in that unit have the Feel No Pain 5+ ability.', [('Target', 'Both', 'Feel No Pain 5+')]),
+    ('each time a melee attack targets that unit, subtract 1 from the Hit roll.', [('Target', 'Fighting', 'Hit Modifier -1')]),
+    # Marked up, with a second sentence
+    ('^^**Melee**^^ weapons equipped by models in that unit have the **[LETHAL HITS]** ability. In addition, '
+     'each time a model in that unit makes an attack, a Critical Hit is scored on an unmodified Hit roll of 5+, '
+     'instead of only on a 6.', [('Attacker', 'Fighting', 'Lethal Hits'), ('Attacker', 'Both', 'Critical Hits 5+')]),
+])
+def test_leader_buffs_parsed(text, expected):
+    buffs, skipped = parse_leader_buffs(LEADING + text)
+    assert [(b['applies_to'], b['phase'], b['modifier']) for b in buffs] == expected
+    assert skipped == []
+
+
+@pytest.mark.parametrize('text', [
+    'models in that unit have the Feel No Pain 4+ ability against Psychic Attacks.',  # Conditional
+    'each time a model in that unit makes an attack which targets a unit which is Afflicted, that attack has the '
+    '[Sustained Hits 1] ability.',
+    'you can re-roll Charge rolls made for that unit.',  # Not damage maths
+    'models in that unit have the Fights First ability.',
+])
+def test_leader_text_not_modelled_is_reported(text):
+    buffs, skipped = parse_leader_buffs(LEADING + text)
+    assert buffs == [] and skipped == [text]
+
+
+def test_text_without_leading_gives_nothing():
+    assert parse_leader_buffs('Models in this unit have the Feel No Pain 5+ ability.') == ([], [])
+
+
+def test_leader_buffs_of_a_leader_unit(result):
+    assert unit(result, 'Star Captain')['leader_buffs'] == [
+        {'applies_to': 'Attacker', 'phase': 'Shooting', 'modifier': 'Lethal Hits'},
+        {'applies_to': 'Target', 'phase': 'Both', 'modifier': 'Hit Modifier -1'}]
+    assert unit(result, 'Void Warriors')['leader_buffs'] == []  # Not a leader
+    assert ('Starfarers', 'Star Captain', 'not modelled: "You can re-roll Charge rolls made for that unit."') in \
+        reported(result, 'leader_buff')

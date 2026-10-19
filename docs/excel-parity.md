@@ -23,7 +23,7 @@ The goal is for the Python app to do everything `40KCombatSimulator_v2.xlsx` doe
 | v2 feature | App | Notes |
 |---|---|---|
 | Unit stats T, W, Sv, InSv, FNP | ✅ | |
-| M, OC, Ld, Points, Models, Keywords, Leader (can lead), Abilities | ✅ | Stored, editable and shown; not used in the maths (Excel doesn't use them either, apart from Points and Models) |
+| M, OC, Ld, Points, Models, Keywords, Leader (can lead), Abilities | ✅ | Stored and shown. Since 2.0 *can lead* and the Leader text are used: a leader can be attached in the Simulator and Matchups, adding its weapons, points and buffs (Excel had no leaders) |
 | Unit Modifiers (column H, e.g. `Feel No Pain 5+`, keywords for Anti) | ✅ | Used as keywords for Anti; `Feel No Pain X+` here counts (best of this and the FNP column) |
 | Loadout with Qty (models carrying each weapon) | ✅ | Pre-fills Simulator and Matchups quantities |
 | Weapon profiles per faction | ✅ | |
@@ -151,7 +151,7 @@ Ticks are remembered when switching tabs and saved with Scenarios and Comparison
 | Damage per attack vs target wounds | Capped at the target's W (no overkill per attack) | ✅ Both engines cap each attack's damage at W; "Overkill" now means damage lost to the cap |
 | Models killed | Attacks needed per kill, then divided; capped at target models | ✅ Same method; a unit's weapons' kills add up (capped per unit), army totals add units' kills. Monte Carlo allocates model by model ➕ |
 | Hit/Wound modifier cap ±1 | ✅ | n/a (no modifiers yet) |
-| Mixed units (leader + bodyguard) | Not modelled (one target profile) | Not modelled |
+| Mixed units (leader + bodyguard) | Not modelled (one target profile) | Attacking: modelled (leader's weapons and buffs). As a target: the leader's buffs apply, but the target is still one profile |
 
 ## 10. App-only features (keep)
 

@@ -128,6 +128,7 @@
         if (atk.default_models) {
             const currentSize = atk.unit_size || atk.default_models;
             for (const w of atk.weapons) {
+                if (w.leader) continue;  // The leader is one model whatever the unit's size
                 // Entries saved before loadout quantities were kept: work the loadout quantity back out
                 // from the current size once, so repeated resizing doesn't drift
                 if (w.base_qty == null) w.base_qty = (w.models || 1) * atk.default_models / currentSize;
@@ -177,6 +178,48 @@
         const loadout = [...(unitData.ranged_weapons || []), ...(unitData.melee_weapons || [])];
         const options = [...(unitData.ranged_options || []), ...(unitData.melee_options || [])];
         return loadout.map(w => matchupWeaponEntry(w)).concat(options.map(w => matchupWeaponEntry(w, true)));
+    }
+
+    // -------------------------------------------------------------------------
+    // Leaders
+    // -------------------------------------------------------------------------
+
+    const PHASE_LABEL = { Shooting: 'shooting', Fighting: 'melee', Both: '' };
+
+    /** "Lethal Hits (shooting), Hit Modifier +1 · as a target: Invulnerable Save 4+" ('' if nothing). */
+    function leaderBuffSummary(buffs) {
+        const text = side => (buffs || []).filter(b => b.applies_to === side)
+            .map(b => PHASE_LABEL[b.phase] ? `${b.modifier} (${PHASE_LABEL[b.phase]})` : b.modifier).join(', ');
+        const attacker = text('Attacker'), target = text('Target');
+        return [attacker, target && `as a target: ${target}`].filter(Boolean).join(' · ');
+    }
+
+    /** Leader weapons go after the unit's own loadout and before its wargear options. */
+    function insertLeaderWeapons(own, added) {
+        const at = own.findIndex(w => w.option);
+        return at < 0 ? own.concat(added) : [...own.slice(0, at), ...added, ...own.slice(at)];
+    }
+
+    /** Simulator: the unit's weapons with its leader's loadout added (replacing a previous leader's). */
+    function withLeaderWeapons(weapons, leader) {
+        const result = {};
+        for (const type of ['ranged', 'melee']) {
+            const own = (weapons[type] || []).filter(w => !w.leader);
+            const added = leader
+                ? (leader[`${type}_weapons`] || []).map(w => ({ ...w, qty: w.qty || 1, use: w.default_use ?? true,
+                                                                  leader: true, leader_name: leader.name }))
+                : [];
+            result[type] = insertLeaderWeapons(own, added);
+        }
+        return result;
+    }
+
+    /** Matchups: an attacker's weapon entries with its leader's loadout added (replacing a previous leader's). */
+    function withLeaderEntries(entries, leader) {
+        const own = (entries || []).filter(e => !e.leader);
+        if (!leader) return own;
+        const loadout = [...(leader.ranged_weapons || []), ...(leader.melee_weapons || [])];
+        return insertLeaderWeapons(own, loadout.map(w => ({ ...matchupWeaponEntry(w), leader: true, leader_name: leader.name })));
     }
 
     /**
@@ -330,10 +373,12 @@
         const attackers = page.attackers.map((atk, a) => ({
             label: copyLabel(page.attackers, a),
             unit_id: atk.unit_id,
+            leader_id: atk.leader_id || null,
             weapons: atk.weapons
                 .filter(w => w.include && weaponVisible(w, filter))
-                .map(w => ({ weapon_id: w.weapon_id, weapon_type: w.weapon_type, models: w.models, label: w.name,
-                             unit_id: atk.unit_id })),
+                .map(w => ({ weapon_id: w.weapon_id, weapon_type: w.weapon_type, models: w.models,
+                             label: w.leader ? `${w.name} (${w.leader_name})` : w.name,
+                             unit_id: atk.unit_id, leader_id: atk.leader_id || null })),
             unit_size: atk.unit_size || atk.default_models || null,
         })).filter(atk => atk.weapons.length > 0);
 
@@ -344,6 +389,7 @@
                 model_count: d.model_count,
                 label: defenderLabel(page.defenders, idx),
                 extra_modifiers: d.extra_modifiers || '',
+                leader_id: d.leader_id || null,
             }));
 
         return {
@@ -488,6 +534,7 @@
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, formatRuleLine, formatRuleText,
+        leaderBuffSummary, withLeaderWeapons, withLeaderEntries,
         usedWeapons, weaponPayload, rulesForFilter, rulesSelection, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
         createPageState,

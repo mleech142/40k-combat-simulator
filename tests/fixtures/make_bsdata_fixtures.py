@@ -173,7 +173,11 @@ star_captain = {
     'profiles': [unit_profile('p-captain', 'Star Captain', '6"', '4', '2+', '5', '6+', '1', '4+'),
                  ability('a-captain-leader', 'Leader',
                          'This model can be attached to the following units:\n■ **^^VOID WARRIORS^^**\n■ Missing Squad'),
-                 ability('a-captain-fnp', 'Iron Will', 'This model has the Feel No Pain 5+ ability.')],
+                 ability('a-captain-fnp', 'Iron Will', 'This model has the Feel No Pain 5+ ability.'),
+                 ability('a-captain-command', "Captain's Command",
+                         'While this model is leading a unit, ranged weapons equipped by models in that unit have the '
+                         '**[LETHAL HITS]** ability. In addition, each time an attack targets that unit, subtract 1 from '
+                         'the Hit roll. You can re-roll Charge rolls made for that unit.')],
     'infoLinks': [rule_link('il-captain-leader', 'Leader', 'r-leader')],
     'costs': pts(70),
     'selectionEntries': [upgrade('e-master-blade', 'Master blade', constraints=cons(1, 1), profiles=[

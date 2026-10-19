@@ -119,6 +119,18 @@ def test_feel_no_pain_from_unit_modifiers():
     assert simulate_analytical(weapon, fnp, BattleConditions()).average_damage == approx(base * 4 / 6)
 
 
+def test_invulnerable_save_from_modifiers():
+    weapon = AttackerProfile('6', 2, 8, 4, '1', [])  # AP-4 against a 3+ save: only an invulnerable save helps
+    plain = DefenderProfile(toughness=4, save=3, wounds=1, model_count=10)
+    granted = DefenderProfile(toughness=4, save=3, wounds=1, model_count=10, keywords=['Invulnerable Save 4+'])
+    assert granted.invulnerable_save == 4
+    assert simulate_analytical(weapon, granted, BattleConditions()).average_damage == approx(
+        simulate_analytical(weapon, plain, BattleConditions()).average_damage / 2)
+    # The best one counts
+    assert DefenderProfile(4, 3, 1, invulnerable_save=5, keywords=['Invulnerable Save 4+']).invulnerable_save == 4
+    assert DefenderProfile(4, 3, 1, invulnerable_save=4, keywords=['Invulnerable Save 5+']).invulnerable_save == 4
+
+
 def test_lowercase_keywords_still_count():
     target = DefenderProfile(toughness=4, save=3, wounds=1, model_count=5)
     upper = simulate_analytical(AttackerProfile('6', 3, 4, 1, '1', ['Lethal Hits']), target, BattleConditions())
@@ -271,6 +283,10 @@ MODIFIER_AGREEMENT_CASES = [
      AttackerProfile('D6+1', 3, 6, 1, 'D3+1', ['Psychic', 'Critical Wounds 5+', 'Devastating Wounds', 'Melta 1'], models=2),
      DefenderProfile(8, 3, 4, model_count=3, keywords=['Stealth', 'Damage Modifier -1']),
      BattleConditions(cover=True, damaged=True, half_range=True)),
+    ('leader-granted invulnerable save',
+     AttackerProfile('4', 3, 8, 3, '2', ['Lethal Hits'], models=3),
+     DefenderProfile(5, 3, 2, model_count=5, keywords=['Invulnerable Save 4+', 'Feel No Pain 5+']),
+     BattleConditions()),
 ]
 
 

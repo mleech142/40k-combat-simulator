@@ -182,6 +182,53 @@ test('formatRuleText: paragraphs, line breaks, bullet lists and tables', () => {
     assert.equal(Core.formatRuleText(null), '');
 });
 
+test('leaderBuffSummary: attacker buffs with phases, then target buffs', () => {
+    assert.equal(Core.leaderBuffSummary([
+        { applies_to: 'Attacker', phase: 'Shooting', modifier: 'Lethal Hits' },
+        { applies_to: 'Attacker', phase: 'Both', modifier: 'Hit Modifier +1' },
+        { applies_to: 'Target', phase: 'Both', modifier: 'Invulnerable Save 4+' },
+    ]), 'Lethal Hits (shooting), Hit Modifier +1 · as a target: Invulnerable Save 4+');
+    assert.equal(Core.leaderBuffSummary([]), '');
+});
+
+test('withLeaderWeapons adds the leader loadout, replacing a previous leader', () => {
+    const unit = { ranged: [{ id: 1, name: 'Rifle', qty: 5, use: true }], melee: [] };
+    const captain = { name: 'Captain', ranged_weapons: [{ id: 9, name: 'Pistol', qty: 1, default_use: true }],
+                      melee_weapons: [{ id: 8, name: 'Sword' }] };
+    const led = Core.withLeaderWeapons(unit, captain);
+    assert.deepEqual(led.ranged.map(w => [w.name, w.qty, w.use, !!w.leader]), [['Rifle', 5, true, false], ['Pistol', 1, true, true]]);
+    assert.equal(led.melee[0].leader_name, 'Captain');
+    const other = Core.withLeaderWeapons(led, { name: 'Lieutenant', ranged_weapons: [], melee_weapons: [{ id: 7, name: 'Axe' }] });
+    assert.deepEqual(other.ranged.map(w => w.name), ['Rifle']);
+    assert.deepEqual(other.melee.map(w => w.name), ['Axe']);
+    assert.deepEqual(Core.withLeaderWeapons(led, null).melee, []);  // Leader removed
+    // Before the unit's wargear options
+    const withOptions = Core.withLeaderWeapons({ ranged: [{ name: 'Rifle' }, { name: 'Plasma', option: true }], melee: [] }, captain);
+    assert.deepEqual(withOptions.ranged.map(w => w.name), ['Rifle', 'Pistol', 'Plasma']);
+});
+
+test('withLeaderEntries and scaling: the leader is never scaled with the unit', () => {
+    const atk = { default_models: 5, unit_size: 5, weapons: [
+        { name: 'Rifle', weapon_id: 1, models: 5, base_qty: 5, include: true }] };
+    atk.weapons = Core.withLeaderEntries(atk.weapons, { name: 'Captain', ranged_weapons: [{ id: 9, type: 'ranged', name: 'Pistol', qty: 1 }] });
+    Core.scaleUnitSize(atk, 10);
+    assert.deepEqual(atk.weapons.map(w => [w.name, w.models, !!w.leader]), [['Rifle', 10, false], ['Pistol', 1, true]]);
+    assert.deepEqual(Core.withLeaderEntries(atk.weapons, null).map(w => w.name), ['Rifle']);
+});
+
+test('buildMatrixRequest carries leaders for attackers, their weapons and defenders', () => {
+    const request = Core.buildMatrixRequest({
+        attackers: [{ unit_id: 1, unit_name: 'Squad', leader_id: 9, default_models: 5, weapons: [
+            { weapon_id: 1, weapon_type: 'ranged', name: 'Rifle', models: 5, include: true },
+            { weapon_id: 2, weapon_type: 'ranged', name: 'Pistol', models: 1, include: true, leader: true, leader_name: 'Captain' }] }],
+        defenders: [{ unit_id: 3, unit_name: 'Target', model_count: 5, leader_id: 4 }],
+        weaponTypeFilter: 'both', defenderMode: 'real', attackerTicked: [], defenderTicked: [],
+    });
+    assert.equal(request.attackers[0].leader_id, 9);
+    assert.deepEqual(request.attackers[0].weapons.map(w => [w.label, w.leader_id]), [['Rifle', 9], ['Pistol (Captain)', 9]]);
+    assert.equal(request.defenders[0].leader_id, 4);
+});
+
 test('usedWeapons and weaponPayload build the Simulator request', () => {
     const weapons = {
         ranged: [{ name: 'Boltgun', use: true, qty: 3, attacks: '2', skill: 3, strength: 4, ap: 1, damage: '1' },
@@ -256,8 +303,8 @@ test('buildMatrixRequest: real defenders, included weapons, labels and rules', (
     assert.equal(request.attackers[1].unit_size, 5);  // datasheet size when not set
 
     assert.deepEqual(request.defenders, [
-        { unit_id: 2, model_count: 5, label: 'Hellblasters (x5)', extra_modifiers: 'Stealth' },
-        { unit_id: 2, model_count: 10, label: 'Hellblasters #2 (x10)', extra_modifiers: '' },
+        { unit_id: 2, model_count: 5, label: 'Hellblasters (x5)', extra_modifiers: 'Stealth', leader_id: null },
+        { unit_id: 2, model_count: 10, label: 'Hellblasters #2 (x10)', extra_modifiers: '', leader_id: null },
     ]);
     assert.deepEqual(request.attacker_rules, { rule_ids: [1], stratagem_ids: [] });
     assert.deepEqual(request.defender_rules, { rule_ids: [], stratagem_ids: [2] });

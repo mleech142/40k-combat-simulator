@@ -18,6 +18,7 @@ everything the app owns, and every confirmed edit in the app is written straight
   "stratagems": [{"id", "faction_id" | "faction_key" + "faction_name" (neither = core), "name", "cp", ...,
                   "detachment_key", "detachment_name"}],
   "unit_modifiers": [{"bsdata_id", "name", "modifiers"}],  # Added to BSData units, by datasheet
+  "leader_buffs": [{"bsdata_id", "name", "buffs": [{"applies_to", "phase", "modifier"}]}],  # Edited, by datasheet
   "keywords": [{"id", "name", "category", "applies_to", "format", "summary", "sim_step", "modelled", "rule_ref"}],
   "target_profiles": [{"id", "kind" ("generic"/"role"), "name", "models", "toughness", "wounds", "save",
                        "invulnerable_save", "feel_no_pain", "keywords", "weight", "use"}]
@@ -56,7 +57,7 @@ SECTIONS = [
     ('keywords', Keyword),  # Read-only reference
     ('target_profiles', TargetProfile),  # Read-only generic opponents and role benchmarks
 ]
-OWN_SECTIONS = ['unit_modifiers']  # Saved in the data JSON but not a table of their own
+OWN_SECTIONS = ['unit_modifiers', 'leader_buffs']  # Saved in the data JSON but not a table of their own
 
 LOADOUTS = [('ranged_weapons', unit_ranged_weapons), ('melee_weapons', unit_melee_weapons)]
 WEAPON_SECTIONS = {'ranged': 'ranged_weapons', 'melee': 'melee_weapons'}
@@ -168,7 +169,8 @@ def merge_data(app_data, imported):
     """
     The reference data to load: the app data plus the imported BSData records (with stable
     database IDs), rules and stratagems linked to their factions, and unit modifiers applied.
-    Returns (data, unmatched unit_modifiers entries to keep in the data JSON).
+    Returns (data, {section: unmatched entries}) for the unit_modifiers and leader_buffs
+    entries whose datasheet isn't loaded, to keep in the data JSON.
     """
     data = {name: [dict(r) for r in app_data.get(name, [])] for name, _ in SECTIONS}
     data['schema_version'], data['source'] = SCHEMA_VERSION, app_data.get('source')
@@ -212,14 +214,22 @@ def merge_data(app_data, imported):
     for unit in data['units']:
         if unit.get('bsdata_id'):
             units_by_entry.setdefault(unit['bsdata_id'], []).append(unit)
-    unmatched = []
+    unmatched = {'unit_modifiers': [], 'leader_buffs': []}
     for entry in app_data.get('unit_modifiers', []):
         units = units_by_entry.get(entry.get('bsdata_id'))
         if not units:
-            unmatched.append(entry)
+            unmatched['unit_modifiers'].append(entry)
             continue
         for unit in units:
             unit['added_modifiers'] = list(entry.get('modifiers') or [])
+    # Leader buffs edited for BSData leaders replace the parsed ones
+    for entry in app_data.get('leader_buffs', []):
+        units = units_by_entry.get(entry.get('bsdata_id'))
+        if not units:
+            unmatched['leader_buffs'].append(entry)
+            continue
+        for unit in units:
+            unit['leader_buffs_override'] = list(entry.get('buffs') or [])
     return data, unmatched
 
 
@@ -332,7 +342,7 @@ def rebuild_reference_tables(data):
     db.session.commit()
 
 
-def export_data(source=None, unmatched_modifiers=()):
+def export_data(source=None, unmatched=None):
     """The app data JSON from the current tables, in a stable order (BSData records left out)."""
     data = {'schema_version': SCHEMA_VERSION, 'source': source}
     custom = {f.id for f in Faction.query.filter_by(source='custom')}
@@ -367,17 +377,22 @@ def export_data(source=None, unmatched_modifiers=()):
             records.append(record)
         data[name] = records
 
-    modifiers, seen = [], set()
+    unmatched = unmatched or {}
+    modifiers, buffs, seen_modifiers, seen_buffs = [], [], set(), set()
     for unit in Unit.query.filter(Unit.bsdata_id.isnot(None)).order_by(Unit.name, Unit.id):
-        if unit.added_modifiers and unit.bsdata_id not in seen:
-            seen.add(unit.bsdata_id)
+        if unit.added_modifiers and unit.bsdata_id not in seen_modifiers:
+            seen_modifiers.add(unit.bsdata_id)
             modifiers.append({'bsdata_id': unit.bsdata_id, 'name': unit.name, 'modifiers': list(unit.added_modifiers)})
-    data['unit_modifiers'] = modifiers + [m for m in unmatched_modifiers if m.get('bsdata_id') not in seen]
+        if unit.leader_buffs_override is not None and unit.bsdata_id not in seen_buffs:
+            seen_buffs.add(unit.bsdata_id)
+            buffs.append({'bsdata_id': unit.bsdata_id, 'name': unit.name, 'buffs': list(unit.leader_buffs_override)})
+    data['unit_modifiers'] = modifiers + [m for m in unmatched.get('unit_modifiers', []) if m.get('bsdata_id') not in seen_modifiers]
+    data['leader_buffs'] = buffs + [b for b in unmatched.get('leader_buffs', []) if b.get('bsdata_id') not in seen_buffs]
     return data
 
 
 # Unit columns only BSData units use, left out of custom units in the data JSON
-BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'added_modifiers'}
+BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'added_modifiers', 'leader_buffs_override'}
 
 
 def write_json(path, data, indent=2):

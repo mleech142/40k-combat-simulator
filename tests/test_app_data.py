@@ -384,3 +384,105 @@ def test_linked_custom_weapon_follows_bsdata(make_client, tmp_path, monkeypatch)
     path.write_text(text.replace('"name": "S", "$text": "9"', '"name": "S", "$text": "10"'), encoding='utf-8')
     again = restart().get(f'/api/data/weapons/ranged/{created["id"]}').get_json()
     assert again['strength'] == 10 and again['name'] == 'Borrowed laser'
+
+
+# --- Leaders -----------------------------------------------------------------------------------------
+
+def leader_setup(client):
+    units_by_name = units(client)
+    return units_by_name['Void Warriors'], units_by_name['Star Captain']
+
+
+def test_unit_lists_the_leaders_that_can_join_it(app_client):
+    client, _ = app_client
+    void, captain = leader_setup(client)
+    detail = client.get(f'/api/units/{void["id"]}').get_json()
+    assert detail['leaders'] == [{'id': captain['id'], 'name': 'Star Captain', 'points': 70,
+                                  'leader_buffs': captain['leader_buffs']}]
+    assert client.get(f'/api/units/{captain["id"]}').get_json()['leaders'] == []
+
+
+def simulate_body(weapon, weapon_type, defender, attacker_leader=None, defender_leader=None):
+    return {'attacker': {'faction_id': weapon['faction_id'], 'leader_id': attacker_leader,
+                         'weapons': [dict(weapon, type=weapon_type, models=5)]},
+            'defender': {'toughness': defender['toughness'], 'save': defender['save'], 'wounds': defender['wounds'],
+                         'model_count': 5, 'keywords': [], 'leader_id': defender_leader},
+            'conditions': {}}
+
+
+def test_leader_buffs_apply_in_the_simulator(app_client):
+    client, _ = app_client
+    void, captain = leader_setup(client)
+    detail = client.get(f'/api/units/{void["id"]}').get_json()
+    rifle = detail['ranged_weapons'][1]  # Laser rifle - standard
+    knife = detail['melee_weapons'][1]  # Close combat weapon
+
+    def run(weapon, weapon_type, **leaders):
+        return client.post('/api/simulate', json=simulate_body(weapon, weapon_type, void, **leaders)).get_json()
+
+    plain = run(rifle, 'ranged')
+    led = run(rifle, 'ranged', attacker_leader=captain['id'])
+    assert led['summary']['average_damage'] > plain['summary']['average_damage']
+    assert 'Lethal Hits' in led['applied']['attacker']
+    # The Lethal Hits buff is for ranged weapons only
+    assert run(knife, 'melee', attacker_leader=captain['id'])['summary'] == run(knife, 'melee')['summary']
+    # Leading the target: -1 to be hit
+    shielded = run(rifle, 'ranged', defender_leader=captain['id'])
+    assert shielded['summary']['average_damage'] < plain['summary']['average_damage']
+    assert 'Hit Modifier -1' in shielded['applied']['target']
+
+
+def test_leader_in_the_matrix_and_cell_detail(app_client):
+    client, _ = app_client
+    void, captain = leader_setup(client)
+    rifle = client.get(f'/api/units/{void["id"]}').get_json()['ranged_weapons'][1]
+    weapons = [{'weapon_id': rifle['id'], 'weapon_type': 'ranged', 'models': 4}]
+
+    def matrix(attacker_extra=None, defender_extra=None):
+        return client.post('/api/matrix/simulate', json={
+            'attackers': [dict({'unit_id': void['id'], 'weapons': weapons}, **(attacker_extra or {}))],
+            'defenders': [dict({'unit_id': void['id'], 'model_count': 5}, **(defender_extra or {}))],
+            'conditions': {}}).get_json()
+
+    plain, led = matrix(), matrix({'leader_id': captain['id']})
+    assert led['attackers'][0]['points'] == plain['attackers'][0]['points'] + 70
+    assert led['matrix'][0][0]['avg_damage'] > plain['matrix'][0][0]['avg_damage']
+    shielded = matrix(defender_extra={'leader_id': captain['id']})
+    assert shielded['matrix'][0][0]['avg_damage'] < plain['matrix'][0][0]['avg_damage']
+
+    cell = client.post('/api/matrix/cell', json={
+        'weapons': [dict(weapons[0], leader_id=captain['id'])], 'unit_id': void['id'], 'model_count': 5,
+        'leader_id': captain['id'], 'iterations': 200, 'conditions': {}})
+    assert cell.status_code == 200
+
+
+def test_editing_a_bsdata_leaders_buffs(app_client):
+    client, saved = app_client
+    _, captain = leader_setup(client)
+    edited = [{'applies_to': 'Attacker', 'phase': 'Fighting', 'modifier': 'Sustained Hits 1'},
+              {'applies_to': 'Nonsense', 'phase': 'Nonsense', 'modifier': 'Stealth'},
+              {'applies_to': 'Target', 'phase': 'Both', 'modifier': ''}]
+    assert client.put(f'/api/data/units/{captain["id"]}', json={'leader_buffs': edited}).status_code == 200
+    now = units(client)['Star Captain']
+    assert now['leader_buffs'] == [{'applies_to': 'Attacker', 'phase': 'Fighting', 'modifier': 'Sustained Hits 1'},
+                                   {'applies_to': 'Attacker', 'phase': 'Both', 'modifier': 'Stealth'}]
+    assert now['leader_buffs_edited'] and now['datasheet_leader_buffs'][0]['modifier'] == 'Lethal Hits'
+    entry = next(b for b in saved()['leader_buffs'] if b['bsdata_id'] == 'u-captain')
+    assert entry['name'] == 'Star Captain' and len(entry['buffs']) == 2
+    assert units(restart())['Star Captain']['leader_buffs_edited']
+
+    client.put(f'/api/data/units/{captain["id"]}', json={'leader_buffs': None})  # Back to BSData's
+    assert units(client)['Star Captain']['leader_buffs'][0]['modifier'] == 'Lethal Hits'
+    assert saved()['leader_buffs'] == []
+
+
+def test_custom_leader(app_client):
+    client, saved = app_client
+    leader = client.post('/api/data/units', json={
+        'faction_id': 1, 'name': 'Home Sergeant', 'toughness': 3, 'save': 4, 'wounds': 3, 'can_lead': ['Home Guard'],
+        'leader_buffs': [{'applies_to': 'Attacker', 'phase': 'Shooting', 'modifier': 'Hit Modifier +1'}]}).get_json()
+    detail = client.get('/api/units/1').get_json()
+    assert [(item['id'], item['leader_buffs'][0]['modifier']) for item in detail['leaders']] == [
+        (leader['id'], 'Hit Modifier +1')]
+    record = next(u for u in saved()['units'] if u['name'] == 'Home Sergeant')
+    assert record['leader_buffs'][0]['modifier'] == 'Hit Modifier +1'
