@@ -138,6 +138,62 @@
         return atk;
     }
 
+    /**
+     * Simulator: a unit's weapons for one run, from /api/units/<id>: its loadout (ticked as the
+     * server's default_use says) followed by its wargear options (unticked, Qty 1, option: true).
+     */
+    function simulatorWeapons(unitData) {
+        const weapons = {};
+        for (const type of ['ranged', 'melee']) {
+            const loadout = (unitData[`${type}_weapons`] || []).map(w => ({ ...w, qty: w.qty || 1, use: w.default_use ?? true }));
+            const options = (unitData[`${type}_options`] || []).map(w => ({ ...w, qty: 1, use: false, option: true }));
+            weapons[type] = loadout.concat(options);
+        }
+        return weapons;
+    }
+
+    /** Matchups: one weapon of an attacker unit (options start excluded, at Qty 1). */
+    function matchupWeaponEntry(w, option = false) {
+        return {
+            weapon_id: w.id,
+            weapon_type: w.type,
+            name: w.name,
+            range: w.range ?? null,
+            attacks: w.attacks,
+            skill: w.skill,
+            strength: w.strength,
+            ap: w.ap,
+            damage: w.damage,
+            abilities: w.abilities || [],
+            models: option ? 1 : (w.qty || 1),  // Models in the unit carrying this weapon
+            base_qty: option ? 1 : (w.qty || 1),  // ... at the datasheet unit size
+            include: option ? false : (w.default_use ?? true),  // Server's default: only the first "Weapon - Profile" variant
+            option,
+        };
+    }
+
+    /** Matchups: all of a unit's weapon entries, loadout first, then wargear options. */
+    function matchupWeapons(unitData) {
+        const loadout = [...(unitData.ranged_weapons || []), ...(unitData.melee_weapons || [])];
+        const options = [...(unitData.ranged_options || []), ...(unitData.melee_options || [])];
+        return loadout.map(w => matchupWeaponEntry(w)).concat(options.map(w => matchupWeaponEntry(w, true)));
+    }
+
+    /**
+     * <option>s for a detachment dropdown: "Whole faction only", then the detachments (grouped
+     * by faction when there are several). The value is the detachment's BSData key.
+     */
+    function detachmentOptionsHtml(detachments, selectedKey) {
+        const option = d => `<option value="${escapeHtml(d.key)}"${d.key === selectedKey ? ' selected' : ''}>${escapeHtml(d.name)}</option>`;
+        let html = `<option value=""${selectedKey ? '' : ' selected'}>No detachment (faction-wide only)</option>`;
+        const factions = [...new Set((detachments || []).map(d => d.faction))];
+        if (factions.length <= 1) return html + (detachments || []).map(option).join('');
+        for (const faction of factions) {
+            html += `<optgroup label="${escapeHtml(faction)}">${detachments.filter(d => d.faction === faction).map(option).join('')}</optgroup>`;
+        }
+        return html;
+    }
+
     /** Simulator: ticked weapons of the current phase. */
     function usedWeapons(weapons, weaponType) {
         return (weapons[weaponType] || []).filter(w => w.use);
@@ -355,6 +411,7 @@
     return {
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
+        simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml,
         usedWeapons, weaponPayload, rulesForFilter, rulesSelection, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
         createPageState,

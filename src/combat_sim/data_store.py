@@ -13,8 +13,10 @@ everything the app owns, and every confirmed edit in the app is written straight
              "ranged_weapons": [{"weapon_id", "qty"}], "melee_weapons": [{"weapon_id", "qty"}]}],
   "ranged_weapons": [{"id", "faction_id", "name", "attacks", "ballistic_skill", ...}],
   "melee_weapons": [{"id", "faction_id", "name", "attacks", "weapon_skill", ...}],
-  "faction_rules": [{"id", "faction_id" | "faction_key" + "faction_name", "name", "applies_to", "phase", "modifier"}],
-  "stratagems": [{"id", "faction_id" | "faction_key" + "faction_name" (neither = core), "name", "cp", ...}],
+  "faction_rules": [{"id", "faction_id" | "faction_key" + "faction_name", "name", "applies_to", "phase", "modifier",
+                     "detachment_key", "detachment_name"}],
+  "stratagems": [{"id", "faction_id" | "faction_key" + "faction_name" (neither = core), "name", "cp", ...,
+                  "detachment_key", "detachment_name"}],
   "unit_modifiers": [{"bsdata_id", "name", "modifiers"}],  # Added to BSData units, by datasheet
   "keywords": [{"id", "name", "category", "applies_to", "format", "summary", "sim_step", "modelled", "rule_ref"}],
   "target_profiles": [{"id", "kind" ("generic"/"role"), "name", "models", "toughness", "wounds", "save",
@@ -22,7 +24,9 @@ everything the app owns, and every confirmed edit in the app is written straight
 }
 
 Custom units also carry "points_by_size": [{"models", "points"}] (first entry = the datasheet
-size). Record keys are the database column names. Rules and stratagems of a BSData faction
+size). A custom weapon with "linked_bsdata_id" takes its stats from that BSData weapon profile
+on every start. A rule or stratagem with a "detachment_key" (a BSData detachment's ID) is
+offered only with that detachment. Detachments themselves come from BSData only. Record keys are the database column names. Rules and stratagems of a BSData faction
 name it by catalogue ID (`faction_key`), since database IDs differ between installs; one whose
 faction isn't in the BSData folder keeps a placeholder faction so it can still be edited.
 Schema version 1 files (all-custom data) load unchanged.
@@ -34,7 +38,8 @@ import os
 from pathlib import Path
 
 from . import bsdata
-from .models import (db, Faction, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
+from .models import (db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword,
+                     TargetProfile,
                      StableId, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons, REFERENCE_TABLES)
 
 SCHEMA_VERSION = 2
@@ -42,6 +47,7 @@ SCHEMA_VERSION = 2
 # JSON section -> model, in insert order
 SECTIONS = [
     ('factions', Faction),
+    ('detachments', Detachment),  # BSData only; never saved in the data JSON
     ('units', Unit),
     ('ranged_weapons', RangedWeapon),
     ('melee_weapons', MeleeWeapon),
@@ -169,9 +175,11 @@ def merge_data(app_data, imported):
     for faction in data['factions']:
         faction['source'] = 'custom'
 
+    data['detachments'] = []  # Only BSData has detachments
     by_key = {}  # faction_key -> faction record
     if imported is not None:
-        _add_bsdata(data, imported.data, by_key)
+        profiles = _add_bsdata(data, imported.data, by_key)
+        _refresh_linked_weapons(data, profiles)
 
     # Rules and stratagems saved against a BSData faction: link it, or keep a placeholder
     taken = {f['name'] for f in data['factions']}
@@ -224,11 +232,33 @@ def unique_name(name, taken, label):
     return candidate
 
 
+def _refresh_linked_weapons(data, profiles):
+    """Custom weapons copied from BSData take the current stats of the profile they link to."""
+    for kind, section in WEAPON_SECTIONS.items():
+        for weapon in data[section]:
+            source = profiles.get((kind, weapon.get('linked_bsdata_id')))
+            if weapon.get('linked_bsdata_id') and source:
+                for field in LINKED_FIELDS[kind]:
+                    weapon[field] = source.get(field)
+
+
+# Weapon fields a linked custom weapon takes from BSData (its name stays its own)
+LINKED_FIELDS = {
+    'ranged': ['attacks', 'ballistic_skill', 'strength', 'armor_penetration', 'damage', 'range_inches', 'abilities'],
+    'melee': ['attacks', 'weapon_skill', 'strength', 'armor_penetration', 'damage', 'abilities'],
+}
+
+
 def _add_bsdata(data, imported, by_key):
-    """Append the imported factions, units and weapons to `data` with stable IDs."""
+    """
+    Append the imported factions, detachments, units and weapons to `data` with stable IDs.
+    Returns {(kind, profile bsdata_id): weapon record} for linking custom weapons.
+    """
     cat_of = {f['id']: f['bsdata_id'] for f in imported['factions']}
     keys = [(f'faction:{f["bsdata_id"]}', 'factions') for f in imported['factions']]
     keys += [(f'unit:{cat_of[u["faction_id"]]}/{u["bsdata_id"]}', 'units') for u in imported['units']]
+    keys += [(f'detachment:{cat_of[d["faction_id"]]}/{d["bsdata_id"]}', 'detachments')
+             for d in imported.get('detachments', [])]
     for kind, section in WEAPON_SECTIONS.items():
         keys += [(f'{kind}:{cat_of[w["faction_id"]]}/{w["bsdata_id"]}', section) for w in imported[section]]
     ids = stable_ids(keys)
@@ -237,18 +267,24 @@ def _add_bsdata(data, imported, by_key):
     faction_ids = {}
     for f in imported['factions']:
         name = unique_name(f['name'], taken, 'BSData')
-        record = {'id': ids[f'faction:{f["bsdata_id"]}'], 'name': name, 'source': 'bsdata', 'bsdata_id': f['bsdata_id']}
+        record = {'id': ids[f'faction:{f["bsdata_id"]}'], 'name': name, 'source': 'bsdata', 'bsdata_id': f['bsdata_id'],
+                  'army_rules': f.get('army_rules', [])}
         taken.add(name)
         faction_ids[f['id']] = record['id']
         by_key[f['bsdata_id']] = record
         data['factions'].append(record)
 
-    weapon_ids = {}
+    for d in imported.get('detachments', []):
+        data['detachments'].append(dict(d, id=ids[f'detachment:{cat_of[d["faction_id"]]}/{d["bsdata_id"]}'],
+                                        faction_id=faction_ids[d['faction_id']]))
+
+    weapon_ids, profiles = {}, {}
     for kind, section in WEAPON_SECTIONS.items():
         for w in imported[section]:
             record = dict(w, id=ids[f'{kind}:{cat_of[w["faction_id"]]}/{w["bsdata_id"]}'],
                           faction_id=faction_ids[w['faction_id']])
             weapon_ids[(kind, w['id'])] = record['id']
+            profiles.setdefault((kind, w['bsdata_id']), record)
             data[section].append(record)
 
     for u in imported['units']:
@@ -259,6 +295,7 @@ def _add_bsdata(data, imported, by_key):
                                          for e in u.get(f'{kind}_weapons', [])]
             record[f'{kind}_options'] = [weapon_ids[(kind, i)] for i in u.get(f'{kind}_options', [])]
         data['units'].append(record)
+    return profiles
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +340,8 @@ def export_data(source=None, unmatched_modifiers=()):
     for name, model in SECTIONS:
         columns = [c.name for c in model.__table__.columns]
         records = []
+        if model is Detachment:
+            continue  # BSData only
         for obj in model.query.order_by(model.id).all():
             if model is Faction:
                 if obj.source != 'custom':

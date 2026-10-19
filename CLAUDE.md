@@ -13,13 +13,15 @@ Two sources, merged into the reference tables on every start (`create_app()` →
 
 Rules:
 
-- BSData factions' units and weapons are **read-only** (the routes return 403); their rules, stratagems and added modifiers are app data. Units and weapons can only be created in custom factions (`Faction.source == 'custom'`).
+- BSData factions' units and weapons are **read-only** (the routes return 403); their rules, stratagems and added modifiers are app data.
+- **Detachments** (and factions' army rules) come from BSData as text only (`Detachment` table, `/api/detachments`). A rule or stratagem with a `detachment_key` (the detachment's BSData ID) is offered by `/api/rules/available` only when that detachment is chosen (`?detachment=`); ticking still decides what applies.
+- A custom weapon with `linked_bsdata_id` takes its stats from that BSData profile on every start (`data_store.LINKED_FIELDS`); its name and faction are its own. Units and weapons can only be created in custom factions (`Faction.source == 'custom'`).
 - App data refers to BSData by BSData ID (`faction_key` = catalogue ID, `unit_modifiers[].bsdata_id`), never by database ID. BSData records get database IDs from `BSDATA_ID_BASE` (1,000,000) up via the persistent `stable_ids` table, so saved scenarios survive re-imports; custom records keep IDs below it (`next_custom_id`).
 - Reference tables are dropped and rebuilt on every start, so their schema changes need no DB migration. Saved scenarios, comparisons and `stable_ids` are *not* rebuilt; changing their columns still needs a manual `ALTER TABLE`.
 - Every Data-tab write commits and then rewrites the app data JSON (`save_data()` in `app.py`). Any new write route must call it.
 - Tests/harnesses must set `DATA_JSON` and `DATABASE_URL` (and `BSDATA_DIR`) to scratch copies, or edits will overwrite the real files. With `DATA_JSON` set, the BSData folder defaults to its folder, never the repo's.
 
-**Weapons belong to a faction** (`faction_id`). A unit's loadout is the `unit_ranged_weapons` / `unit_melee_weapons` link tables with a `qty` = models in the unit carrying that weapon and a `position` (datasheet order); read it with `Unit.loadout(type)`, write with `Unit.set_loadout(type, entries)` (the relationships are view-only). BSData units also list wargear options (`ranged_options` / `melee_options`). Matchup attackers carry the attacking `unit_id` alongside `weapon_id`.
+**Weapons belong to a faction** (`faction_id`). A unit's loadout is the `unit_ranged_weapons` / `unit_melee_weapons` link tables with a `qty` = models in the unit carrying that weapon and a `position` (datasheet order); read it with `Unit.loadout(type)`, write with `Unit.set_loadout(type, entries)` (the relationships are view-only). BSData units also list wargear options (`ranged_options` / `melee_options`), which the Simulator and Matchups show unticked under the loadout (`Core.simulatorWeapons` / `Core.matchupWeapons`). Matchup attackers carry the attacking `unit_id` alongside `weapon_id`.
 
 ## Packaging and releases
 

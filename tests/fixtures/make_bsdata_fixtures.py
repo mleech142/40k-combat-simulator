@@ -248,6 +248,19 @@ gun_crew = {
                 weapon('p-crew-gun', 'Crew gun', 'ranged', '36"', '2', '4+', '8', '-2', '3', None)])])])],
 }
 
+def detachment_entry(eid, gid, options):
+    """A root "Detachment" entry: a group whose options are the detachments, each with its rule."""
+    return {'name': 'Detachment', 'id': eid, 'hidden': False, 'type': 'upgrade',
+            'selectionEntryGroups': [group(gid, 'Detachment', constraints=cons(1, 1), children=[
+                upgrade(oid, name, rules=[{'name': rule, 'id': f'{oid}-rule', 'hidden': False, 'description': text}])
+                for oid, name, rule, text in options])]}
+
+
+star_detachments = detachment_entry('e-star-det', 'g-star-det', [
+    ('d-vanguard', 'Void Vanguard', 'Swift Strike', 'Units from this army can Advance and shoot.'),
+    ('d-bastion', 'Star Bastion', 'Hold Fast', 'Units on objectives get +1 to their saves.'),
+])
+
 write('Xenos - Starfarers', {'catalogue': {
     'name': 'Xenos - Starfarers', 'id': 'cat-star', 'battleScribeVersion': 2.03, 'revision': 3,
     'gameSystemId': GS, 'gameSystemRevision': 7, 'library': False, 'type': 'catalogue',
@@ -257,9 +270,13 @@ write('Xenos - Starfarers', {'catalogue': {
         {'name': 'Imperium - Allies', 'id': 'cl-allies', 'targetId': 'cat-allies', 'type': 'catalogue'},
     ],
     'categoryEntries': [{'name': 'Faction: Starfarers', 'id': 'k-faction-star'}],
+    'sharedRules': [{'name': 'Star Pact', 'id': 'r-star-pact', 'hidden': False,
+                     'description': 'Each time a unit from this army is selected to shoot, it can re-roll one Hit roll.'}],
     'sharedSelectionEntries': [laser_pistol, laser_rifle, plasma_pistol, ccw, void_warriors, star_captain, star_walker, beast_pack,
-                               gun_crew],
+                               gun_crew, star_detachments],
     'entryLinks': [
+        link('rl-star-det', 'Detachment', 'e-star-det'),
+        link('rl-ally-det', 'Detachment', 'e-allies-det'),  # Another army's detachments: left out
         link('rl-void', 'Void Warriors', 'u-void'),
         link('rl-captain', 'Star Captain', 'u-captain'),
         link('rl-walker', 'Star Walker [Legends]', 'u-walker'),
@@ -302,8 +319,10 @@ write('Imperium - Allies', {'catalogue': {
          'costs': pts(50),
          'selectionEntries': [upgrade('e-agent-pistol', 'Laser pistol', constraints=cons(1, 1), profiles=[
              weapon('p-agent-pistol', 'Laser pistol', 'ranged', '12"', '1', '3+', '4', '-1', '1', 'Pistol')])]},
+        detachment_entry('e-allies-det', 'g-allies-det', [
+            ('d-task-force', 'Allied Task Force', 'Assigned', 'Agents can join any army.')]),
     ],
-    'entryLinks': [link('rl-ally-agent', 'Ally Agent', 'u-agent')],
+    'entryLinks': [link('rl-ally-agent', 'Ally Agent', 'u-agent'), link('rl-allies-det', 'Detachment', 'e-allies-det')],
 }})
 
 write('Imperium - Empty Stub', {'catalogue': {

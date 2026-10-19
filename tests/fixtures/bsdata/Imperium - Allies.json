@@ -121,7 +121,7 @@
       ],
       "constraints": [
        {
-        "id": "c-39",
+        "id": "c-41",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -129,7 +129,7 @@
         "value": 1
        },
        {
-        "id": "c-40",
+        "id": "c-42",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -137,6 +137,56 @@
         "value": 1
        }
       ]
+     }
+    ]
+   },
+   {
+    "name": "Detachment",
+    "id": "e-allies-det",
+    "hidden": false,
+    "type": "upgrade",
+    "selectionEntryGroups": [
+     {
+      "name": "Detachment",
+      "id": "g-allies-det",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-43",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-44",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Allied Task Force",
+        "id": "d-task-force",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [],
+        "constraints": [],
+        "rules": [
+         {
+          "name": "Assigned",
+          "id": "d-task-force-rule",
+          "hidden": false,
+          "description": "Agents can join any army."
+         }
+        ]
+       }
+      ],
+      "entryLinks": []
      }
     ]
    }
@@ -147,6 +197,14 @@
     "id": "rl-ally-agent",
     "hidden": false,
     "targetId": "u-agent",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Detachment",
+    "id": "rl-allies-det",
+    "hidden": false,
+    "targetId": "e-allies-det",
     "type": "selectionEntry",
     "constraints": []
    }

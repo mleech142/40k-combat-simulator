@@ -2857,3 +2857,101 @@ body {
 .roster-table td.roster-extra {
     text-align: left;
 }
+
+/* Detachments, wargear options, BSData reference text and weapon copying */
+.label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.label-row .filter-check {
+    font-size: 0.75rem;
+}
+
+.detachment-select {
+    width: 100%;
+    margin: 0.5rem 0;
+}
+
+.rule-detachment,
+.option-tag {
+    display: inline-block;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--warning);
+    white-space: nowrap;
+}
+
+.option-tag {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.weapon-options-header td {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    padding-top: 0.6rem;
+}
+
+.weapon-row.weapon-option .weapon-row-name {
+    font-style: italic;
+}
+
+.muted {
+    color: var(--text-muted);
+}
+
+.bsdata-reference {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+}
+
+.bsdata-reference summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.bsdata-reference h5 {
+    margin: 0.75rem 0 0.25rem;
+    color: var(--text-primary);
+}
+
+.bsdata-reference p {
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+    white-space: pre-line;
+}
+
+.bsdata-weapon-results {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-top: 0.35rem;
+}
+
+.bsdata-weapon-result {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+    margin-bottom: 0.25rem;
+}
+
+.bsdata-weapon-result:hover {
+    border-color: var(--accent);
+}

@@ -31,6 +31,11 @@ How BattleScribe data maps onto the app:
   "Weapon - Profile" variant naming.
 - **Defensive abilities** used by the maths: InSv from the profile, Feel No Pain and
   Stealth from core rule links, and a few unconditional ability texts (see DEFENSIVE_TEXT).
+- **Detachments** are the options of a faction's root "Detachment" entry, each with its rule
+  text, taken from the faction's own catalogue and those it takes units from (so not the
+  Agents of the Imperium's detachments in every Imperium army). **Army rules** are the rules
+  defined in the faction's catalogue. Both are text only: the maths uses the rules and
+  stratagems written in the app data.
 """
 
 import json
@@ -42,7 +47,7 @@ from pathlib import Path
 
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 1  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 2  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -921,11 +926,15 @@ def import_folder(folder, known_keywords=None):
     """
     game_system, catalogues = read_folder(folder)
     report = Report()
-    data = {'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': []}
+    data = {'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [], 'detachments': []}
 
     for faction_id, (cat, members) in enumerate(faction_members(catalogues, report), start=1):
         name = faction_name(cat)
-        data['factions'].append({'id': faction_id, 'bsdata_id': cat.id, 'name': name})
+        data['factions'].append({'id': faction_id, 'bsdata_id': cat.id, 'name': name,
+                                 'army_rules': [_rule_text(r) for r in cat.root.get('rules', []) + cat.root.get('sharedRules', [])
+                                                if not r.get('hidden')]})
+        for detachment in detachments(cat, members, catalogues, report):
+            data['detachments'].append(dict(detachment, id=len(data['detachments']) + 1, faction_id=faction_id))
         weapon_ids = {}  # (kind, stat key) -> weapon record id within this faction
         for entry in sorted(members, key=lambda e: e.name.lower()):
             built = build_unit(entry, cat, report, known_keywords)
@@ -954,6 +963,43 @@ def import_folder(folder, known_keywords=None):
         'catalogues': {cat.name: cat.root.get('revision') for cat in catalogues.values()},
     }
     return ImportResult(data=data, report=report.items, source=source)
+
+
+def _rule_text(rule):
+    return {'name': rule.get('name', ''), 'text': (rule.get('description') or '').strip()}
+
+
+def detachments(cat, members, catalogues, report):
+    """[{'bsdata_id', 'name', 'rules': [{'name', 'text'}]}] for a faction (see the module docstring)."""
+    sources = {cat} | {e.cat for e in members}
+    roots = [(cat, node) for node in cat.root.get('entryLinks', []) + cat.root.get('selectionEntries', [])]
+    for link in cat.links():
+        if link.get('importRootEntries') and link['targetId'] in catalogues:
+            linked = catalogues[link['targetId']]
+            roots += [(linked, node) for node in linked.root.get('entryLinks', []) + linked.root.get('selectionEntries', [])]
+
+    found, seen = [], set()
+    for owner, node in roots:
+        entry = resolve_link(node, owner, report) if 'targetId' in node else Entry(node, owner)
+        if entry is None or entry.name not in ('Detachment', 'Detachments') or entry.cat not in sources:
+            continue
+        for group in entry.children(report):
+            if group.kind != 'group':
+                continue
+            for option in group.children(report):
+                if option.kind == 'group' or option.id in seen:
+                    continue
+                seen.add(option.id)
+                rules = [_rule_text(r) for r in option.merged('rules') if not r.get('hidden')]
+                for info in option.merged('infoLinks'):
+                    if info.get('type') == 'rule':
+                        target, _ = option.cat.find(info.get('targetId'))
+                        if target is not None:
+                            rules.append(_rule_text(target))
+                rules += [{'name': p['name'], 'text': ability_text(p)} for p in profiles(option, report)
+                          if p.get('typeName') == 'Abilities']
+                found.append({'bsdata_id': option.id, 'name': option.name, 'rules': rules})
+    return found
 
 
 def _check_leaders(data, faction_id, faction, report):

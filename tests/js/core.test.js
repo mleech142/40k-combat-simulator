@@ -102,6 +102,47 @@ test('scaleUnitSize scales weapon models from the loadout', () => {
     assert.equal(noDatasheet.weapons[0].models, 3);  // nothing to scale from
 });
 
+test('simulatorWeapons: loadout ticked by default_use, then options unticked', () => {
+    const unit = {
+        ranged_weapons: [
+            { id: 1, name: 'Rifle - standard', qty: 4, default_use: true },
+            { id: 2, name: 'Rifle - overcharge', qty: 4, default_use: false },
+        ],
+        ranged_options: [{ id: 3, name: 'Heavy laser' }],
+        melee_weapons: [{ id: 4, name: 'Blade' }],
+    };
+    const weapons = Core.simulatorWeapons(unit);
+    assert.deepEqual(weapons.ranged.map(w => [w.name, w.qty, w.use, !!w.option]), [
+        ['Rifle - standard', 4, true, false], ['Rifle - overcharge', 4, false, false], ['Heavy laser', 1, false, true]]);
+    assert.deepEqual(weapons.melee.map(w => [w.name, w.qty, w.use]), [['Blade', 1, true]]);
+});
+
+test('matchupWeapons: loadout entries then excluded options', () => {
+    const unit = {
+        ranged_weapons: [{ id: 1, type: 'ranged', name: 'Rifle', qty: 5, default_use: true, abilities: ['Assault'] }],
+        melee_weapons: [{ id: 2, type: 'melee', name: 'Knife', qty: 5 }],
+        melee_options: [{ id: 3, type: 'melee', name: 'Power axe' }],
+    };
+    const entries = Core.matchupWeapons(unit);
+    assert.deepEqual(entries.map(e => [e.name, e.models, e.base_qty, e.include, e.option]), [
+        ['Rifle', 5, 5, true, false], ['Knife', 5, 5, true, false], ['Power axe', 1, 1, false, true]]);
+    assert.deepEqual(entries[0].abilities, ['Assault']);
+});
+
+test('detachmentOptionsHtml: faction-wide first, grouped by faction when mixed, escaped', () => {
+    const one = Core.detachmentOptionsHtml([{ key: 'd1', name: 'Vanguard <A>', faction: 'Starfarers' }], 'd1');
+    assert.match(one, /^<option value="">No detachment/);
+    assert.match(one, /<option value="d1" selected>Vanguard &lt;A&gt;<\/option>/);
+    assert.doesNotMatch(one, /optgroup/);
+    const mixed = Core.detachmentOptionsHtml([
+        { key: 'd1', name: 'Vanguard', faction: 'Starfarers' },
+        { key: 'd2', name: 'Task Force', faction: 'Allies' },
+    ], '');
+    assert.match(mixed, /<option value="" selected>/);
+    assert.match(mixed, /<optgroup label="Starfarers"><option value="d1">Vanguard<\/option><\/optgroup>/);
+    assert.match(mixed, /<optgroup label="Allies">/);
+});
+
 test('usedWeapons and weaponPayload build the Simulator request', () => {
     const weapons = {
         ranged: [{ name: 'Boltgun', use: true, qty: 3, attacks: '2', skill: 3, strength: 4, ap: 1, damage: '1' },

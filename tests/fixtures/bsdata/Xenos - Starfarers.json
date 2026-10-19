@@ -29,6 +29,14 @@
     "id": "k-faction-star"
    }
   ],
+  "sharedRules": [
+   {
+    "name": "Star Pact",
+    "id": "r-star-pact",
+    "hidden": false,
+    "description": "Each time a unit from this army is selected to shoot, it can re-roll one Hit roll."
+   }
+  ],
   "sharedSelectionEntries": [
    {
     "name": "Laser pistol",
@@ -1777,9 +1785,91 @@
       "defaultSelectionEntryId": "m-gunner"
      }
     ]
+   },
+   {
+    "name": "Detachment",
+    "id": "e-star-det",
+    "hidden": false,
+    "type": "upgrade",
+    "selectionEntryGroups": [
+     {
+      "name": "Detachment",
+      "id": "g-star-det",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-37",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-38",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Void Vanguard",
+        "id": "d-vanguard",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [],
+        "constraints": [],
+        "rules": [
+         {
+          "name": "Swift Strike",
+          "id": "d-vanguard-rule",
+          "hidden": false,
+          "description": "Units from this army can Advance and shoot."
+         }
+        ]
+       },
+       {
+        "name": "Star Bastion",
+        "id": "d-bastion",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [],
+        "constraints": [],
+        "rules": [
+         {
+          "name": "Hold Fast",
+          "id": "d-bastion-rule",
+          "hidden": false,
+          "description": "Units on objectives get +1 to their saves."
+         }
+        ]
+       }
+      ],
+      "entryLinks": []
+     }
+    ]
    }
   ],
   "entryLinks": [
+   {
+    "name": "Detachment",
+    "id": "rl-star-det",
+    "hidden": false,
+    "targetId": "e-star-det",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Detachment",
+    "id": "rl-ally-det",
+    "hidden": false,
+    "targetId": "e-allies-det",
+    "type": "selectionEntry",
+    "constraints": []
+   },
    {
     "name": "Void Warriors",
     "id": "rl-void",

@@ -29,10 +29,11 @@
         defenderMode: 'real',  // 'real' (defender table) or 'generic' (benchmark profiles)
         genericProfiles: [],  // read-only, from /api/data/target-profiles
         genericIncluded: null,  // Set of included profile ids (null = each profile's default)
-        // Rules & stratagems each side can tick, and which are ticked ('rule:3', 'stratagem:7')
+        // Rules & stratagems each side can tick, which are ticked ('rule:3', 'stratagem:7'), and the
+        // side's detachment (BSData key; '' = faction-wide rules only) from its factions' detachments
         rules: {
-            attacker: { available: [], ticked: new Set(), factions: '' },
-            defender: { available: [], ticked: new Set(), factions: '' },
+            attacker: { available: [], ticked: new Set(), factions: '', detachment: '', detachments: [] },
+            defender: { available: [], ticked: new Set(), factions: '', detachment: '', detachments: [] },
         },
         pickerMode: 'attacker',  // which table the Add Unit pop-up adds to
         conditions: {
@@ -162,6 +163,14 @@
         document.getElementById('close-unit-picker').addEventListener('click', closeUnitPicker);
         elements.unitPickerSearch.addEventListener('input', debounce(loadUnitPickerList, 250));
         elements.unitPickerFaction.addEventListener('change', loadUnitPickerList);
+        document.getElementById('unit-picker-legends').addEventListener('change', loadUnitPickerList);
+        ['attacker', 'defender'].forEach(side => {
+            document.getElementById(`${side}-detachment`).addEventListener('change', (e) => {
+                state.rules[side].detachment = e.target.value;
+                state.rules[side].factions = '';  // force a reload of the offered rules
+                refreshRules(side);
+            });
+        });
 
         // Table edits (event delegation, rows are re-rendered)
         elements.attackerBody.addEventListener('change', onAttackerTableChange);
@@ -242,11 +251,11 @@
         return state.defenderMode === 'generic' ? [] : state.defenders;
     }
 
-    /** Reload a side's tickable list when the factions in its table change. */
+    /** Reload a side's detachments and tickable list when the factions in its table change. */
     async function refreshRules(side) {
         const panel = state.rules[side];
         const factionIds = [...new Set(sideEntries(side).map(e => e.faction_id).filter(Boolean))].sort((a, b) => a - b);
-        const signature = factionIds.join(',');
+        const signature = factionIds.join(',') + '|' + panel.detachment;
         if (signature === panel.factions && panel.available.length) {
             renderRulesList(side);
             return;
@@ -256,8 +265,17 @@
         const params = new URLSearchParams({ side: side === 'attacker' ? 'Attacker' : 'Target' });
         factionIds.forEach(id => params.append('faction_id', id));
         try {
+            panel.detachments = factionIds.length
+                ? await fetch(`/api/detachments?${params}`).then(r => r.json())
+                : [];
+            if (!panel.detachments.some(d => d.key === panel.detachment)) panel.detachment = '';
+            const select = document.getElementById(`${side}-detachment`);
+            select.innerHTML = Core.detachmentOptionsHtml(panel.detachments, panel.detachment);
+            select.style.display = panel.detachments.length ? '' : 'none';
+            if (panel.detachment) params.append('detachment', panel.detachment);
+
             const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
-            if (panel.factions !== signature) return;  // a newer refresh started
+            if (panel.factions !== factionIds.join(',') + '|' + panel.detachment) return;  // a newer refresh started
             const keys = new Set(available.map(e => e.key));
             panel.available = available;
             panel.ticked = new Set([...panel.ticked].filter(k => keys.has(k)));
@@ -295,6 +313,7 @@
                        title="${e.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)'}">
                     <input type="checkbox" data-key="${e.key}" ${panel.ticked.has(e.key) ? 'checked' : ''}>
                     <span class="rule-name">${escapeHtml(e.name)}</span>
+                    ${e.detachment ? `<span class="rule-detachment">${escapeHtml(e.detachment)}</span>` : ''}
                     <span class="rule-kind">${RULE_KIND_LABEL[e.kind]}</span>
                     <span class="rule-phase">${escapeHtml(e.phase)}</span>
                     ${e.cp ? `<span class="rule-cp">${escapeHtml(e.cp)} CP</span>` : ''}
@@ -322,12 +341,17 @@
     }
 
     function ticksForSaving() {
-        return { attacker: [...state.rules.attacker.ticked], defender: [...state.rules.defender.ticked] };
+        return {
+            attacker: [...state.rules.attacker.ticked], defender: [...state.rules.defender.ticked],
+            detachments: { attacker: state.rules.attacker.detachment, defender: state.rules.defender.detachment },
+        };
     }
 
     function restoreTicks(saved) {
         state.rules.attacker.ticked = new Set(saved?.attacker || []);
         state.rules.defender.ticked = new Set(saved?.defender || []);
+        state.rules.attacker.detachment = saved?.detachments?.attacker || '';
+        state.rules.defender.detachment = saved?.detachments?.defender || '';
         state.rules.attacker.factions = '';  // force a reload; ticks are kept if still available
         state.rules.defender.factions = '';
     }
@@ -340,23 +364,7 @@
 
 
 
-    function toWeaponEntry(w) {
-        return {
-            weapon_id: w.id,
-            weapon_type: w.type,
-            name: w.name,
-            range: w.range ?? null,
-            attacks: w.attacks,
-            skill: w.skill,
-            strength: w.strength,
-            ap: w.ap,
-            damage: w.damage,
-            abilities: w.abilities || [],
-            models: w.qty || 1,  // Loadout quantity: models in the unit carrying this weapon
-            base_qty: w.qty || 1,  // Loadout quantity at the datasheet unit size
-            include: w.default_use ?? true,  // Server's default: only the first "Weapon - Profile" variant
-        };
-    }
+    const toWeaponEntry = w => Core.matchupWeaponEntry(w);
 
 
     function toDefenderEntry(unit, modelCount) {
@@ -404,6 +412,7 @@
         const search = elements.unitPickerSearch.value.trim();
         if (search) params.set('search', search);
         if (elements.unitPickerFaction.value) params.set('faction_id', elements.unitPickerFaction.value);
+        if (document.getElementById('unit-picker-legends').checked) params.set('legends', '1');
 
         try {
             const response = await fetch(`/api/units?${params}`);
@@ -444,7 +453,7 @@
                     default_models: unit.default_models || null,
                     unit_size: unit.default_models || null,
                     points_table: unit.points_by_model_count || [],
-                    weapons: [...(unit.ranged_weapons || []), ...(unit.melee_weapons || [])].map(toWeaponEntry),
+                    weapons: Core.matchupWeapons(unit),  // Loadout, then wargear options (not included)
                 });
                 renderAttackerTable();
             } else {
@@ -509,7 +518,7 @@
                                title="Include in matrix">
                     </td>
                     ${i === 0 ? unitCell(visible.length) : ''}
-                    <td class="roster-weapon">${escapeHtml(w.name)}</td>
+                    <td class="roster-weapon">${escapeHtml(w.name)}${w.option ? ' <span class="option-tag" title="Wargear option: tick to include it">option</span>' : ''}</td>
                     <td class="roster-type" title="${isRanged ? 'Shooting' : 'Melee'}">${isRanged ? '🎯' : '⚔️'}</td>
                     <td>${isRanged ? (w.range ? escapeHtml(w.range) + '"' : '-') : 'Melee'}</td>
                     <td>${escapeHtml(w.attacks)}</td>

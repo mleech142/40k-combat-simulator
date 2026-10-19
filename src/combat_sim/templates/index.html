@@ -7,7 +7,10 @@
         <h2>⚔️ Attacker</h2>
 
         <div class="form-group">
-            <label for="attacker-unit">Unit</label>
+            <div class="label-row">
+                <label for="attacker-unit">Unit</label>
+                <label class="filter-check" title="Include Legends units in the search"><input type="checkbox" id="attacker-legends"> Show Legends</label>
+            </div>
             <div class="autocomplete-wrapper">
                 <input type="text" class="autocomplete-input" id="attacker-unit"
                        placeholder="Search units..." autocomplete="off">
@@ -38,6 +41,7 @@
                 <span class="rules-panel-title">Attacker rules &amp; stratagems</span>
                 <span class="rules-summary" id="attacker-rules-summary">None ticked</span>
             </summary>
+            <select class="filter-select detachment-select" id="attacker-detachment" title="Detachment: offers its rules and stratagems too"></select>
             <div class="rules-list" id="attacker-rules-list"></div>
         </details>
     </section>
@@ -47,7 +51,10 @@
         <h2>🛡️ Defender</h2>
 
         <div class="form-group">
-            <label for="defender-unit">Unit</label>
+            <div class="label-row">
+                <label for="defender-unit">Unit</label>
+                <label class="filter-check" title="Include Legends units in the search"><input type="checkbox" id="defender-legends"> Show Legends</label>
+            </div>
             <div class="autocomplete-wrapper">
                 <input type="text" class="autocomplete-input" id="defender-unit"
                        placeholder="Search units..." autocomplete="off">
@@ -80,6 +87,7 @@
                 <span class="rules-panel-title">Target rules &amp; stratagems</span>
                 <span class="rules-summary" id="target-rules-summary">None ticked</span>
             </summary>
+            <select class="filter-select detachment-select" id="target-detachment" title="Detachment: offers its rules and stratagems too"></select>
             <div class="rules-list" id="target-rules-list"></div>
         </details>
     </section>

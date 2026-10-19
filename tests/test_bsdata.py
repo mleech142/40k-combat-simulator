@@ -290,3 +290,20 @@ def test_catalogue_from_another_game_system(scratch):
     path.write_text(json.dumps(content), encoding='utf-8')
     with pytest.raises(BSDataError, match='belongs to a different game system'):
         import_folder(scratch)
+
+
+# --- Detachments and army rules ---------------------------------------------------------
+
+def test_detachments_of_the_faction_but_not_of_allies(result):
+    star = faction(result, 'Starfarers')['id']
+    names = {d['name']: d for d in result.data['detachments'] if d['faction_id'] == star}
+    assert sorted(names) == ['Star Bastion', 'Void Vanguard']  # Not the linked "Allied Task Force"
+    assert names['Void Vanguard']['bsdata_id'] == 'd-vanguard'
+    assert names['Void Vanguard']['rules'] == [{'name': 'Swift Strike', 'text': 'Units from this army can Advance and shoot.'}]
+    allies = faction(result, 'Allies')['id']
+    assert [d['name'] for d in result.data['detachments'] if d['faction_id'] == allies] == ['Allied Task Force']
+
+
+def test_army_rules_are_the_faction_catalogues_rules(result):
+    assert [r['name'] for r in faction(result, 'Starfarers')['army_rules']] == ['Star Pact']
+    assert faction(result, 'Allies')['army_rules'] == []

@@ -114,10 +114,14 @@
         <div class="matchup-rules">
             <div class="matchup-rules-column">
                 <h3>⚔️ Attackers <span class="rules-summary" id="attacker-rules-summary">None ticked</span></h3>
+                <select class="filter-select detachment-select" id="attacker-detachment" style="display:none"
+                        title="Detachment: offers its rules and stratagems too"></select>
                 <div class="rules-list" id="attacker-rules-list"></div>
             </div>
             <div class="matchup-rules-column">
                 <h3>🛡️ Defenders <span class="rules-summary" id="defender-rules-summary">None ticked</span></h3>
+                <select class="filter-select detachment-select" id="defender-detachment" style="display:none"
+                        title="Detachment: offers its rules and stratagems too"></select>
                 <div class="rules-list" id="defender-rules-list"></div>
             </div>
         </div>
@@ -232,6 +236,7 @@
                 <select class="filter-select" id="unit-picker-faction">
                     <option value="">All Factions</option>
                 </select>
+                <label class="filter-check"><input type="checkbox" id="unit-picker-legends"> Show Legends</label>
             </div>
             <div class="unit-picker-list" id="unit-picker-list"></div>
         </div>

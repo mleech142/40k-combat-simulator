@@ -9,12 +9,12 @@ from pathlib import Path
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy.exc import IntegrityError
-from .models import (db, init_db, Faction, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
+from .models import (db, init_db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
                      SavedScenario, SavedComparison, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
-                         rebuild_reference_tables, export_data, write_data_file)
+                         rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
 from . import bsdata_download, folder_dialog
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
@@ -251,12 +251,18 @@ def register_routes(app):
         """
         Rules and stratagems that can be ticked for one side.
 
-        ?side=Attacker|Target and one or more ?faction_id=N. Returns the factions' rules and
-        stratagems for that side plus the core stratagems, each with whether its modifier text
-        changes the calculations.
+        ?side=Attacker|Target, one or more ?faction_id=N and any ?detachment=<BSData ID>.
+        Returns the factions' rules and stratagems for that side (those for the whole faction,
+        plus those for a chosen detachment) and the core stratagems, each with whether its
+        modifier text changes the calculations.
         """
         side = request.args.get('side', 'Attacker')
         faction_ids = [i for i in request.args.getlist('faction_id', type=int) if i]
+        chosen = set(request.args.getlist('detachment'))
+
+        def offered(record):
+            return (record.applies_to or 'Attacker') == side and (
+                not record.detachment_key or record.detachment_key in chosen)
         modelled = {k.name.lower() for k in Keyword.query.filter_by(modelled=True)}
         names = {f.id: f.name for f in Faction.query}
 
@@ -272,17 +278,27 @@ def register_routes(app):
                 'phase': record.phase or 'Both',
                 'modifier': record.modifier,
                 'has_effect': modifier_has_effect(record.modifier, modelled),
+                'detachment': record.detachment_name,
             }
 
         entries = []
         if faction_ids:
             rules = FactionRule.query.filter(FactionRule.faction_id.in_(faction_ids)).order_by(FactionRule.name)
-            entries += [entry(r, 'rule') for r in rules if (r.applies_to or 'Attacker') == side]
+            entries += [entry(r, 'rule') for r in rules if offered(r)]
             strats = Stratagem.query.filter(Stratagem.faction_id.in_(faction_ids)).order_by(Stratagem.name)
-            entries += [entry(st, 'stratagem') for st in strats if (st.applies_to or 'Attacker') == side]
+            entries += [entry(st, 'stratagem') for st in strats if offered(st)]
         core = Stratagem.query.filter(Stratagem.faction_id.is_(None)).order_by(Stratagem.name)
-        entries += [entry(st, 'core') for st in core if (st.applies_to or 'Attacker') == side]
+        entries += [entry(st, 'core') for st in core if offered(st)]
         return jsonify(entries)
+
+    @app.route('/api/detachments')
+    def api_detachments():
+        """BSData detachments of one or more ?faction_id=N, with their rule text."""
+        faction_ids = [i for i in request.args.getlist('faction_id', type=int) if i]
+        if not faction_ids:
+            return jsonify([])
+        rows = Detachment.query.filter(Detachment.faction_id.in_(faction_ids)).order_by(Detachment.name)
+        return jsonify([d.to_dict() for d in rows])
 
     def rules_from_keys(keys):
         """{'rule_ids', 'stratagem_ids'} from saved tick keys like 'rule:3' / 'stratagem:7'."""
@@ -647,6 +663,13 @@ def register_routes(app):
             'stratagem_count': f.stratagems.count(),
         } for f in factions])
 
+    @app.route('/api/data/factions/<int:faction_id>/reference')
+    def api_data_faction_reference(faction_id):
+        """BSData's text for a faction: army rules and detachments (read-only reference)."""
+        faction = db.get_or_404(Faction, faction_id)
+        detachments = Detachment.query.filter_by(faction_id=faction.id).order_by(Detachment.name)
+        return jsonify({'army_rules': faction.army_rules or [], 'detachments': [d.to_dict() for d in detachments]})
+
     @app.route('/api/data/factions', methods=['POST'])
     def api_data_create_faction():
         """Create a new (custom) faction."""
@@ -687,11 +710,24 @@ def register_routes(app):
 
     # --- Faction rules ------------------------------------------------------
 
+    def apply_detachment(record, data):
+        """detachment_key from the request; its name is looked up (kept if the detachment isn't loaded)."""
+        key = (data.get('detachment_key') or '').strip() or None
+        known = Detachment.query.filter_by(bsdata_id=key).first() if key else None
+        if not key:
+            record.detachment_name = None
+        elif known:
+            record.detachment_name = known.name
+        elif key != record.detachment_key:
+            record.detachment_name = data.get('detachment_name') or key
+        record.detachment_key = key
+
     def apply_rule_fields(rule, data):
         rule.name = data['name'].strip()
         rule.applies_to = data.get('applies_to') or None
         rule.phase = data.get('phase') or None
         rule.modifier = (data.get('modifier') or '').strip() or None
+        apply_detachment(rule, data)
 
     @app.route('/api/data/rules')
     def api_data_rules():
@@ -732,6 +768,7 @@ def register_routes(app):
         strat.phase = data.get('phase') or None
         strat.modifier = (data.get('modifier') or '').strip() or None
         strat.notes = (data.get('notes') or '').strip() or None
+        apply_detachment(strat, data)
 
     @app.route('/api/data/stratagems')
     def api_data_stratagems():
@@ -907,9 +944,41 @@ def register_routes(app):
         weapons.sort(key=lambda w: ((w['faction'] or '').lower(), w['name'].lower()))
         return jsonify(weapons)
 
+    def bsdata_profile(weapon_type, bsdata_id):
+        """A BSData weapon with this profile ID (any faction: the profile is the same)."""
+        if not bsdata_id:
+            return None
+        model = WEAPON_MODELS[weapon_type]
+        return model.query.join(Faction).filter(model.bsdata_id == bsdata_id, Faction.source == 'bsdata').first()
+
+    @app.route('/api/data/weapons/bsdata')
+    def api_data_bsdata_weapons():
+        """BSData weapons to copy into a custom faction: ?q=name&type=ranged|melee (one per profile, 40 at most)."""
+        search = request.args.get('q', '').strip()
+        types = [request.args.get('type')] if request.args.get('type') in WEAPON_MODELS else list(WEAPON_MODELS)
+        found, seen = [], set()
+        for type_name in types:
+            model = WEAPON_MODELS[type_name]
+            query = model.query.join(Faction).filter(Faction.source == 'bsdata')
+            if search:
+                query = query.filter(model.name.ilike(f'%{search}%'))
+            for w in query.order_by(model.name, model.id).limit(400):
+                if (type_name, w.bsdata_id) in seen:
+                    continue
+                seen.add((type_name, w.bsdata_id))
+                found.append(dict(w.to_dict(), faction=w.faction.name))
+        found.sort(key=lambda w: w['name'].lower())
+        return jsonify(found[:40])
+
     def apply_weapon_fields(weapon, weapon_type, data):
         weapon.faction_id = int(data['faction_id'])
         weapon.name = data['name'].strip()
+        linked = bsdata_profile(weapon_type, (data.get('linked_bsdata_id') or '').strip() or None)
+        weapon.linked_bsdata_id = linked.bsdata_id if linked else None
+        if linked:  # Stats come from BSData (and are refreshed from it on every start)
+            for field in LINKED_FIELDS[weapon_type]:
+                setattr(weapon, field, getattr(linked, field))
+            return
         weapon.attacks = str(data['attacks']).strip()
         weapon.strength = int(data['strength'])
         weapon.armor_penetration = abs(int(data['ap'] or 0))

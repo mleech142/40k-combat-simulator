@@ -72,10 +72,11 @@ const state = {
         method: 'analytical',
         iterations: 1000,
     },
-    // Rules & stratagems that can be ticked for each side, and which are ticked ('rule:3', 'stratagem:7')
+    // Rules & stratagems that can be ticked for each side, which are ticked ('rule:3', 'stratagem:7'),
+    // and the side's detachment (BSData key; '' = faction-wide rules only)
     rules: {
-        attacker: { available: [], ticked: new Set() },
-        target: { available: [], ticked: new Set() },
+        attacker: { available: [], ticked: new Set(), factionId: null, detachment: '', detachments: [] },
+        target: { available: [], ticked: new Set(), factionId: null, detachment: '', detachments: [] },
     },
 };
 
@@ -95,6 +96,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSimulateButton();
     initSaveButton();
     initExtraModifiers();
+    initDetachmentSelects();
     loadRulesFor('attacker', null);
     loadRulesFor('target', null);
 
@@ -146,6 +148,11 @@ function saveSimulatorState() {
             attacker: [...state.rules.attacker.ticked],
             target: [...state.rules.target.ticked],
         },
+        detachments: { attacker: state.rules.attacker.detachment, target: state.rules.target.detachment },
+        legends: {
+            attacker: document.getElementById('attacker-legends').checked,
+            defender: document.getElementById('defender-legends').checked,
+        },
     });
 }
 
@@ -162,6 +169,11 @@ async function restoreSimulatorState() {
     document.getElementById('iterations').value = state.simulation.iterations;
     document.getElementById('model-count').value = saved.modelCount || 5;
     setExtraModifiers(saved.extraModifiers || '');
+
+    document.getElementById('attacker-legends').checked = !!saved.legends?.attacker;
+    document.getElementById('defender-legends').checked = !!saved.legends?.defender;
+    state.rules.attacker.detachment = saved.detachments?.attacker || '';
+    state.rules.target.detachment = saved.detachments?.target || '';
 
     document.getElementById('defender-unit').value = saved.defenderUnitText || '';
     if (saved.defenderUnit) {
@@ -218,10 +230,45 @@ const RULE_GROUPS = [
     ['core', 'Core stratagems'],
 ];
 
-/** Load the rules/stratagems one side can tick (its faction's plus core); keep ticks that still exist. */
+/** The detachment dropdowns reload their side's rules when changed. */
+function initDetachmentSelects() {
+    for (const side of ['attacker', 'target']) {
+        const select = document.getElementById(`${side}-detachment`);
+        if (!select) continue;
+        select.style.display = 'none';
+        select.addEventListener('change', () => {
+            state.rules[side].detachment = select.value;
+            loadRulesFor(side, state.rules[side].factionId);
+        });
+    }
+}
+
+/** Fill a side's detachment dropdown for its faction (hidden when the faction has none). */
+async function loadDetachments(side, factionId) {
+    const panel = state.rules[side];
+    const select = document.getElementById(`${side}-detachment`);
+    if (factionId !== panel.factionId || !panel.detachments.length) {
+        panel.detachments = factionId
+            ? await fetch(`/api/detachments?faction_id=${factionId}`).then(r => r.json()).catch(() => [])
+            : [];
+    }
+    panel.factionId = factionId;
+    if (!panel.detachments.some(d => d.key === panel.detachment)) panel.detachment = '';
+    if (select) {
+        select.innerHTML = Core.detachmentOptionsHtml(panel.detachments, panel.detachment);
+        select.style.display = panel.detachments.length ? '' : 'none';
+    }
+}
+
+/**
+ * Load the rules/stratagems one side can tick (its faction's, those of its detachment, and core);
+ * keep ticks that still exist.
+ */
 async function loadRulesFor(side, factionId, ticked = null) {
+    await loadDetachments(side, factionId);
     const params = new URLSearchParams({ side: side === 'attacker' ? 'Attacker' : 'Target' });
     if (factionId) params.append('faction_id', factionId);
+    if (state.rules[side].detachment) params.append('detachment', state.rules[side].detachment);
     try {
         const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
         const panel = state.rules[side];
@@ -255,6 +302,7 @@ function renderRulesPanel(side) {
                    title="${e.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)'}">
                 <input type="checkbox" data-key="${e.key}" ${panel.ticked.has(e.key) ? 'checked' : ''}>
                 <span class="rule-name">${escapeHtml(e.name)}</span>
+                ${e.detachment ? `<span class="rule-detachment">${escapeHtml(e.detachment)}</span>` : ''}
                 ${e.cp ? `<span class="rule-cp">${escapeHtml(e.cp)} CP</span>` : ''}
                 <span class="rule-modifier">${e.has_effect ? escapeHtml(e.modifier) : 'No effect on the calculations'}</span>
             </label>`).join('');
@@ -318,7 +366,7 @@ function applyConditions(conditions) {
 function initAutocomplete() {
     // Attacker unit autocomplete
     setupAutocomplete('attacker-unit', async (search) => {
-        const response = await fetch(`/api/units?search=${encodeURIComponent(search)}`);
+        const response = await fetch(unitSearchUrl(search, 'attacker'));
         return response.json();
     }, (item) => {
         state.attacker.unit = item;
@@ -329,7 +377,7 @@ function initAutocomplete() {
 
     // Defender unit autocomplete
     setupAutocomplete('defender-unit', async (search) => {
-        const response = await fetch(`/api/units?search=${encodeURIComponent(search)}`);
+        const response = await fetch(unitSearchUrl(search, 'defender'));
         return response.json();
     }, (item) => {
         state.defender.unit = item;
@@ -337,6 +385,12 @@ function initAutocomplete() {
         document.getElementById('model-count').value = item.default_models || 5;
         loadRulesFor('target', item.faction_id);
     }, formatUnitItem);
+}
+
+/** Unit search URL; Legends units only when that side's "Show Legends" box is ticked. */
+function unitSearchUrl(search, side) {
+    const legends = document.getElementById(`${side}-legends`)?.checked ? '&legends=1' : '';
+    return `/api/units?search=${encodeURIComponent(search)}${legends}`;
 }
 
 /**
@@ -406,8 +460,8 @@ function renderDropdown(dropdown, items, formatFn, onClick) {
 function formatUnitItem(unit) {
     return `
         <div class="autocomplete-item" data-id="${unit.id}">
-            <div class="item-name">${unit.name}</div>
-            <div class="item-faction">${unit.faction}</div>
+            <div class="item-name">${escapeHtml(unit.name)}</div>
+            <div class="item-faction">${escapeHtml(unit.faction)}</div>
         </div>
     `;
 }
@@ -436,19 +490,15 @@ const escapeHtml = Core.escapeHtml;
  */
 
 /**
- * Load the unit's loadout. qty = models carrying the weapon (pre-filled from the loadout, editable
- * per run); use = ticked for the simulation. Neither is saved to the data.
+ * Load the unit's loadout and wargear options. qty = models carrying the weapon (pre-filled from
+ * the loadout, editable per run); use = ticked for the simulation. Neither is saved to the data.
  */
 async function loadWeaponsForUnit(unitId) {
     const response = await fetch(`/api/units/${unitId}`);
     const unitData = await response.json();
 
-    // default_use: the server's default ticks (only the first "Weapon - Profile" variant of a gun)
-    const prepare = list => (list || []).map(w => ({ ...w, qty: w.qty || 1, use: w.default_use ?? true }));
-    state.attacker.weapons = {
-        ranged: prepare(unitData.ranged_weapons),
-        melee: prepare(unitData.melee_weapons),
-    };
+    // default_use: the server's default ticks (only the first "Weapon - Profile" variant of a gun); options start unticked
+    state.attacker.weapons = Core.simulatorWeapons(unitData);
     setWeaponType(state.attacker.weapons.ranged.length ? 'ranged' : 'melee');
 }
 
@@ -504,12 +554,17 @@ function renderWeaponList() {
     }
 
     const isRanged = type === 'ranged';
+    const columns = isRanged ? 9 : 8;
+    const firstOption = weapons.findIndex(w => w.option);
     const rows = weapons.map((w, idx) => {
         const abilities = w.abilities?.length
             ? `<div class="weapon-row-abilities">${escapeHtml(w.abilities.join(', '))}</div>`
             : '';
-        return `
-            <tr class="weapon-row${w.use ? ' selected' : ' excluded'}" data-idx="${idx}">
+        const optionsHeader = idx === firstOption
+            ? `<tr class="weapon-options-header"><td colspan="${columns}">Wargear options (tick to swap in; set Qty)</td></tr>`
+            : '';
+        return `${optionsHeader}
+            <tr class="weapon-row${w.use ? ' selected' : ' excluded'}${w.option ? ' weapon-option' : ''}" data-idx="${idx}">
                 <td class="weapon-use"><input type="checkbox" class="weapon-use-box" data-idx="${idx}" ${w.use ? 'checked' : ''}
                            title="Use this weapon in the simulation"></td>
                 <td class="weapon-row-name">${escapeHtml(w.name)}${abilities}</td>
@@ -847,6 +902,7 @@ async function saveScenario() {
             type: state.attacker.weaponType,
             weapons: weapons.map(weaponPayload),
             rules: [...state.rules.attacker.ticked],
+            detachment: state.rules.attacker.detachment,
         },
         defender: {
             unit_name: defender.name,
@@ -860,6 +916,7 @@ async function saveScenario() {
             model_count: modelCount,
             extra_modifiers: state.defender.extraModifiers,
             rules: [...state.rules.target.ticked],
+            detachment: state.rules.target.detachment,
         },
         conditions: state.conditions,
         results: lastSimulationResult
@@ -977,6 +1034,7 @@ function checkForLoadedScenario() {
         // We need to reconstruct the weapon and unit objects
         if (scenario.attacker_config) {
             const config = scenario.attacker_config;
+            state.rules.attacker.detachment = config.detachment || '';
             loadScenarioAttacker(config).then(() =>
                 loadRulesFor('attacker', state.attacker.unit?.faction_id ?? config.faction_id ?? null, config.rules || []));
         }
@@ -995,6 +1053,7 @@ function checkForLoadedScenario() {
 
             // Show defender stats
             showUnitStats('defender', state.defender.unit);
+            state.rules.target.detachment = scenario.defender_config.detachment || '';
             loadRulesFor('target', state.defender.unit.faction_id, scenario.defender_config.rules || []);
         }
 

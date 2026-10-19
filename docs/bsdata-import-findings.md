@@ -14,6 +14,12 @@ Run: BSData/wh40k-11e at commit `b8667d4` (2026-10-19), 46 files → 37 factions
 | `missing_link` | 1 | Library - Astartes Heresy Legends: profile link "Terror of Khorne" points at nothing. | BSData bug; report upstream. |
 | `skipped_unit` | 1 | Unaligned Forces / Searchlight has no Unit profile. | Expected (it's a wargear token). |
 
+## Detachments
+
+- 12 detachments have no rule text in BSData (their rule is probably written elsewhere, e.g. as a modifier); they are still listed.
+- Titanicus Traitoris, Adeptus Titanicus and Unaligned Forces have no detachments.
+- Detachments are taken from the faction's own catalogue and those it takes units from; Agents of the Imperium detachments no longer appear in every Imperium army, and Chaos Daemons' only in Chaos Daemons. Factions can still list detachments BSData hides with conditions (e.g. Aeldari and Drukhari both list all 24 shared ones).
+
 ## Unknown weapon keywords (top)
 
 | Count | Keyword |

@@ -303,3 +303,84 @@ def test_pages_render_with_bsdata(app_client):
     client, _ = app_client
     for page in ('/', '/matchups', '/scenarios', '/data'):
         assert client.get(page).status_code == 200, page
+
+
+# --- Detachments ---------------------------------------------------------------------------------
+
+def test_detachments_and_reference_text(app_client):
+    client, _ = app_client
+    star = factions(client)['Starfarers']['id']
+    detachments = client.get(f'/api/detachments?faction_id={star}').get_json()
+    assert [(d['name'], d['key']) for d in detachments] == [('Star Bastion', 'd-bastion'), ('Void Vanguard', 'd-vanguard')]
+    assert all(d['id'] >= BSDATA_ID_BASE for d in detachments)
+    reference = client.get(f'/api/data/factions/{star}/reference').get_json()
+    assert reference['army_rules'][0]['name'] == 'Star Pact'
+    assert reference['detachments'][1]['rules'][0]['name'] == 'Swift Strike'
+    assert client.get('/api/detachments').get_json() == []
+
+
+def test_detachment_rules_offered_only_with_their_detachment(app_client):
+    client, saved = app_client
+    star = factions(client)['Starfarers']['id']
+    created = client.post('/api/data/stratagems', json={
+        'faction_id': star, 'name': 'Vanguard Strike', 'cp': '1', 'applies_to': 'Attacker', 'phase': 'Both',
+        'modifier': 'Hit Modifier 1', 'detachment_key': 'd-vanguard'}).get_json()
+    assert created['detachment_name'] == 'Void Vanguard'
+    saved_strat = next(s for s in saved()['stratagems'] if s['name'] == 'Vanguard Strike')
+    assert (saved_strat['detachment_key'], saved_strat['detachment_name']) == ('d-vanguard', 'Void Vanguard')
+
+    def offered(*detachments):
+        query = f'side=Attacker&faction_id={star}' + ''.join(f'&detachment={d}' for d in detachments)
+        return {e['name']: e for e in client.get(f'/api/rules/available?{query}').get_json()}
+    assert 'Vanguard Strike' not in offered()
+    assert 'Vanguard Strike' not in offered('d-bastion')
+    with_it = offered('d-vanguard')
+    assert with_it['Vanguard Strike']['detachment'] == 'Void Vanguard'
+    assert 'Star Fury' in with_it and 'Star Fury' in offered()  # Faction-wide rules always
+
+    client.put(f'/api/data/stratagems/{created["id"]}', json=dict(created, detachment_key=None))
+    assert 'Vanguard Strike' in offered()
+
+
+def test_detachment_kept_when_bsdata_is_missing(make_client):
+    data = dict(APP_DATA, faction_rules=[dict(APP_DATA['faction_rules'][0], detachment_key='d-vanguard',
+                                              detachment_name='Void Vanguard')])
+    client, data_file = make_client(data)
+    client.post('/api/data/factions', json={'name': 'Another'})  # Any save
+    rule = json.loads(data_file.read_text(encoding='utf-8'))['faction_rules'][0]
+    assert (rule['detachment_key'], rule['detachment_name']) == ('d-vanguard', 'Void Vanguard')
+
+
+# --- Custom weapons copied from BSData -----------------------------------------------------------
+
+def test_bsdata_weapon_search(app_client):
+    client, _ = app_client
+    found = client.get('/api/data/weapons/bsdata?q=laser&type=ranged').get_json()
+    names = [w['name'] for w in found]
+    assert 'Heavy laser' in names and 'Laser rifle - standard' in names
+    assert names.count('Laser pistol') == 2  # Starfarers' and Allies' profiles differ
+    assert all(w['type'] == 'ranged' for w in found)
+    assert not client.get('/api/data/weapons/bsdata?q=home').get_json()  # Custom weapons aren't offered
+
+
+def test_linked_custom_weapon_follows_bsdata(make_client, tmp_path, monkeypatch):
+    folder = tmp_path / 'bsdata'
+    shutil.copytree(BSDATA_FIXTURES, folder)
+    client, saved_file = make_client(APP_DATA, bsdata=folder)
+    created = client.post('/api/data/weapons', json={
+        'faction_id': 1, 'type': 'ranged', 'name': 'Borrowed laser', 'attacks': '9', 'strength': 1, 'ap': 0,
+        'damage': '1', 'linked_bsdata_id': 'p-heavy'}).get_json()
+    weapon = client.get(f'/api/data/weapons/ranged/{created["id"]}').get_json()
+    assert (weapon['name'], weapon['attacks'], weapon['strength'], weapon['ap'], weapon['damage']) == (
+        'Borrowed laser', '1', 9, 3, 'D6')  # Stats from BSData, name its own
+    assert weapon['linked_bsdata_id'] == 'p-heavy' and weapon['editable']
+    saved = json.loads(saved_file.read_text(encoding='utf-8'))
+    assert next(w for w in saved['ranged_weapons'] if w['name'] == 'Borrowed laser')['linked_bsdata_id'] == 'p-heavy'
+
+    # BSData changes the profile: the copy follows on the next start
+    path = folder / 'Xenos - Starfarers.json'
+    text = json.dumps(json.loads(path.read_text(encoding='utf-8')))
+    assert text.count('"name": "S", "$text": "9"') == 1  # The heavy laser's strength
+    path.write_text(text.replace('"name": "S", "$text": "9"', '"name": "S", "$text": "10"'), encoding='utf-8')
+    again = restart().get(f'/api/data/weapons/ranged/{created["id"]}').get_json()
+    assert again['strength'] == 10 and again['name'] == 'Borrowed laser'

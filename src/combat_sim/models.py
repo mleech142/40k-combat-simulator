@@ -32,6 +32,7 @@ class Faction(db.Model):
     # 'custom' (made in the app), 'bsdata', or 'missing' (named by app data, not in the BSData folder)
     source = db.Column(db.String(10), nullable=False, default='custom')
     bsdata_id = db.Column(db.String(40), nullable=True)  # Catalogue ID
+    army_rules = db.Column(JSON, default=list)  # BSData: [{"name", "text"}] (text only)
 
     # Relationships
     units = db.relationship('Unit', backref='faction', lazy='dynamic')
@@ -45,6 +46,24 @@ class Faction(db.Model):
     def editable(self):
         """Its units and weapons can be edited (rules and stratagems always can)."""
         return self.source == 'custom'
+
+
+class Detachment(db.Model):
+    """A BSData detachment of a faction, with its rule text. Read-only; rules and stratagems
+    name it by `bsdata_id` (the same detachment can belong to several factions)."""
+    __tablename__ = 'detachments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    faction_id = db.Column(db.Integer, db.ForeignKey('factions.id'), nullable=False)
+    bsdata_id = db.Column(db.String(40), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    rules = db.Column(JSON, default=list)  # [{"name", "text"}]
+
+    faction = db.relationship('Faction')
+
+    def to_dict(self):
+        return {'id': self.id, 'key': self.bsdata_id, 'name': self.name, 'faction_id': self.faction_id,
+                'faction': self.faction.name if self.faction else None, 'rules': self.rules or []}
 
 
 # A unit's loadout: which of its faction's weapons it carries, and how many models carry each.
@@ -225,6 +244,8 @@ class RangedWeapon(db.Model):
     # Abilities stored as JSON array of strings
     abilities = db.Column(JSON, default=list)
     bsdata_id = db.Column(db.String(40), nullable=True)  # Profile ID (BSData weapons only)
+    # Custom weapons copied from BSData: the profile ID their stats are refreshed from on every start
+    linked_bsdata_id = db.Column(db.String(40), nullable=True)
 
     faction = db.relationship('Faction')
 
@@ -245,6 +266,8 @@ class RangedWeapon(db.Model):
             'range': self.range_inches,
             'abilities': self.abilities or [],
             'editable': self.faction.editable if self.faction else True,
+            'bsdata_id': self.bsdata_id,
+            'linked_bsdata_id': self.linked_bsdata_id,
         }
 
 
@@ -266,6 +289,8 @@ class MeleeWeapon(db.Model):
     # Abilities stored as JSON array of strings
     abilities = db.Column(JSON, default=list)
     bsdata_id = db.Column(db.String(40), nullable=True)  # Profile ID (BSData weapons only)
+    # Custom weapons copied from BSData: the profile ID their stats are refreshed from on every start
+    linked_bsdata_id = db.Column(db.String(40), nullable=True)
 
     faction = db.relationship('Faction')
 
@@ -286,6 +311,8 @@ class MeleeWeapon(db.Model):
             'range': None,
             'abilities': self.abilities or [],
             'editable': self.faction.editable if self.faction else True,
+            'bsdata_id': self.bsdata_id,
+            'linked_bsdata_id': self.linked_bsdata_id,
         }
 
 
@@ -299,6 +326,9 @@ class FactionRule(db.Model):
     applies_to = db.Column(db.String(20), nullable=True)  # "Attacker" or "Target"
     phase = db.Column(db.String(20), nullable=True)  # "Shooting", "Fighting" or "Both"
     modifier = db.Column(db.Text, nullable=True)  # Keyword-format modifier text
+    # Only with this BSData detachment (its bsdata_id; null = the whole faction)
+    detachment_key = db.Column(db.String(40), nullable=True)
+    detachment_name = db.Column(db.String(100), nullable=True)
 
     def __repr__(self):
         return f'<FactionRule {self.name}>'
@@ -311,6 +341,8 @@ class FactionRule(db.Model):
             'applies_to': self.applies_to,
             'phase': self.phase,
             'modifier': self.modifier,
+            'detachment_key': self.detachment_key,
+            'detachment_name': self.detachment_name,
         }
 
 
@@ -326,6 +358,8 @@ class Stratagem(db.Model):
     phase = db.Column(db.String(20), nullable=True)
     modifier = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    detachment_key = db.Column(db.String(40), nullable=True)  # As for FactionRule
+    detachment_name = db.Column(db.String(100), nullable=True)
 
     def __repr__(self):
         return f'<Stratagem {self.name}>'
@@ -344,6 +378,8 @@ class Stratagem(db.Model):
             'phase': self.phase,
             'modifier': self.modifier,
             'notes': self.notes,
+            'detachment_key': self.detachment_key,
+            'detachment_name': self.detachment_name,
         }
 
 
@@ -428,7 +464,7 @@ REFERENCE_TABLES = [
     unit_ranged_weapons, unit_melee_weapons,
     RangedWeapon.__table__, MeleeWeapon.__table__,
     FactionRule.__table__, Stratagem.__table__,
-    Unit.__table__, Faction.__table__, Keyword.__table__, TargetProfile.__table__,
+    Unit.__table__, Detachment.__table__, Faction.__table__, Keyword.__table__, TargetProfile.__table__,
 ]
 
 
