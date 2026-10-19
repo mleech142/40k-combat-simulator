@@ -8,7 +8,7 @@ The goal is for the Python app to do everything `40KCombatSimulator_v2.xlsx` doe
 
 | Area | Status | Headline |
 |---|---|---|
-| Datasheet data (units, weapons, loadouts, rules, stratagems) | ✅ | Imported from v2 and editable in the app |
+| Datasheet data (units, weapons, loadouts, rules, stratagems) | ✅ | Since 2.0 units, weapons, loadouts and points come from BSData (read-only, every faction); rules and stratagems are written in the app |
 | Combat maths: weapon keywords | ✅ | Every keyword Excel models (stages 1–3), checked against Excel's results |
 | Combat maths: stat modifiers (Hit/Wound/AP/… Modifier, Critical Hits X+, Reroll …) | ✅ | Excel's modifier language, with the ±1 cap (stage 2) |
 | Battle conditions | ✅ | 11th edition cover, *Attacker Damaged*, Stealth (stage 3) |
