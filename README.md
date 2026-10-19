@@ -72,7 +72,7 @@ Both pages remember their setup while you move between tabs; it is cleared when 
 
 ### Rules and stratagems
 
-**Leaders:** the "While this model is leading a unit, …" text of each BSData leader is read into buffs where it says something the maths models (weapon abilities, +1 to hit or wound, re-rolls, critical hits on 5+, invulnerable saves, Feel No Pain, -1 to be hit…); check or change them under **Leader buffs** in the unit's view on the Data tab. A defender's leader adds its buffs, but the target is still the bodyguard unit's own stat line.
+**Leaders:** the "While this model is leading a unit, …" text of each BSData leader is read into buffs where it says something the maths models (weapon abilities, +1 to hit or wound, re-rolls, critical hits on 5+, invulnerable saves, Feel No Pain, -1 to be hit…); check or change them under **Leader buffs** in the unit's view on the Data tab. A defender with a leader is attacked as one attached unit: every attack goes to the bodyguard models until they are all destroyed, then to the leader, each with its own stats; results show bodyguards and leader killed separately (in Monte Carlo, also how often the leader dies). Precision isn't modelled.
 
 BSData describes rules in words; it has no stratagems and nothing the maths can use. The calculations use the faction rules and stratagems written on the **Data** tab, in the keyword format the **Keywords** tab lists (e.g. `Sustained Hits 1, Lance`). The app ships with the core stratagems; add your armies' rules and stratagems there, each for the whole faction or for one detachment (BSData's own text for each army rule and detachment is shown alongside to write from).
 
@@ -95,7 +95,7 @@ The Data page shows whether the BSData folder loaded. BSData units keep their ID
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests                                         # 197 tests (Python + JavaScript)
+python -m pytest tests                                         # 207 tests (Python + JavaScript)
 node --test "tests/js/*.test.js"                               # JavaScript only (Node 18+)
 python -m coverage run --source=src/combat_sim -m pytest tests && python -m coverage report
 ```

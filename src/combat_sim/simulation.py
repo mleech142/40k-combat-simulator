@@ -16,6 +16,10 @@ Modifier language (comma-separated, exact names from the Keywords tab, capitals 
   target:  its keywords (for Anti), Feel No Pain X+, Invulnerable Save X+, Stealth,
            Toughness/Save/Damage/Hit/Wound/AP Modifier ±X
 X can be a number or dice (D3, D6+1); dice values are averaged in the analytical engine.
+
+Attached units (a leader with its bodyguard unit) as a target: every attack goes to the
+bodyguard models until they are all destroyed, then to the leader, each stage with its own
+profile (simulate_attached_analytical / simulate_monte_carlo_attached). Precision isn't modelled.
 """
 
 import math
@@ -112,6 +116,11 @@ class SimulationResult:
     # Monte Carlo only: % chance to kill at least one model / the whole unit
     kill_probability: Optional[float] = None
     wipe_probability: Optional[float] = None
+
+    # Attached units only: the bodyguard models and the leader, separately (models_killed is both)
+    bodyguards_killed: Optional[float] = None
+    leader_killed: Optional[float] = None  # Expected leader models killed (analytical) or average (Monte Carlo)
+    leader_kill_probability: Optional[float] = None  # Monte Carlo: % of trials the leader died
 
     # Analytical only: Excel's extra per-weapon columns
     auto_wounds: Optional[float] = None  # Lethal Hits
@@ -457,6 +466,30 @@ def simulate_analytical(
     conditions: BattleConditions
 ) -> SimulationResult:
     """Expected damage from average dice and probabilities."""
+    c = _analytical_core(attacker, defender, conditions)
+    return SimulationResult(
+        average_damage=round(c['damage'], 2),
+        models_killed=round(min(defender.model_count, c['kills']), 2),
+        overkill=round(c['overkill'], 2),
+        attacks_made=round(c['attacks'], 2),
+        hits=round(c['hits'], 2),
+        wounds=round(c['wounds'], 2),
+        failed_saves=round(c['damaging'], 2),
+        damage_dealt=round(c['damage'], 2),
+        method="analytical",
+        auto_wounds=round(c['lethal'], 2),
+        mortal_wounds=round(c['mortal'], 2),
+        unsaved=round(c['unsaved'], 2),
+        damage_per_attack=round(c['damage_per'], 2),
+    )
+
+
+# Quantities of the analytical engine that scale with the number of attacks
+SCALED = ('attacks', 'hits', 'wounds', 'lethal', 'mortal', 'unsaved', 'damaging', 'damage', 'kills', 'overkill')
+
+
+def _analytical_core(attacker: AttackerProfile, defender: DefenderProfile, conditions: BattleConditions) -> dict:
+    """The analytical engine's expected values for one weapon against one profile (kills uncapped)."""
     r = resolve(attacker, defender, conditions)
 
     attacks = r.attacks_per_model_avg * attacker.models
@@ -493,25 +526,104 @@ def simulate_analytical(
     # Models killed: attacks needed per kill, then divided (Excel's "Attacks per Kill")
     if fnp_factor > 0:
         attacks_per_kill = math.ceil(round(defender.wounds / effective_per, 9)) / fnp_factor
-        models_killed = min(defender.model_count, damaging_attacks / attacks_per_kill)
+        models_killed = damaging_attacks / attacks_per_kill
     else:
         models_killed = 0.0
     overkill = damaging_attacks * (damage_per - effective_per) * fnp_factor  # Damage lost to the cap
 
-    return SimulationResult(
-        average_damage=round(total_damage, 2),
-        models_killed=round(models_killed, 2),
-        overkill=round(overkill, 2),
-        attacks_made=round(attacks, 2),
-        hits=round(hits, 2),
-        wounds=round(wounds, 2),
-        failed_saves=round(unsaved + mortal_wounds, 2),
-        damage_dealt=round(total_damage, 2),
+    return {
+        'attacks': attacks, 'hits': hits, 'wounds': wounds, 'lethal': lethal_wounds, 'mortal': mortal_wounds,
+        'unsaved': unsaved, 'damaging': damaging_attacks, 'damage': total_damage, 'kills': models_killed,
+        'overkill': overkill, 'damage_per': damage_per,
+    }
+
+
+def simulate_attached_analytical(
+    attackers: list[AttackerProfile],
+    bodyguard: DefenderProfile,
+    leader: DefenderProfile,
+    conditions: BattleConditions,
+    bodyguard_targets: Optional[list[DefenderProfile]] = None,
+    leader_targets: Optional[list[DefenderProfile]] = None,
+) -> tuple[SimulationResult, list[SimulationResult]]:
+    """
+    Weapons attacking a leader with its bodyguard unit, in order: each weapon's expected kills go
+    to the bodyguard models still standing; once a weapon would destroy the last of them, the
+    rest of its attacks (and every later weapon's) are resolved against the leader's profile.
+    `bodyguard_targets` / `leader_targets` optionally give each stage as each weapon sees it
+    (phase-specific target rules). Returns the combined result and one result per weapon, each
+    with bodyguards_killed and leader_killed (models_killed is both).
+    """
+    bodyguard_targets = bodyguard_targets or [bodyguard] * len(attackers)
+    leader_targets = leader_targets or [leader] * len(attackers)
+    bodyguards_left = float(bodyguard.model_count)
+    leaders_left = float(leader.model_count)
+    per_weapon = []
+    for attacker, on_bodyguard, on_leader in zip(attackers, bodyguard_targets, leader_targets):
+        b = _analytical_core(attacker, on_bodyguard, conditions)
+        # Share of this weapon's attacks spent on bodyguards (the rest overflow to the leader)
+        if bodyguards_left <= 0:
+            share = 0.0
+        elif b['kills'] > bodyguards_left:
+            share = bodyguards_left / b['kills']
+        else:
+            share = 1.0
+        bodyguard_kills = share * b['kills']
+        bodyguards_left = max(0.0, bodyguards_left - bodyguard_kills)
+        part = {key: share * b[key] for key in SCALED}
+        part['kills'] = bodyguard_kills
+
+        leader_kills = 0.0
+        if share < 1.0 and b['attacks'] > 0:
+            l = _analytical_core(attacker, on_leader, conditions)
+            # The overflowing attacks, with the leader's odds per attack
+            scale = (1 - share) * b['attacks'] / l['attacks'] if l['attacks'] else 0.0
+            for key in SCALED:
+                part[key] += scale * l[key]
+            leader_kills = min(leaders_left, scale * l['kills'])
+            leaders_left -= leader_kills
+            part['kills'] = bodyguard_kills + leader_kills
+        per_weapon.append(_attached_result(part, b['damage_per'], bodyguard_kills, leader_kills))
+
+    total = {key: sum(getattr(w, FIELD_OF[key]) for w in per_weapon) for key in FIELD_OF}
+    combined = SimulationResult(
+        average_damage=round(total['damage'], 2),
+        models_killed=round(total['kills'], 2),
+        overkill=round(total['overkill'], 2),
+        attacks_made=round(total['attacks'], 2),
+        hits=round(total['hits'], 2),
+        wounds=round(total['wounds'], 2),
+        failed_saves=round(total['damaging'], 2),
+        damage_dealt=round(total['damage'], 2),
         method="analytical",
-        auto_wounds=round(lethal_wounds, 2),
-        mortal_wounds=round(mortal_wounds, 2),
-        unsaved=round(unsaved, 2),
+        bodyguards_killed=round(bodyguard.model_count - bodyguards_left, 2),
+        leader_killed=round(leader.model_count - leaders_left, 2),
+    )
+    return combined, per_weapon
+
+
+# Result field for each analytical quantity summed over weapons
+FIELD_OF = {'damage': 'average_damage', 'kills': 'models_killed', 'overkill': 'overkill', 'attacks': 'attacks_made',
+            'hits': 'hits', 'wounds': 'wounds', 'damaging': 'failed_saves'}
+
+
+def _attached_result(part, damage_per, bodyguard_kills, leader_kills):
+    return SimulationResult(
+        average_damage=round(part['damage'], 2),
+        models_killed=round(bodyguard_kills + leader_kills, 2),
+        overkill=round(part['overkill'], 2),
+        attacks_made=round(part['attacks'], 2),
+        hits=round(part['hits'], 2),
+        wounds=round(part['wounds'], 2),
+        failed_saves=round(part['damaging'], 2),
+        damage_dealt=round(part['damage'], 2),
+        method="analytical",
+        auto_wounds=round(part['lethal'], 2),
+        mortal_wounds=round(part['mortal'], 2),
+        unsaved=round(part['unsaved'], 2),
         damage_per_attack=round(damage_per, 2),
+        bodyguards_killed=round(bodyguard_kills, 2),
+        leader_killed=round(leader_kills, 2),
     )
 
 
@@ -529,6 +641,68 @@ def _roll_d6(need: int, crit_on: int, reroll: str) -> tuple[bool, bool]:
     return ok, ok and roll >= crit_on
 
 
+def _roll_attack_count(attacker: AttackerProfile, defender: DefenderProfile, r: ResolvedAttack) -> int:
+    """Attacks for every model, with per-model Rapid Fire / Blast / Cleave bonuses."""
+    num_attacks = 0
+    for _ in range(attacker.models):
+        num_attacks += max(1, roll_dice(attacker.attacks) + round(r.attacks_bonus_flat))
+        for key in r.extra_attacks:
+            value = keyword_roll(attacker.abilities, key)
+            num_attacks += value * (defender.model_count // 5) if key in ("Blast", "Cleave") else value
+    return num_attacks
+
+
+def _roll_attack(attacker: AttackerProfile, defender: DefenderProfile, conditions: BattleConditions,
+                 r: ResolvedAttack, counts: dict) -> list[int]:
+    """
+    Roll one attack through hit, wound, save and damage (Sustained Hits may add hits). Adds to
+    `counts` and returns the damage of each unsaved wound or mortal wound after Feel No Pain.
+    """
+    ab = attacker.abilities
+    hits, lethal = 0, 0
+    if r.auto_hit:
+        hits = 1
+    else:
+        ok, crit = _roll_d6(r.hit_need, r.crit_hit_on, r.hit_reroll)
+        if ok:
+            if crit and r.lethal:
+                lethal = 1  # Lethal hits auto-wound (and aren't Critical Wounds)
+            else:
+                hits = 1
+            if crit and r.sustained:
+                hits += keyword_roll(ab, "Sustained Hits")
+
+    wounds, mortal = lethal, 0
+    for _ in range(hits):
+        ok, crit = _roll_d6(r.wound_need, r.crit_wound_on, r.wound_reroll)
+        if not ok:
+            continue
+        if crit and r.devastating:
+            mortal += 1
+        else:
+            wounds += 1
+    failed = sum(1 for _ in range(wounds) if random.randint(1, 6) < r.save_need)
+
+    # Damage per unsaved wound / mortal wound, then Feel No Pain per point of damage
+    melta_active = not attacker.is_melee and conditions.half_range
+    flat_bonus = r.damage_bonus - (keyword_avg(ab, "Melta") if melta_active else 0)
+    damage = []
+    for _ in range(failed + mortal):
+        dmg = roll_dice(attacker.damage) + flat_bonus
+        if melta_active:
+            dmg += keyword_roll(ab, "Melta")
+        dmg = min(max(1, int(round(dmg))), defender.wounds)  # Damage beyond a model's wounds is lost
+        if defender.feel_no_pain:
+            dmg = sum(1 for _ in range(dmg) if random.randint(1, 6) < defender.feel_no_pain)
+        if dmg > 0:
+            damage.append(dmg)
+
+    counts['hits'] += hits + lethal
+    counts['wounds'] += wounds + mortal
+    counts['failed_saves'] += failed + mortal
+    return damage
+
+
 def _roll_weapon(
     attacker: AttackerProfile,
     defender: DefenderProfile,
@@ -541,71 +715,10 @@ def _roll_weapon(
     and the damage of each unsaved wound or mortal wound after Feel No Pain.
     """
     r = resolve(attacker, defender, conditions)
-    ab = attacker.abilities
-
-    # Attacks for every model, with per-model Rapid Fire / Blast / Cleave bonuses
-    num_attacks = 0
-    for _ in range(attacker.models):
-        num_attacks += max(1, roll_dice(attacker.attacks) + round(r.attacks_bonus_flat))
-        for key in r.extra_attacks:
-            value = keyword_roll(ab, key)
-            num_attacks += value * (defender.model_count // 5) if key in ("Blast", "Cleave") else value
-
-    # Hits
-    hits = 0
-    lethal_wounds = 0
-    if r.auto_hit:
-        hits = num_attacks
-    else:
-        for _ in range(num_attacks):
-            ok, crit = _roll_d6(r.hit_need, r.crit_hit_on, r.hit_reroll)
-            if not ok:
-                continue
-            if crit:
-                if r.lethal:
-                    lethal_wounds += 1
-                else:
-                    hits += 1
-                if r.sustained:
-                    hits += keyword_roll(ab, "Sustained Hits")
-            else:
-                hits += 1
-
-    # Wounds
-    wounds = lethal_wounds  # Lethal hits auto-wound (and aren't Critical Wounds)
-    mortal_wounds = 0
-    for _ in range(hits):
-        ok, crit = _roll_d6(r.wound_need, r.crit_wound_on, r.wound_reroll)
-        if not ok:
-            continue
-        if crit and r.devastating:
-            mortal_wounds += 1
-        else:
-            wounds += 1
-
-    # Saves
-    failed_saves = sum(1 for _ in range(wounds) if random.randint(1, 6) < r.save_need)
-
-    # Damage per unsaved wound / mortal wound, then Feel No Pain per point of damage
-    melta_active = not attacker.is_melee and conditions.half_range
-    flat_bonus = r.damage_bonus - (keyword_avg(ab, "Melta") if melta_active else 0)
+    counts = {'attacks': _roll_attack_count(attacker, defender, r), 'hits': 0, 'wounds': 0, 'failed_saves': 0}
     damage_instances = []
-    for _ in range(failed_saves + mortal_wounds):
-        dmg = roll_dice(attacker.damage) + flat_bonus
-        if melta_active:
-            dmg += keyword_roll(ab, "Melta")
-        dmg = min(max(1, int(round(dmg))), defender.wounds)  # Damage beyond a model's wounds is lost
-        if defender.feel_no_pain:
-            dmg = sum(1 for _ in range(dmg) if random.randint(1, 6) < defender.feel_no_pain)
-        if dmg > 0:
-            damage_instances.append(dmg)
-
-    counts = {
-        'attacks': num_attacks,
-        'hits': hits + lethal_wounds,
-        'wounds': wounds + mortal_wounds,
-        'failed_saves': failed_saves + mortal_wounds,
-    }
+    for _ in range(counts['attacks']):
+        damage_instances.extend(_roll_attack(attacker, defender, conditions, r, counts))
     return counts, damage_instances
 
 
@@ -687,6 +800,83 @@ def simulate_monte_carlo_combined(
         iterations=iterations,
         kill_probability=round(float(np.mean(kills_array >= 1)) * 100, 1),
         wipe_probability=round(float(np.mean(kills_array >= defender.model_count)) * 100, 1),
+    )
+
+
+def simulate_monte_carlo_attached(
+    attackers: list[AttackerProfile],
+    bodyguard: DefenderProfile,
+    leader: DefenderProfile,
+    conditions: BattleConditions,
+    iterations: int = 1000,
+    bodyguard_targets: Optional[list[DefenderProfile]] = None,
+    leader_targets: Optional[list[DefenderProfile]] = None,
+) -> SimulationResult:
+    """
+    Several weapons attacking a leader with its bodyguard unit, rolled attack by attack: each
+    attack is resolved against a bodyguard model while any is left, then against the leader,
+    and its damage is applied at once (so the profile changes the moment the last bodyguard
+    falls). models_killed counts both; bodyguards_killed, leader_killed and
+    leader_kill_probability give them separately.
+    """
+    bodyguard_targets = bodyguard_targets or [bodyguard] * len(attackers)
+    leader_targets = leader_targets or [leader] * len(attackers)
+    resolved = [(resolve(a, b, conditions), resolve(a, l, conditions))
+                for a, b, l in zip(attackers, bodyguard_targets, leader_targets)]
+    totals = {'attacks': 0, 'hits': 0, 'wounds': 0, 'failed_saves': 0}
+    damage_results, bodyguard_results, leader_results = [], [], []
+
+    for _ in range(iterations):
+        alive = {'bodyguard': bodyguard.model_count, 'leader': leader.model_count}
+        remaining = {'bodyguard': bodyguard.wounds, 'leader': leader.wounds}
+        dealt = 0
+        for attacker, on_bodyguard, on_leader, (r_bodyguard, r_leader) in zip(
+                attackers, bodyguard_targets, leader_targets, resolved):
+            totals['attacks'] += (num_attacks := _roll_attack_count(attacker, on_bodyguard, r_bodyguard))
+            for _ in range(num_attacks):
+                stage = 'bodyguard' if alive['bodyguard'] > 0 else 'leader'
+                target, r = (on_bodyguard, r_bodyguard) if stage == 'bodyguard' else (on_leader, r_leader)
+                for dmg in _roll_attack(attacker, target, conditions, r, totals):
+                    dealt += dmg
+                    if alive[stage] <= 0:
+                        continue  # Everything is dead: damage is still counted, nothing more dies
+                    remaining[stage] -= dmg
+                    if remaining[stage] <= 0:
+                        alive[stage] -= 1
+                        remaining[stage] = target.wounds
+                        if stage == 'bodyguard' and alive['bodyguard'] == 0:
+                            stage, target, r = 'leader', on_leader, r_leader  # Later wounds of this attack too
+        damage_results.append(dealt)
+        bodyguard_results.append(bodyguard.model_count - alive['bodyguard'])
+        leader_results.append(leader.model_count - alive['leader'])
+
+    damage_array = np.array(damage_results)
+    bodyguard_array, leader_array = np.array(bodyguard_results), np.array(leader_results)
+    kills_array = bodyguard_array + leader_array
+    avg_damage = float(np.mean(damage_array))
+    max_damage = int(np.max(damage_array)) + 1
+    bins = list(range(min(max_damage + 1, 20)))
+    hist, _ = np.histogram(damage_array, bins=bins + [bins[-1] + 100000])
+    total_models = bodyguard.model_count + leader.model_count
+    total_wounds = bodyguard.model_count * bodyguard.wounds + leader.model_count * leader.wounds
+    return SimulationResult(
+        average_damage=round(avg_damage, 2),
+        models_killed=round(float(np.mean(kills_array)), 2),
+        overkill=round(max(0, avg_damage - total_wounds), 2),
+        attacks_made=round(totals['attacks'] / iterations, 2),
+        hits=round(totals['hits'] / iterations, 2),
+        wounds=round(totals['wounds'] / iterations, 2),
+        failed_saves=round(totals['failed_saves'] / iterations, 2),
+        damage_dealt=round(avg_damage, 2),
+        damage_distribution={"labels": [str(b) for b in bins[:-1]] + [f"{bins[-1]}+"],
+                             "probabilities": (hist / iterations * 100).tolist()},
+        method="monte_carlo",
+        iterations=iterations,
+        kill_probability=round(float(np.mean(kills_array >= 1)) * 100, 1),
+        wipe_probability=round(float(np.mean(kills_array >= total_models)) * 100, 1),
+        bodyguards_killed=round(float(np.mean(bodyguard_array)), 2),
+        leader_killed=round(float(np.mean(leader_array)), 2),
+        leader_kill_probability=round(float(np.mean(leader_array >= leader.model_count)) * 100, 1),
     )
 
 

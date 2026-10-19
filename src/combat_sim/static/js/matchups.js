@@ -707,7 +707,9 @@
 
     function onDefenderTableChange(e) {
         if (e.target.classList.contains('def-leader')) {
-            state.defenders[parseInt(e.target.dataset.d)].leader_id = e.target.value ? parseInt(e.target.value) : null;
+            const defender = state.defenders[parseInt(e.target.dataset.d)];
+            defender.leader_id = e.target.value ? parseInt(e.target.value) : null;
+            defender.leader_name = defender.leaders.find(l => l.id === defender.leader_id)?.name || null;
             renderDefenderTable();
             return;
         }
@@ -806,7 +808,8 @@
             const wiped = kind === 'total' && cell.wiped ? '<span class="wiped-badge" title="Wiped in one turn">✓ wiped</span>' : '';
             return `<td class="matrix-cell ${kind === 'total' ? 'matrix-total-cell' : ''}" ${style}
                         data-kind="${kind}" data-a="${a}" data-w="${w}" data-d="${d}"
-                        title="${escapeHtml(rowLabel)} vs ${escapeHtml(defenders[d].label)}: ${displayVal}">
+                        title="${escapeHtml(rowLabel)} vs ${escapeHtml(defenders[d].label)}: ${displayVal}${cell.leader_killed != null
+                            ? ` (models killed: ${cell.bodyguards_killed} bodyguards, ${cell.leader_killed} leader)` : ''}">
                         ${displayVal}${wiped}
                     </td>`;
         };
@@ -1005,6 +1008,10 @@
             document.getElementById('detail-models-killed').textContent = data.summary.models_killed.toFixed(2);
             document.getElementById('detail-kill-prob').textContent = `${data.summary.kill_probability}%`;
             document.getElementById('detail-wipe-prob').textContent = `${data.summary.wipe_probability}%`;
+            document.getElementById('detail-attached').textContent = data.summary.leader_killed != null
+                ? `Attached unit: ${data.summary.bodyguards_killed} bodyguard models killed on average; ` +
+                  `the leader dies in ${data.summary.leader_kill_probability}% of runs`
+                : '';
             document.getElementById('detail-attacks').textContent = data.breakdown.attacks.toFixed(2);
             document.getElementById('detail-hits').textContent = data.breakdown.hits.toFixed(2);
             document.getElementById('detail-wounds').textContent = data.breakdown.wounds.toFixed(2);

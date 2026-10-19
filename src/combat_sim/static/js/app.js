@@ -541,8 +541,8 @@ function renderLeaderSelect(side) {
         `<option value="${l.id}" ${leader?.id === l.id ? 'selected' : ''}>${escapeHtml(l.name)}${l.points ? ` (+${l.points} pts)` : ''}</option>`).join('');
     const summary = leader ? Core.leaderBuffSummary(leader.leader_buffs) : '';
     hint.textContent = !leader ? ''
-        : summary ? `Grants: ${summary}${side === 'defender' ? '. The target keeps the unit\'s own stats.' : ''}`
-            : 'Nothing the calculations use (see its datasheet; buffs can be added on the Data tab).';
+        : (summary ? `Grants: ${summary}.` : 'Grants nothing the calculations use (buffs can be added on the Data tab).') +
+          (side === 'defender' ? ' Attacks go to the bodyguard models first, then the leader (with its own profile).' : '');
 }
 
 /** Attach a leader to the attacker (its weapons join the list) or detach (null). */
@@ -831,6 +831,17 @@ function displayResults(result) {
             : '';
     }
 
+    // Attached unit: bodyguard models first, then the leader
+    const attachedEl = document.getElementById('res-attached');
+    if (attachedEl) {
+        const a = result.attached, s = result.summary;
+        attachedEl.textContent = a
+            ? `Attached unit: ${s.bodyguards_killed} of ${a.bodyguard_models} bodyguard models killed, then ` +
+              `${s.leader_killed} of ${a.leader_models} ${a.leader}` +
+              (s.leader_kill_probability != null ? ` (${a.leader} dies in ${s.leader_kill_probability}% of runs)` : '')
+            : '';
+    }
+
     // Breakdown
     document.getElementById('res-attacks').textContent = result.breakdown.attacks;
     document.getElementById('res-hits').textContent = result.breakdown.hits;
@@ -860,6 +871,9 @@ function renderWeaponResults(rows) {
         ['mortal_wounds', 'Mortal Wounds'], ['unsaved', 'Unsaved'], ['damage_per_attack', 'Dmg / Attack'],
         ['total_damage', 'Total Damage'], ['models_killed', 'Models Killed'],
     ];
+    // Attached unit: weapons in order, bodyguards then leader, so their kills add up (otherwise capped, as in Excel)
+    const attached = rows.some(r => r.leader_killed != null);
+    if (attached) cols.push(['bodyguards_killed', 'Bodyguards'], ['leader_killed', 'Leader']);
 
     el.innerHTML = `
         <h3>Per Weapon <span class="weapon-results-note">(average results)</span></h3>
@@ -873,7 +887,7 @@ function renderWeaponResults(rows) {
                     </tr>`).join('')}
                 </tbody>
                 ${rows.length > 1 ? `<tfoot><tr><td>Total</td><td></td>
-                    ${cols.map(([key]) => `<td>${key === 'damage_per_attack' || key === 'models_killed' ? '' : fmt(sum(key))}</td>`).join('')}
+                    ${cols.map(([key]) => `<td>${key === 'damage_per_attack' || (key === 'models_killed' && !attached) ? '' : fmt(sum(key))}</td>`).join('')}
                 </tr></tfoot>` : ''}
             </table>
         </div>

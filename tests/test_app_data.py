@@ -486,3 +486,75 @@ def test_custom_leader(app_client):
         (leader['id'], 'Hit Modifier +1')]
     record = next(u for u in saved()['units'] if u['name'] == 'Home Sergeant')
     assert record['leader_buffs'][0]['modifier'] == 'Hit Modifier +1'
+
+
+# --- Attached units as targets: bodyguard models first, then the leader ------------------------------------
+
+BIG_GUN = {'name': 'Big gun', 'type': 'ranged', 'attacks': '4', 'skill': 2, 'strength': 10, 'ap': 4, 'damage': '2',
+           'abilities': [], 'models': 5}
+
+
+def attached_body(void, captain, method='analytical', weapon=BIG_GUN):
+    return {'attacker': {'faction_id': 1, 'weapons': [weapon]},
+            'defender': {'toughness': void['toughness'], 'save': void['save'], 'wounds': void['wounds'],
+                         'model_count': 5, 'keywords': [], 'leader_id': captain['id']},
+            'conditions': {}, 'method': method, 'iterations': 2000}
+
+
+def test_simulator_attached_target_overflows_to_the_leader(app_client):
+    client, _ = app_client
+    void, captain = leader_setup(client)
+    result = client.post('/api/simulate', json=attached_body(void, captain)).get_json()
+    assert result['attached'] == {'leader': 'Star Captain', 'leader_models': 1, 'bodyguard_models': 5}
+    summary = result['summary']
+    assert summary['bodyguards_killed'] == 5  # 20 S10 AP-4 D2 shots: the 5 two-wound bodyguards die first
+    assert 0 < summary['leader_killed'] <= 1  # The rest hit the Captain (2+ save, 4+ invulnerable, 5 wounds)
+    assert summary['models_killed'] == pytest.approx(summary['bodyguards_killed'] + summary['leader_killed'], abs=0.01)
+    row = result['weapons'][0]
+    assert (row['bodyguards_killed'], row['leader_killed']) == (summary['bodyguards_killed'], summary['leader_killed'])
+
+    rolled = client.post('/api/simulate', json=attached_body(void, captain, 'monte_carlo')).get_json()['summary']
+    assert rolled['bodyguards_killed'] > 4.5
+    assert 0 < rolled['leader_kill_probability'] < 100
+    assert rolled['models_killed'] == pytest.approx(rolled['bodyguards_killed'] + rolled['leader_killed'], abs=0.01)
+
+
+def test_simulator_small_attack_never_reaches_the_leader(app_client):
+    client, _ = app_client
+    void, captain = leader_setup(client)
+    small = dict(BIG_GUN, attacks='1', strength=4, ap=0, damage='1', models=2)
+    summary = client.post('/api/simulate', json=attached_body(void, captain, weapon=small)).get_json()['summary']
+    assert summary['leader_killed'] == 0 and 0 < summary['bodyguards_killed'] < 1
+
+
+def test_matrix_attached_defender(app_client):
+    client, _ = app_client
+    void, captain = leader_setup(client)
+    detail = client.get(f'/api/units/{void["id"]}').get_json()
+    heavy = detail['ranged_options'][0]  # Heavy laser: S9 AP-3 D D6
+    weapons = [{'weapon_id': heavy['id'], 'weapon_type': 'ranged', 'models': 10}]
+    defender = {'unit_id': void['id'], 'model_count': 5, 'leader_id': captain['id']}
+    result = client.post('/api/matrix/simulate', json={
+        'attackers': [{'unit_id': void['id'], 'weapons': weapons}], 'defenders': [defender],
+        'conditions': {}}).get_json()
+    cell = result['matrix'][0][0]
+    assert result['defenders'][0]['leader'] == 'Star Captain'
+    assert cell['bodyguards_killed'] > 0 and 'leader_killed' in cell
+    assert cell['models_killed'] == pytest.approx(cell['bodyguards_killed'] + cell['leader_killed'], abs=0.01)
+    assert cell['pct_destroyed'] == pytest.approx(min(100, cell['kills_uncapped'] / 6 * 100), abs=0.1)  # 5 + the leader
+    assert result['total']['cells'][0]['leader_killed'] == cell['leader_killed']
+
+    detail_cell = client.post('/api/matrix/cell', json=dict(defender, weapons=weapons, iterations=500,
+                                                            conditions={})).get_json()
+    assert detail_cell['summary']['leader_kill_probability'] is not None
+
+
+def test_reverse_durability_counts_my_units_leader(app_client):
+    client, _ = app_client
+    void, captain = leader_setup(client)
+    rifle = client.get(f'/api/units/{void["id"]}').get_json()['ranged_weapons'][1]
+    result = client.post('/api/matrix/simulate', json={
+        'attackers': [{'unit_id': void['id'], 'leader_id': captain['id'],
+                       'weapons': [{'weapon_id': rifle['id'], 'weapon_type': 'ranged', 'models': 4}]}],
+        'defenders': [{'unit_id': void['id'], 'model_count': 5}], 'conditions': {}}).get_json()
+    assert result['analysis']['reverse']['rows'][0]['models'] == 6  # 5 Void Warriors + the Captain

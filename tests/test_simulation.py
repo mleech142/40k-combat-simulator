@@ -340,3 +340,79 @@ def test_check_keywords():
     # Unit mode: plain words are unit keywords for Anti; only entries with values are checked
     assert check_keywords('Infantry, Feel No Pain 5+, Toughnes Modifier +1', known, mode='unit') == {
         'unknown': ['Toughnes Modifier +1'], 'capitals': []}
+
+
+# --- Attached units: bodyguard models first, then the leader -----------------------------------------
+
+from combat_sim.simulation import simulate_attached_analytical, simulate_monte_carlo_attached  # noqa: E402
+
+
+def test_attached_without_overflow_is_the_bodyguard_unit():
+    weapon = AttackerProfile('2', 3, 4, 1, '1', ['Lethal Hits'], models=5)
+    bodyguard = DefenderProfile(4, 3, 2, model_count=10)
+    leader = DefenderProfile(4, 2, 5, invulnerable_save=4, model_count=1)
+    combined, per_weapon = simulate_attached_analytical([weapon], bodyguard, leader, BattleConditions())
+    plain = simulate_analytical(weapon, bodyguard, BattleConditions())
+    assert combined.average_damage == plain.average_damage
+    assert combined.bodyguards_killed == plain.models_killed and combined.leader_killed == 0
+    assert per_weapon[0].models_killed == plain.models_killed
+
+
+def test_attached_overflow_goes_to_the_leader_with_its_own_profile():
+    # 12 auto-hitting attacks wounding on 2+: 10 unsaved against no-save, 1-wound bodyguards
+    weapon = AttackerProfile('12', None, 10, 0, '1', [], models=1)
+    bodyguard = DefenderProfile(1, 7, 1, model_count=2)
+    leader = DefenderProfile(1, 4, 3, model_count=1)  # 4+ save, 3 wounds
+    combined, per_weapon = simulate_attached_analytical([weapon], bodyguard, leader, BattleConditions())
+    # 2 kills use 2/10 of the attacks; the other 9.6 attacks face the leader: 5/6 wound x 1/2 unsaved = 4 damage
+    assert combined.bodyguards_killed == approx(2)
+    assert combined.leader_killed == approx(1)  # 4 damage against 3 wounds (kills capped at the leader)
+    assert combined.average_damage == approx(2 + 4)
+    assert combined.models_killed == approx(3)
+    assert per_weapon[0].leader_killed == approx(1)
+
+
+def test_attached_weapons_in_order_later_ones_only_see_the_leader():
+    small = AttackerProfile('12', None, 10, 0, '1', [], models=1)  # Wipes the 2 bodyguards
+    big = AttackerProfile('2', None, 10, 3, '3', [], models=1)
+    bodyguard = DefenderProfile(1, 7, 1, model_count=2)
+    leader = DefenderProfile(1, 3, 6, model_count=1)
+    _, per_weapon = simulate_attached_analytical([small, big], bodyguard, leader, BattleConditions())
+    assert per_weapon[1].bodyguards_killed == 0
+    alone = simulate_analytical(big, leader, BattleConditions())
+    assert per_weapon[1].average_damage == approx(alone.average_damage)
+
+
+# The bodyguards are wiped in nearly every trial, so both engines agree on them; on the leader the
+# analytical engine gives expected kills (capped, as Excel does) and Monte Carlo the chance it dies,
+# so they are only compared on damage
+ATTACHED_CASES = [
+    ('bodyguards wiped, leader hurt',
+     [AttackerProfile('3', 3, 5, 1, '1', ['Sustained Hits 1'], models=20)],
+     DefenderProfile(4, 4, 1, model_count=5), DefenderProfile(4, 3, 6, invulnerable_save=5, model_count=1)),
+    ('two weapons, tough leader',
+     [AttackerProfile('2', 3, 6, 2, '2', [], models=10), AttackerProfile('D6', None, 5, 1, '1', ['Torrent'], models=2)],
+     DefenderProfile(5, 3, 2, model_count=3), DefenderProfile(5, 2, 8, feel_no_pain=5, model_count=1)),
+]
+
+
+@pytest.mark.parametrize('name,weapons,bodyguard,leader', ATTACHED_CASES, ids=[c[0] for c in ATTACHED_CASES])
+def test_attached_monte_carlo_agrees_with_analytical(name, weapons, bodyguard, leader):
+    random.seed(7)
+    analytical, _ = simulate_attached_analytical(weapons, bodyguard, leader, BattleConditions())
+    rolled = simulate_monte_carlo_attached(weapons, bodyguard, leader, BattleConditions(), iterations=6000)
+    assert rolled.average_damage == pytest.approx(analytical.average_damage, rel=0.08)
+    assert analytical.bodyguards_killed == bodyguard.model_count
+    assert rolled.bodyguards_killed == pytest.approx(bodyguard.model_count, abs=0.1)
+    assert analytical.leader_killed > 0 and rolled.leader_killed > 0  # Both send the overflow at the leader
+    assert rolled.models_killed == pytest.approx(rolled.bodyguards_killed + rolled.leader_killed, abs=0.01)
+    assert rolled.leader_kill_probability == pytest.approx(rolled.leader_killed * 100, abs=1)  # Rounded separately
+
+
+def test_monte_carlo_leader_only_dies_after_every_bodyguard():
+    random.seed(3)
+    weapon = AttackerProfile('6', 3, 4, 0, '1', [], models=1)
+    bodyguard = DefenderProfile(4, 4, 1, model_count=10)  # Never all dead from 6 attacks
+    leader = DefenderProfile(4, 4, 1, model_count=1)
+    rolled = simulate_monte_carlo_attached([weapon], bodyguard, leader, BattleConditions(), iterations=500)
+    assert rolled.leader_killed == 0 and rolled.leader_kill_probability == 0

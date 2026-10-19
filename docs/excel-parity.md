@@ -151,7 +151,7 @@ Ticks are remembered when switching tabs and saved with Scenarios and Comparison
 | Damage per attack vs target wounds | Capped at the target's W (no overkill per attack) | ✅ Both engines cap each attack's damage at W; "Overkill" now means damage lost to the cap |
 | Models killed | Attacks needed per kill, then divided; capped at target models | ✅ Same method; a unit's weapons' kills add up (capped per unit), army totals add units' kills. Monte Carlo allocates model by model ➕ |
 | Hit/Wound modifier cap ±1 | ✅ | n/a (no modifiers yet) |
-| Mixed units (leader + bodyguard) | Not modelled (one target profile) | Attacking: modelled (leader's weapons and buffs). As a target: the leader's buffs apply, but the target is still one profile |
+| Mixed units (leader + bodyguard) | Not modelled (one target profile) | ✅ Better than Excel. Attacking: the leader's weapons and buffs. As a target: bodyguard models first, then the leader, each with its own profile, in both engines; results split bodyguards and leader. Precision and the "majority Toughness" rule aren't modelled |
 
 ## 10. App-only features (keep)
 

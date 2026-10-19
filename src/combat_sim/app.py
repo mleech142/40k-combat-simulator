@@ -18,7 +18,8 @@ from .data_store import (DataFileError, read_data_file, check_data, load_bsdata,
 from . import bsdata_download, folder_dialog
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
-    simulate, simulate_analytical, simulate_monte_carlo_combined, keyword_name, check_keywords,
+    simulate, simulate_analytical, simulate_monte_carlo_combined, simulate_attached_analytical,
+    simulate_monte_carlo_attached, keyword_name, check_keywords,
     AttackerProfile, DefenderProfile, BattleConditions
 )
 
@@ -179,6 +180,19 @@ def leader_modifiers(leader, side, weapon_type):
             continue
         modifiers += [m.strip() for m in (buff.get('modifier') or '').split(',') if m.strip()]
     return modifiers
+
+
+def leader_target(leader, extra_keywords=()):
+    """A leader's own profile as the last stage of an attached-unit target (its models after the bodyguard)."""
+    return DefenderProfile(
+        toughness=leader.toughness,
+        save=leader.save,
+        wounds=leader.wounds,
+        invulnerable_save=leader.invulnerable_save,
+        feel_no_pain=leader.feel_no_pain,
+        keywords=leader.target_keywords + list(extra_keywords),
+        model_count=leader.default_models or 1,
+    )
 
 
 def clean_buffs(rows):
@@ -368,7 +382,9 @@ def register_routes(app):
             "attacker_rules": {"rule_ids": [], "stratagem_ids": []}, "target_rules": {...}
         }
         "attacker" and "defender" can name a "leader_id": a leader attached to that unit, whose
-        buffs apply to its side (the leader's own weapons are sent as weapons like the others).
+        buffs apply to its side (the leader's own weapons are sent as weapons like the others). A
+        defender with a leader is an attached unit: attacks go to the bodyguard models, then to the
+        leader with its own profile, and the results give bodyguards_killed and leader_killed.
         A single weapon's fields directly in "attacker" (older saved scenarios) also work.
 
         Per-weapon rows are averages, as in Excel; the totals use the chosen method,
@@ -401,7 +417,7 @@ def register_routes(app):
                 model_count=int(defender_data.get('model_count', 1))
             )
 
-        profiles, targets, rows = [], [], []
+        profiles, targets, leader_targets, rows = [], [], [], []
         applied = {'attacker': [], 'target': []}
         for w in weapons_data:
             w_type = 'melee' if w.get('type') == 'melee' else 'ranged'
@@ -427,6 +443,8 @@ def register_routes(app):
             target = target_profile(target_modifiers)
             profiles.append(profile)
             targets.append(target)
+            if defender_leader is not None:
+                leader_targets.append(leader_target(defender_leader, extra_modifiers + target_modifiers))
 
             r = simulate_analytical(profile, target, conditions)
             rows.append({
@@ -449,7 +467,41 @@ def register_routes(app):
             return jsonify({'error': 'No weapons to simulate'}), 400
 
         base_target = target_profile()
-        if method == 'monte_carlo':
+        attached = None
+        if defender_leader is not None:
+            leader_base = leader_target(defender_leader, extra_modifiers)
+            attached = {'leader': defender_leader.name, 'leader_models': leader_base.model_count,
+                        'bodyguard_models': base_target.model_count}
+            combined, per_weapon = simulate_attached_analytical(profiles, base_target, leader_base, conditions,
+                                                                bodyguard_targets=targets, leader_targets=leader_targets)
+            for row, r in zip(rows, per_weapon):  # Each weapon in order against what is left of the unit
+                row.update(attacks=r.attacks_made, hits=r.hits, auto_wounds=r.auto_wounds, wounds=r.wounds,
+                           mortal_wounds=r.mortal_wounds, unsaved=r.unsaved, total_damage=r.average_damage,
+                           models_killed=r.models_killed, overkill=r.overkill,
+                           bodyguards_killed=r.bodyguards_killed, leader_killed=r.leader_killed)
+
+        if method == 'monte_carlo' and attached:
+            result = simulate_monte_carlo_attached(profiles, base_target, leader_base, conditions, iterations,
+                                                   bodyguard_targets=targets, leader_targets=leader_targets)
+            summary = {
+                'average_damage': result.average_damage,
+                'models_killed': result.models_killed,
+                'overkill': result.overkill,
+                'kill_probability': result.kill_probability,
+                'wipe_probability': result.wipe_probability,
+                'bodyguards_killed': result.bodyguards_killed,
+                'leader_killed': result.leader_killed,
+                'leader_kill_probability': result.leader_kill_probability,
+            }
+            breakdown = {
+                'attacks': result.attacks_made,
+                'hits': result.hits,
+                'wounds': result.wounds,
+                'failed_saves': result.failed_saves,
+                'damage': result.damage_dealt,
+            }
+            distribution, iterations_run = result.damage_distribution, result.iterations
+        elif method == 'monte_carlo':
             result = simulate_monte_carlo_combined(profiles, base_target, conditions, iterations, weapon_defenders=targets)
             summary = {
                 'average_damage': result.average_damage,
@@ -474,6 +526,9 @@ def register_routes(app):
                 'models_killed': round(min(sum(row['models_killed'] for row in rows), base_target.model_count), 2),
                 'overkill': round(sum(row['overkill'] for row in rows), 2),
             }
+            if attached:
+                summary.update(models_killed=combined.models_killed, bodyguards_killed=combined.bodyguards_killed,
+                               leader_killed=combined.leader_killed)
             breakdown = {
                 'attacks': round(sum(row['attacks'] for row in rows), 2),
                 'hits': round(sum(row['hits'] for row in rows), 2),
@@ -491,6 +546,7 @@ def register_routes(app):
             'method': method,
             'iterations': iterations_run,
             'applied': applied,
+            'attached': attached,
         })
 
     @app.route('/api/scenarios', methods=['POST'])
@@ -1265,6 +1321,7 @@ def register_routes(app):
                 'points': points or DEFAULT_UNIT_POINTS,
                 'weapons': weapons,
                 'unit': atk_unit,
+                'leader': atk_leader,
                 'size': unit_size or 1,
             })
 
@@ -1286,44 +1343,46 @@ def register_routes(app):
                     'leader': load_leader(def_config.get('leader_id')) if isinstance(unit, Unit) else None,
                 })
 
-        # Each defender as seen by ranged and by melee attacks (target rules can be phase-specific)
+        # Each defender as seen by ranged and by melee attacks (target rules can be phase-specific);
+        # with a leader it is an attached unit: its bodyguard models first, then the leader
         for d in defenders:
-            d['profiles'] = {
-                w_type: defender_profile(d['unit'], d['model_count'],
-                                         rule_modifiers(defender_rules, 'Target', d['unit'].faction_id, w_type)
-                                         + leader_modifiers(d['leader'], 'Target', w_type)
-                                         + d['extra_modifiers'])
+            target_modifiers = {
+                w_type: (rule_modifiers(defender_rules, 'Target', d['unit'].faction_id, w_type)
+                         + leader_modifiers(d['leader'], 'Target', w_type) + d['extra_modifiers'])
                 for w_type in ('ranged', 'melee')
             }
+            d['profiles'] = {w_type: defender_profile(d['unit'], d['model_count'], mods)
+                             for w_type, mods in target_modifiers.items()}
+            d['leader_profiles'] = {w_type: leader_target(d['leader'], mods) for w_type, mods in target_modifiers.items()} \
+                if d['leader'] is not None else None
+            d['total_models'] = d['model_count'] + (d['leader'].default_models or 1 if d['leader'] is not None else 0)
 
         def weapon_part(result):
             return (result.average_damage, result.models_killed, result.overkill)
 
-        # Average damage and kills of every weapon against every defender
-        weapon_damage = [
-            [
-                [weapon_part(simulate_analytical(w['profile'], d['profiles'][w['type']], conditions))
-                 for d in defenders]
-                for w in atk['weapons']
-            ]
-            for atk in attackers
-        ]
+        def cell(weapons, d, points):
+            """Matrix metrics for weapons attacking a defender together (in order, for an attached unit)."""
+            if d['leader_profiles'] is None:
+                return combine_cells([weapon_part(simulate_analytical(w['profile'], d['profiles'][w['type']], conditions))
+                                      for w in weapons], d['unit'], d['model_count'], points)
+            result, _ = simulate_attached_analytical(
+                [w['profile'] for w in weapons], d['profiles']['ranged'], d['leader_profiles']['ranged'], conditions,
+                bodyguard_targets=[d['profiles'][w['type']] for w in weapons],
+                leader_targets=[d['leader_profiles'][w['type']] for w in weapons])
+            metrics = combine_cells([weapon_part(result)], d['unit'], d['total_models'], points)
+            metrics.update(bodyguards_killed=result.bodyguards_killed, leader_killed=result.leader_killed)
+            return metrics
 
         matrix = []
         weapon_matrix = []
-        for atk_idx, atk in enumerate(attackers):
-            matrix.append([
-                combine_cells([wd[def_idx] for wd in weapon_damage[atk_idx]], d['unit'], d['model_count'], atk['points'])
-                for def_idx, d in enumerate(defenders)
-            ])
-            weapon_matrix.append([
-                [combine_cells([weapon_damage[atk_idx][w_idx][def_idx]], d['unit'], d['model_count'], atk['points'])
-                 for def_idx, d in enumerate(defenders)]
-                for w_idx in range(len(atk['weapons']))
-            ])
+        for atk in attackers:
+            matrix.append([cell(atk['weapons'], d, atk['points']) for d in defenders])
+            weapon_matrix.append([[cell([w], d, atk['points']) for d in defenders] for w in atk['weapons']])
 
         total_points = sum(a['points'] for a in attackers)
+        all_weapons = [w for atk in attackers for w in atk['weapons']]
         total_cells = [
+            cell(all_weapons, d, total_points) if d['leader_profiles'] is not None else
             combine_cells([(row[def_idx]['avg_damage'], row[def_idx]['models_killed'], row[def_idx]['overkill'])
                            for row in matrix],
                           d['unit'], d['model_count'], total_points)
@@ -1336,7 +1395,8 @@ def register_routes(app):
                 'points': a['points'],
                 'weapons': [{'label': w['label'], 'type': w['type'], 'models': w['models']} for w in a['weapons']],
             } for a in attackers],
-            'defenders': [{'label': d['label'], 'points': d['points'], 'weight': d['weight']} for d in defenders],
+            'defenders': [{'label': d['label'], 'points': d['points'], 'weight': d['weight'],
+                           'leader': d['leader'].name if d['leader'] is not None else None} for d in defenders],
             'matrix': matrix,  # [attacker unit][defender]
             'weapon_matrix': weapon_matrix,  # [attacker unit][weapon][defender]
             'total': {'label': 'All attackers', 'points': total_points, 'cells': total_cells},
@@ -1373,12 +1433,12 @@ def register_routes(app):
 
         for atk_idx, atk in enumerate(attackers):
             for def_idx, d in enumerate(defenders):
-                add_percentages(matrix[atk_idx][def_idx], d['model_count'], atk['points'])
+                add_percentages(matrix[atk_idx][def_idx], d['total_models'], atk['points'])
                 for weapon_cells in weapon_matrix[atk_idx]:
-                    add_percentages(weapon_cells[def_idx], d['model_count'], atk['points'])
+                    add_percentages(weapon_cells[def_idx], d['total_models'], atk['points'])
         for def_idx, d in enumerate(defenders):
-            add_percentages(total_cells[def_idx], d['model_count'], total_points)
-            total_cells[def_idx]['wiped'] = total_cells[def_idx]['kills_uncapped'] >= d['model_count']
+            add_percentages(total_cells[def_idx], d['total_models'], total_points)
+            total_cells[def_idx]['wiped'] = total_cells[def_idx]['kills_uncapped'] >= d['total_models'] - 1e-9
 
         results['analysis'] = army_analysis(attackers, defenders, matrix, total_cells, total_points,
                                             conditions, data.get('weapon_filter', 'both'))
@@ -1413,9 +1473,9 @@ def register_routes(app):
         gaps = []
         for d, cell in zip(defenders, total_cells):
             if not cell.get('wiped'):
-                killed = min(cell['kills_uncapped'], d['model_count'])
-                gaps.append({'label': d['label'], 'models': d['model_count'],
-                             'survivors': round(d['model_count'] - killed, 2), 'pct_destroyed': cell['pct_destroyed']})
+                killed = min(cell['kills_uncapped'], d['total_models'])
+                gaps.append({'label': d['label'], 'models': d['total_models'],
+                             'survivors': round(d['total_models'] - killed, 2), 'pct_destroyed': cell['pct_destroyed']})
         gaps.sort(key=lambda g: (-g['survivors'], g['pct_destroyed']))
 
         def army_kills(target):
@@ -1482,11 +1542,18 @@ def register_routes(app):
                 continue
             models = atk['size'] or unit.default_models or 1
             target = defender_profile(unit, models)
+            leader = leader_target(atk['leader']) if atk['leader'] is not None else None
+            total_models = models + (leader.model_count if leader else 0)
             cells = []
             for enemy in enemies:
-                kills = sum(simulate_analytical(profile, target, conditions).models_killed for profile in enemy['profiles'])
-                cells.append(round(min(1.0, kills / models) * 100, 1))
-            rows.append({'label': atk['label'], 'models': models, 'cells': cells, 'total': round(min(100.0, sum(cells)), 1)})
+                if leader is not None:  # My unit with its leader: bodyguard models first, then the leader
+                    kills = simulate_attached_analytical(enemy['profiles'], target, leader, conditions)[0].models_killed \
+                        if enemy['profiles'] else 0
+                else:
+                    kills = sum(simulate_analytical(profile, target, conditions).models_killed for profile in enemy['profiles'])
+                cells.append(round(min(1.0, kills / total_models) * 100, 1))
+            rows.append({'label': atk['label'], 'models': total_models, 'cells': cells,
+                         'total': round(min(100.0, sum(cells)), 1)})
 
         threat = [round(sum(row['cells'][j] for row in rows), 1) for j in range(len(enemies))]
         biggest = max(range(len(enemies)), key=lambda j: threat[j]) if enemies and rows else None
@@ -1534,7 +1601,7 @@ def register_routes(app):
         defender_leader = load_leader(data.get('leader_id')) if isinstance(unit, Unit) else None
 
         # Each weapon with its own unit's attacker rules, against the target as its phase sees it
-        profiles, targets = [], []
+        profiles, targets, leader_targets = [], [], []
         for w in data.get('weapons', []):
             w_type = 'melee' if w.get('weapon_type') == 'melee' else 'ranged'
             atk_unit = db.session.get(Unit, w['unit_id']) if w.get('unit_id') else None
@@ -1543,18 +1610,25 @@ def register_routes(app):
             _, profile = attacker_profile(w_type, w.get('weapon_id'), w.get('models', 1), weapon_modifiers)
             if profile:
                 profiles.append(profile)
-                targets.append(defender_profile(unit, model_count,
-                                                rule_modifiers(defender_rules, 'Target', unit.faction_id, w_type)
-                                                + leader_modifiers(defender_leader, 'Target', w_type)
-                                                + extra_modifiers))
+                target_modifiers = (rule_modifiers(defender_rules, 'Target', unit.faction_id, w_type)
+                                    + leader_modifiers(defender_leader, 'Target', w_type) + extra_modifiers)
+                targets.append(defender_profile(unit, model_count, target_modifiers))
+                if defender_leader is not None:
+                    leader_targets.append(leader_target(defender_leader, target_modifiers))
         if not profiles:
             return jsonify({'error': 'No weapons found'}), 400
 
-        result = simulate_monte_carlo_combined(
-            profiles, defender_profile(unit, model_count, extra_modifiers),
-            conditions_from_request(data.get('conditions', {})), iterations,
-            weapon_defenders=targets,
-        )
+        conditions = conditions_from_request(data.get('conditions', {}))
+        if defender_leader is not None:  # Attached unit: bodyguard models first, then the leader
+            result = simulate_monte_carlo_attached(
+                profiles, defender_profile(unit, model_count, extra_modifiers),
+                leader_target(defender_leader, extra_modifiers), conditions, iterations,
+                bodyguard_targets=targets, leader_targets=leader_targets)
+        else:
+            result = simulate_monte_carlo_combined(
+                profiles, defender_profile(unit, model_count, extra_modifiers), conditions, iterations,
+                weapon_defenders=targets,
+            )
 
         return jsonify({
             'summary': {
@@ -1563,6 +1637,9 @@ def register_routes(app):
                 'overkill': result.overkill,
                 'kill_probability': result.kill_probability,
                 'wipe_probability': result.wipe_probability,
+                'bodyguards_killed': result.bodyguards_killed,
+                'leader_killed': result.leader_killed,
+                'leader_kill_probability': result.leader_kill_probability,
             },
             'breakdown': {
                 'attacks': result.attacks_made,

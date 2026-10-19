@@ -387,7 +387,7 @@
             : page.defenders.map((d, idx) => ({
                 unit_id: d.unit_id,
                 model_count: d.model_count,
-                label: defenderLabel(page.defenders, idx),
+                label: defenderLabel(page.defenders, idx) + (d.leader_id && d.leader_name ? ` + ${d.leader_name}` : ''),
                 extra_modifiers: d.extra_modifiers || '',
                 leader_id: d.leader_id || null,
             }));
