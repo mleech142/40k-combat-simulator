@@ -5,6 +5,7 @@ Running as the packaged exe: where data lives, first-run seeding, and the port f
 
 import importlib.util
 import json
+import re
 import socket
 import sys
 from pathlib import Path
@@ -48,6 +49,23 @@ def test_frozen_never_overwrites_the_users_data(frozen):
     assert json.loads((user / paths.DATA_FILE).read_text(encoding='utf-8')) == {'edited': True}
 
 
+def test_version_1_data_and_database_are_archived_once(frozen):
+    bundle, user = frozen
+    user.mkdir()
+    (user / paths.V1_DATA_FILE).write_text('{"v1": true}', encoding='utf-8')
+    (user / paths.DATABASE_FILE).write_bytes(b'old scenarios')
+    paths.prepare_data_dir()
+    archive = user / paths.V1_ARCHIVE_FOLDER
+    assert json.loads((archive / paths.V1_DATA_FILE).read_text(encoding='utf-8')) == {'v1': True}
+    assert (archive / paths.DATABASE_FILE).read_bytes() == b'old scenarios'
+    assert not (user / paths.V1_DATA_FILE).exists() and not (user / paths.DATABASE_FILE).exists()
+    assert json.loads((user / paths.DATA_FILE).read_text(encoding='utf-8')) == {'shipped': True}
+
+    (user / paths.DATABASE_FILE).write_bytes(b'new scenarios')  # Later starts leave the new database alone
+    paths.prepare_data_dir()
+    assert (user / paths.DATABASE_FILE).read_bytes() == b'new scenarios'
+
+
 EMPTY_DATA = {'schema_version': 1, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [],
               'melee_weapons': [], 'faction_rules': [], 'stratagems': [], 'keywords': [], 'target_profiles': []}
 
@@ -63,7 +81,7 @@ def test_app_defaults_to_the_prepared_data_folder(frozen, monkeypatch):
     app = create_app()
     assert app.config['DATA_JSON'] == str(user / paths.DATA_FILE)
     assert app.config['SQLALCHEMY_DATABASE_URI'] == 'sqlite:///' + (user / paths.DATABASE_FILE).as_posix()
-    assert f'v{__version__}' in app.test_client().get('/').get_data(as_text=True)
+    assert f'v{__version__}' in app.test_client().get('/', follow_redirects=True).get_data(as_text=True)
 
 
 @pytest.fixture(scope='module')
@@ -88,3 +106,16 @@ def test_pick_port_falls_back_when_busy(run_module):
         taken = busy.getsockname()[1]
         port = run_module.pick_port(preferred=taken)
     assert port != taken and port > 0
+
+
+def test_every_icon_used_is_in_the_bundled_font_awesome():
+    """Pages use Font Awesome Free icons from static/vendor (no CDN); a typo or a Pro-only icon shows nothing."""
+    static = ROOT / 'src' / 'combat_sim' / 'static'
+    css = (static / 'vendor' / 'fontawesome-free-7.3.1' / 'css' / 'fontawesome.min.css').read_text(encoding='utf-8')
+    sources = list((ROOT / 'src' / 'combat_sim' / 'templates').glob('*.html')) + list((static / 'js').glob('*.js'))
+    used = {name for path in sources for name in re.findall(r'fa-solid fa-([a-z0-9-]+)', path.read_text(encoding='utf-8'))}
+    assert len(used) > 20
+    missing = sorted(name for name in used if f'.fa-{name}{{' not in css and f'.fa-{name},' not in css)
+    assert missing == []
+    assert (static / 'vendor' / 'fontawesome-free-7.3.1' / 'webfonts' / 'fa-solid-900.woff2').exists()
+    assert 'fontawesome-free-7.3.1/css/solid.min.css' in (ROOT / 'src' / 'combat_sim' / 'templates' / 'base.html').read_text(encoding='utf-8')

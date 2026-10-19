@@ -51,8 +51,12 @@ def unit_payload(**overrides):
 
 def test_pages_render(setup):
     client, _ = setup
-    for page in ('/', '/matchups', '/scenarios', '/data'):
+    for page in ('/analytics', '/scenarios', '/data', '/setup'):
         assert client.get(page).status_code == 200, page
+    # The Analytics page was called Matchups: its old address still works
+    assert client.get('/matchups').headers['Location'].endswith('/analytics')
+    # No BSData loaded and setup not skipped: the Simulator sends you to Setup
+    assert client.get('/').headers['Location'].endswith('/setup')
 
 
 def test_startup_loads_the_data_file(setup):

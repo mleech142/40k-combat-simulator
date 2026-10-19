@@ -53,6 +53,9 @@ def main(argv=None):
     print(f'40K Combat Simulator v{__version__}')
     print('=' * 60)
     print(f"\nData file: {app.config['DATA_JSON']}")
+    status = app.config.get('BSDATA_STATUS') or {}
+    print(f"BSData:    {app.config['BSDATA_DIR']}" +
+          ('' if status.get('loaded') else '  (not loaded yet: open Setup in the app)'))
     print(f'Open in browser: {url}')
     print('\nClose this window (or press Ctrl+C) to stop.\n')
 

@@ -6,6 +6,8 @@
     <meta name="app-boot-id" content="{{ boot_id }}">
     <title>{% block title %}40K Combat Simulator{% endblock %}</title>
     <script src="{{ url_for('static', filename='vendor/plotly-2.27.0.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-free-7.3.1/css/fontawesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-free-7.3.1/css/solid.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="{{ url_for('static', filename='js/core.js') }}"></script>
     {% block head %}{% endblock %}
@@ -13,13 +15,14 @@
 <body>
     <header class="header">
         <a href="/" class="header-brand">
-            <h1>⚔️ 40K Combat Simulator</h1>
+            <h1><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> 40K Combat Simulator</h1>
         </a>
         <nav class="header-nav">
-            <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">Simulator</a>
-            <a href="/matchups" class="nav-link {% if request.path == '/matchups' %}active{% endif %}">Matchups</a>
-            <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}">Scenarios</a>
-            <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}">Data</a>
+            <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}"><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> Simulator</a>
+            <a href="/analytics" class="nav-link {% if request.path == '/analytics' %}active{% endif %}"><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Analytics</a>
+            <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}"><i class="fa-solid fa-bookmark" aria-hidden="true"></i> Scenarios</a>
+            <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}"><i class="fa-solid fa-database" aria-hidden="true"></i> Data</a>
+            <a href="/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</a>
             <span class="version">v{{ app_version }} · 11th Edition</span>
         </nav>
     </header>
@@ -27,6 +30,12 @@
     <main class="main-content">
         {% block content %}{% endblock %}
     </main>
+
+    <footer class="footer">
+        Unit data from <a href="https://github.com/BSData/wh40k-11e" target="_blank" rel="noopener">BSData</a>
+        (community-maintained, not endorsed by Games Workshop){% if bsdata_label %} · {{ bsdata_label }}{% endif %}
+        · <a href="/setup">{% if bsdata_label %}Change{% else %}Set up{% endif %}</a>
+    </footer>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% block scripts %}{% endblock %}

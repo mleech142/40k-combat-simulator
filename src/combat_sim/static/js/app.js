@@ -54,10 +54,14 @@ const state = {
         unit: null,
         weapons: { ranged: [], melee: [] },
         weaponType: 'ranged',
+        leaders: [],  // Leaders that can join the unit: [{id, name, points, leader_buffs}]
+        leader: null,  // The attached one (its weapons are in `weapons`, marked leader: true)
     },
     defender: {
         unit: null,
         extraModifiers: '',  // One-off target modifiers for this run (never saved to the datasheet)
+        leaders: [],
+        leader: null,  // Its buffs apply to the target; its stats aren't part of the target (yet)
     },
     conditions: {
         half_range: false,
@@ -72,10 +76,11 @@ const state = {
         method: 'analytical',
         iterations: 1000,
     },
-    // Rules & stratagems that can be ticked for each side, and which are ticked ('rule:3', 'stratagem:7')
+    // Rules & stratagems that can be ticked for each side, which are ticked ('rule:3', 'stratagem:7'),
+    // and the side's detachment (BSData key; '' = faction-wide rules only)
     rules: {
-        attacker: { available: [], ticked: new Set() },
-        target: { available: [], ticked: new Set() },
+        attacker: { available: [], ticked: new Set(), factionId: null, detachment: '', detachments: [] },
+        target: { available: [], ticked: new Set(), factionId: null, detachment: '', detachments: [] },
     },
 };
 
@@ -95,6 +100,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSimulateButton();
     initSaveButton();
     initExtraModifiers();
+    initDetachmentSelects();
+    initLeaderSelects();
     loadRulesFor('attacker', null);
     loadRulesFor('target', null);
 
@@ -146,6 +153,12 @@ function saveSimulatorState() {
             attacker: [...state.rules.attacker.ticked],
             target: [...state.rules.target.ticked],
         },
+        detachments: { attacker: state.rules.attacker.detachment, target: state.rules.target.detachment },
+        leaders: { attacker: state.attacker.leader?.id ?? null, defender: state.defender.leader?.id ?? null },
+        legends: {
+            attacker: document.getElementById('attacker-legends').checked,
+            defender: document.getElementById('defender-legends').checked,
+        },
     });
 }
 
@@ -163,10 +176,16 @@ async function restoreSimulatorState() {
     document.getElementById('model-count').value = saved.modelCount || 5;
     setExtraModifiers(saved.extraModifiers || '');
 
+    document.getElementById('attacker-legends').checked = !!saved.legends?.attacker;
+    document.getElementById('defender-legends').checked = !!saved.legends?.defender;
+    state.rules.attacker.detachment = saved.detachments?.attacker || '';
+    state.rules.target.detachment = saved.detachments?.target || '';
+
     document.getElementById('defender-unit').value = saved.defenderUnitText || '';
     if (saved.defenderUnit) {
         state.defender.unit = saved.defenderUnit;
         showUnitStats('defender', saved.defenderUnit);
+        if (saved.defenderUnit.id) await loadDefenderLeaders(saved.defenderUnit.id, saved.leaders?.defender);
     }
 
     document.getElementById('attacker-unit').value = saved.attackerUnitText || '';
@@ -180,6 +199,7 @@ async function restoreSimulatorState() {
     if (saved.attackerUnit?.id) {
         try {
             await loadWeaponsForUnit(saved.attackerUnit.id);
+            if (saved.leaders?.attacker) await attachAttackerLeader(saved.leaders.attacker);
             for (const t of ['ranged', 'melee']) {
                 for (const w of state.attacker.weapons[t]) {
                     const before = (saved.weapons?.[t] || []).find(s => s.id === w.id);
@@ -218,10 +238,45 @@ const RULE_GROUPS = [
     ['core', 'Core stratagems'],
 ];
 
-/** Load the rules/stratagems one side can tick (its faction's plus core); keep ticks that still exist. */
+/** The detachment dropdowns reload their side's rules when changed. */
+function initDetachmentSelects() {
+    for (const side of ['attacker', 'target']) {
+        const select = document.getElementById(`${side}-detachment`);
+        if (!select) continue;
+        select.style.display = 'none';
+        select.addEventListener('change', () => {
+            state.rules[side].detachment = select.value;
+            loadRulesFor(side, state.rules[side].factionId);
+        });
+    }
+}
+
+/** Fill a side's detachment dropdown for its faction (hidden when the faction has none). */
+async function loadDetachments(side, factionId) {
+    const panel = state.rules[side];
+    const select = document.getElementById(`${side}-detachment`);
+    if (factionId !== panel.factionId || !panel.detachments.length) {
+        panel.detachments = factionId
+            ? await fetch(`/api/detachments?faction_id=${factionId}`).then(r => r.json()).catch(() => [])
+            : [];
+    }
+    panel.factionId = factionId;
+    if (!panel.detachments.some(d => d.key === panel.detachment)) panel.detachment = '';
+    if (select) {
+        select.innerHTML = Core.detachmentOptionsHtml(panel.detachments, panel.detachment);
+        select.style.display = panel.detachments.length ? '' : 'none';
+    }
+}
+
+/**
+ * Load the rules/stratagems one side can tick (its faction's, those of its detachment, and core);
+ * keep ticks that still exist.
+ */
 async function loadRulesFor(side, factionId, ticked = null) {
+    await loadDetachments(side, factionId);
     const params = new URLSearchParams({ side: side === 'attacker' ? 'Attacker' : 'Target' });
     if (factionId) params.append('faction_id', factionId);
+    if (state.rules[side].detachment) params.append('detachment', state.rules[side].detachment);
     try {
         const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
         const panel = state.rules[side];
@@ -255,6 +310,7 @@ function renderRulesPanel(side) {
                    title="${e.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)'}">
                 <input type="checkbox" data-key="${e.key}" ${panel.ticked.has(e.key) ? 'checked' : ''}>
                 <span class="rule-name">${escapeHtml(e.name)}</span>
+                ${e.detachment ? `<span class="rule-detachment">${escapeHtml(e.detachment)}</span>` : ''}
                 ${e.cp ? `<span class="rule-cp">${escapeHtml(e.cp)} CP</span>` : ''}
                 <span class="rule-modifier">${e.has_effect ? escapeHtml(e.modifier) : 'No effect on the calculations'}</span>
             </label>`).join('');
@@ -318,25 +374,32 @@ function applyConditions(conditions) {
 function initAutocomplete() {
     // Attacker unit autocomplete
     setupAutocomplete('attacker-unit', async (search) => {
-        const response = await fetch(`/api/units?search=${encodeURIComponent(search)}`);
+        const response = await fetch(unitSearchUrl(search, 'attacker'));
         return response.json();
     }, (item) => {
         state.attacker.unit = item;
         showUnitStats('attacker', item);
-        loadWeaponsForUnit(item.id);
+        loadWeaponsForUnit(item.id);  // Also lists the leaders that can join it
         loadRulesFor('attacker', item.faction_id);
     }, formatUnitItem);
 
     // Defender unit autocomplete
     setupAutocomplete('defender-unit', async (search) => {
-        const response = await fetch(`/api/units?search=${encodeURIComponent(search)}`);
+        const response = await fetch(unitSearchUrl(search, 'defender'));
         return response.json();
     }, (item) => {
         state.defender.unit = item;
         showUnitStats('defender', item);
+        loadDefenderLeaders(item.id);
         document.getElementById('model-count').value = item.default_models || 5;
         loadRulesFor('target', item.faction_id);
     }, formatUnitItem);
+}
+
+/** Unit search URL; Legends units only when that side's "Show Legends" box is ticked. */
+function unitSearchUrl(search, side) {
+    const legends = document.getElementById(`${side}-legends`)?.checked ? '&legends=1' : '';
+    return `/api/units?search=${encodeURIComponent(search)}${legends}`;
 }
 
 /**
@@ -406,8 +469,8 @@ function renderDropdown(dropdown, items, formatFn, onClick) {
 function formatUnitItem(unit) {
     return `
         <div class="autocomplete-item" data-id="${unit.id}">
-            <div class="item-name">${unit.name}</div>
-            <div class="item-faction">${unit.faction}</div>
+            <div class="item-name">${escapeHtml(unit.name)}</div>
+            <div class="item-faction">${escapeHtml(unit.faction)}</div>
         </div>
     `;
 }
@@ -431,25 +494,78 @@ function showUnitStats(side, unit) {
 
 const escapeHtml = Core.escapeHtml;
 
+/** A colour token from style.css's :root (e.g. themeColor('--accent')), so charts follow the theme. */
+function themeColor(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 /**
  * Load weapons for selected unit and show them in the weapon list
  */
 
 /**
- * Load the unit's loadout. qty = models carrying the weapon (pre-filled from the loadout, editable
- * per run); use = ticked for the simulation. Neither is saved to the data.
+ * Load the unit's loadout and wargear options. qty = models carrying the weapon (pre-filled from
+ * the loadout, editable per run); use = ticked for the simulation. Neither is saved to the data.
  */
 async function loadWeaponsForUnit(unitId) {
     const response = await fetch(`/api/units/${unitId}`);
     const unitData = await response.json();
 
-    // default_use: the server's default ticks (only the first "Weapon - Profile" variant of a gun)
-    const prepare = list => (list || []).map(w => ({ ...w, qty: w.qty || 1, use: w.default_use ?? true }));
-    state.attacker.weapons = {
-        ranged: prepare(unitData.ranged_weapons),
-        melee: prepare(unitData.melee_weapons),
-    };
+    // default_use: the server's default ticks (only the first "Weapon - Profile" variant of a gun); options start unticked
+    state.attacker.weapons = Core.simulatorWeapons(unitData);
+    state.attacker.leaders = unitData.leaders || [];
+    state.attacker.leader = null;
+    renderLeaderSelect('attacker');
     setWeaponType(state.attacker.weapons.ranged.length ? 'ranged' : 'melee');
+}
+
+// =========================
+// Leaders
+// =========================
+
+function initLeaderSelects() {
+    document.getElementById('attacker-leader')?.addEventListener('change', async (e) => {
+        await attachAttackerLeader(e.target.value ? parseInt(e.target.value) : null);
+    });
+    document.getElementById('defender-leader')?.addEventListener('change', (e) => {
+        const id = e.target.value ? parseInt(e.target.value) : null;
+        state.defender.leader = state.defender.leaders.find(l => l.id === id) || null;
+        renderLeaderSelect('defender');
+    });
+}
+
+/** "Led by" dropdown for a side: hidden when no leader can join its unit; shows what the chosen one grants. */
+function renderLeaderSelect(side) {
+    const group = document.getElementById(`${side}-leader-group`);
+    const select = document.getElementById(`${side}-leader`);
+    const hint = document.getElementById(`${side}-leader-buffs`);
+    if (!group || !select) return;
+    const { leaders, leader } = state[side];
+    group.style.display = leaders.length ? '' : 'none';
+    select.innerHTML = '<option value="">No leader</option>' + leaders.map(l =>
+        `<option value="${l.id}" ${leader?.id === l.id ? 'selected' : ''}>${escapeHtml(l.name)}${l.points ? ` (+${l.points} pts)` : ''}</option>`).join('');
+    const summary = leader ? Core.leaderBuffSummary(leader.leader_buffs) : '';
+    hint.textContent = !leader ? ''
+        : (summary ? `Grants: ${summary}.` : 'Grants nothing the calculations use (buffs can be added on the Data tab).') +
+          (side === 'defender' ? ' Attacks go to the bodyguard models first, then the leader (with its own profile).' : '');
+}
+
+/** Attach a leader to the attacker (its weapons join the list) or detach (null). */
+async function attachAttackerLeader(leaderId) {
+    const choice = state.attacker.leaders.find(l => l.id === leaderId) || null;
+    const detail = choice ? await fetch(`/api/units/${choice.id}`).then(r => r.json()) : null;
+    state.attacker.leader = choice;
+    state.attacker.weapons = Core.withLeaderWeapons(state.attacker.weapons, detail);
+    renderLeaderSelect('attacker');
+    renderWeaponList();
+}
+
+/** The leaders that can join the defender unit; keep `keepId` attached if it is one of them. */
+async function loadDefenderLeaders(unitId, keepId = null) {
+    const detail = await fetch(`/api/units/${unitId}`).then(r => r.json()).catch(() => ({}));
+    state.defender.leaders = detail.leaders || [];
+    state.defender.leader = state.defender.leaders.find(l => l.id === keepId) || null;
+    renderLeaderSelect('defender');
 }
 
 /**
@@ -504,15 +620,20 @@ function renderWeaponList() {
     }
 
     const isRanged = type === 'ranged';
+    const columns = isRanged ? 9 : 8;
+    const firstOption = weapons.findIndex(w => w.option);
     const rows = weapons.map((w, idx) => {
         const abilities = w.abilities?.length
             ? `<div class="weapon-row-abilities">${escapeHtml(w.abilities.join(', '))}</div>`
             : '';
-        return `
-            <tr class="weapon-row${w.use ? ' selected' : ' excluded'}" data-idx="${idx}">
+        const optionsHeader = idx === firstOption
+            ? `<tr class="weapon-options-header"><td colspan="${columns}">Wargear options (tick to swap in; set Qty)</td></tr>`
+            : '';
+        return `${optionsHeader}
+            <tr class="weapon-row${w.use ? ' selected' : ' excluded'}${w.option ? ' weapon-option' : ''}" data-idx="${idx}">
                 <td class="weapon-use"><input type="checkbox" class="weapon-use-box" data-idx="${idx}" ${w.use ? 'checked' : ''}
                            title="Use this weapon in the simulation"></td>
-                <td class="weapon-row-name">${escapeHtml(w.name)}${abilities}</td>
+                <td class="weapon-row-name">${escapeHtml(w.name)}${w.leader ? ` <span class="option-tag" title="${escapeHtml(w.leader_name)}'s weapon">leader</span>` : ''}${abilities}</td>
                 ${isRanged ? `<td>${w.range ? escapeHtml(w.range) + '"' : '-'}</td>` : ''}
                 <td>${escapeHtml(w.attacks)}</td>
                 <td>${w.skill ? escapeHtml(w.skill) + '+' : '-'}</td>
@@ -659,6 +780,7 @@ async function runSimulation() {
     const payload = {
         attacker: {
             faction_id: state.attacker.unit?.faction_id ?? null,
+            leader_id: state.attacker.leader?.id ?? null,
             weapons: weapons.map(weaponPayload),
         },
         defender: {
@@ -671,6 +793,7 @@ async function runSimulation() {
             faction_id: defender.faction_id ?? null,
             model_count: modelCount,
             extra_modifiers: state.defender.extraModifiers,
+            leader_id: state.defender.leader?.id ?? null,
         },
         conditions: state.conditions,
         method: state.simulation.method,
@@ -713,6 +836,19 @@ function displayResults(result) {
             : '';
     }
 
+    // Attached unit: bodyguard models first, then the leader
+    const attachedEl = document.getElementById('res-attached');
+    if (attachedEl) {
+        const a = result.attached, s = result.summary;
+        // Analytical: expected damage to the leader (averages overstate "kills" near the threshold);
+        // Monte Carlo: how often the leader actually dies
+        attachedEl.textContent = !a ? ''
+            : `Attached unit: ${s.bodyguards_killed} of ${a.bodyguard_models} bodyguard models killed; ` +
+              (s.leader_kill_probability != null
+                  ? `${a.leader} dies in ${s.leader_kill_probability}% of runs (average damage ${s.leader_damage} of ${a.leader_wounds} wounds)`
+                  : `expected damage to ${a.leader}: ${s.leader_damage} of ${a.leader_wounds} wounds`);
+    }
+
     // Breakdown
     document.getElementById('res-attacks').textContent = result.breakdown.attacks;
     document.getElementById('res-hits').textContent = result.breakdown.hits;
@@ -742,6 +878,9 @@ function renderWeaponResults(rows) {
         ['mortal_wounds', 'Mortal Wounds'], ['unsaved', 'Unsaved'], ['damage_per_attack', 'Dmg / Attack'],
         ['total_damage', 'Total Damage'], ['models_killed', 'Models Killed'],
     ];
+    // Attached unit: weapons in order, bodyguards then leader, so their kills add up (otherwise capped, as in Excel)
+    const attached = rows.some(r => r.leader_killed != null);
+    if (attached) cols.push(['bodyguards_killed', 'Bodyguards killed'], ['leader_damage', 'Damage to leader']);
 
     el.innerHTML = `
         <h3>Per Weapon <span class="weapon-results-note">(average results)</span></h3>
@@ -755,7 +894,7 @@ function renderWeaponResults(rows) {
                     </tr>`).join('')}
                 </tbody>
                 ${rows.length > 1 ? `<tfoot><tr><td>Total</td><td></td>
-                    ${cols.map(([key]) => `<td>${key === 'damage_per_attack' || key === 'models_killed' ? '' : fmt(sum(key))}</td>`).join('')}
+                    ${cols.map(([key]) => `<td>${key === 'damage_per_attack' || (key === 'models_killed' && !attached) ? '' : fmt(sum(key))}</td>`).join('')}
                 </tr></tfoot>` : ''}
             </table>
         </div>
@@ -778,9 +917,9 @@ function drawChart(distribution) {
         y: probabilities,
         type: 'bar',
         marker: {
-            color: '#e94560',
+            color: themeColor('--accent'),
             line: {
-                color: '#ff6b6b',
+                color: themeColor('--accent-hover'),
                 width: 1
             }
         },
@@ -788,17 +927,17 @@ function drawChart(distribution) {
     }], {
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
-        font: { color: '#eaeaea', size: 11 },
+        font: { color: themeColor('--text-primary'), size: 11 },
         margin: { t: 20, r: 20, b: 50, l: 50 },
         xaxis: {
             title: 'Damage',
-            gridcolor: '#2a2a4a',
-            linecolor: '#2a2a4a'
+            gridcolor: themeColor('--border'),
+            linecolor: themeColor('--border')
         },
         yaxis: {
             title: 'Probability %',
-            gridcolor: '#2a2a4a',
-            linecolor: '#2a2a4a'
+            gridcolor: themeColor('--border'),
+            linecolor: themeColor('--border')
         },
         bargap: 0.15
     }, {
@@ -847,6 +986,9 @@ async function saveScenario() {
             type: state.attacker.weaponType,
             weapons: weapons.map(weaponPayload),
             rules: [...state.rules.attacker.ticked],
+            detachment: state.rules.attacker.detachment,
+            leader_id: state.attacker.leader?.id ?? null,
+            leader_name: state.attacker.leader?.name ?? null,
         },
         defender: {
             unit_name: defender.name,
@@ -860,6 +1002,10 @@ async function saveScenario() {
             model_count: modelCount,
             extra_modifiers: state.defender.extraModifiers,
             rules: [...state.rules.target.ticked],
+            detachment: state.rules.target.detachment,
+            unit_id: defender.id ?? null,
+            leader_id: state.defender.leader?.id ?? null,
+            leader_name: state.defender.leader?.name ?? null,
         },
         conditions: state.conditions,
         results: lastSimulationResult
@@ -911,6 +1057,7 @@ async function loadScenarioAttacker(config) {
                 state.attacker.unit = unit;
                 showUnitStats('attacker', unit);
                 await loadWeaponsForUnit(unit.id);
+                if (config.leader_id) await attachAttackerLeader(config.leader_id);
                 let matched = 0;
                 for (const t of ['ranged', 'melee']) {
                     for (const w of state.attacker.weapons[t]) {
@@ -977,6 +1124,7 @@ function checkForLoadedScenario() {
         // We need to reconstruct the weapon and unit objects
         if (scenario.attacker_config) {
             const config = scenario.attacker_config;
+            state.rules.attacker.detachment = config.detachment || '';
             loadScenarioAttacker(config).then(() =>
                 loadRulesFor('attacker', state.attacker.unit?.faction_id ?? config.faction_id ?? null, config.rules || []));
         }
@@ -995,6 +1143,11 @@ function checkForLoadedScenario() {
 
             // Show defender stats
             showUnitStats('defender', state.defender.unit);
+            if (scenario.defender_config.unit_id) {
+                state.defender.unit.id = scenario.defender_config.unit_id;
+                loadDefenderLeaders(scenario.defender_config.unit_id, scenario.defender_config.leader_id);
+            }
+            state.rules.target.detachment = scenario.defender_config.detachment || '';
             loadRulesFor('target', state.defender.unit.faction_id, scenario.defender_config.rules || []);
         }
 

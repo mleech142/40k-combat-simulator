@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Matchups - 40K Combat Simulator{% endblock %}
+{% block title %}Analytics - 40K Combat Simulator{% endblock %}
 
 {% block content %}
 <div class="matchups-page">
@@ -55,7 +55,7 @@
     <!-- Attackers Table -->
     <section class="card roster-card">
         <div class="roster-header">
-            <h2>⚔️ Attackers</h2>
+            <h2><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Attackers</h2>
             <div class="toggle-bar weapon-type-toggle">
                 <button class="toggle-btn" data-type="ranged">Shooting</button>
                 <button class="toggle-btn active" data-type="both">Both</button>
@@ -90,7 +90,7 @@
     <!-- Defenders Table -->
     <section class="card roster-card">
         <div class="roster-header">
-            <h2>🛡️ Defenders</h2>
+            <h2><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Defenders</h2>
             <div class="toggle-bar defender-mode-toggle">
                 <button class="toggle-btn active" data-mode="real">Real units</button>
                 <button class="toggle-btn" data-mode="generic">Generic profiles</button>
@@ -108,16 +108,20 @@
     <!-- Rules & Stratagems (army-wide) -->
     <section class="card roster-card">
         <div class="roster-header">
-            <h2>📜 Rules &amp; Stratagems</h2>
+            <h2><i class="fa-solid fa-scroll" aria-hidden="true"></i> Rules &amp; Stratagems</h2>
             <span class="rules-hint">Ticked entries apply to every unit of their faction (core stratagems to every unit), in the phases they list.</span>
         </div>
         <div class="matchup-rules">
             <div class="matchup-rules-column">
-                <h3>⚔️ Attackers <span class="rules-summary" id="attacker-rules-summary">None ticked</span></h3>
+                <h3><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Attackers <span class="rules-summary" id="attacker-rules-summary">None ticked</span></h3>
+                <select class="filter-select detachment-select" id="attacker-detachment" style="display:none"
+                        title="Detachment: offers its rules and stratagems too"></select>
                 <div class="rules-list" id="attacker-rules-list"></div>
             </div>
             <div class="matchup-rules-column">
-                <h3>🛡️ Defenders <span class="rules-summary" id="defender-rules-summary">None ticked</span></h3>
+                <h3><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Defenders <span class="rules-summary" id="defender-rules-summary">None ticked</span></h3>
+                <select class="filter-select detachment-select" id="defender-detachment" style="display:none"
+                        title="Detachment: offers its rules and stratagems too"></select>
                 <div class="rules-list" id="defender-rules-list"></div>
             </div>
         </div>
@@ -125,9 +129,9 @@
 
     <!-- Actions -->
     <div class="matchups-actions">
-        <button class="btn btn-primary" id="btn-run-matrix">▶ Run Matrix</button>
-        <button class="btn btn-secondary" id="btn-save-comparison">💾 Save Comparison</button>
-        <button class="btn btn-secondary" id="btn-load-comparison">📂 Load Comparison</button>
+        <button class="btn btn-primary" id="btn-run-matrix"><i class="fa-solid fa-play" aria-hidden="true"></i> Run Matrix</button>
+        <button class="btn btn-secondary" id="btn-save-comparison"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save Comparison</button>
+        <button class="btn btn-secondary" id="btn-load-comparison"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Load Comparison</button>
     </div>
 
     <!-- Matrix Grid -->
@@ -155,7 +159,7 @@
     <!-- Army Analysis (Excel's Results tab) -->
     <section class="card army-analysis" id="army-analysis" style="display: none;">
         <div class="roster-header">
-            <h2>📈 Army Analysis</h2>
+            <h2><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Army Analysis</h2>
             <div class="toggle-bar analysis-tabs">
                 <button class="toggle-btn active" data-tab="summary">Summary</button>
                 <button class="toggle-btn" data-tab="gaps">Gaps</button>
@@ -172,7 +176,7 @@
 <aside class="matchups-detail-panel" id="detail-panel" style="display: none;">
     <div class="detail-header">
         <h3 id="detail-title">Details</h3>
-        <button class="btn-close" id="close-detail">&times;</button>
+        <button class="btn-close" id="close-detail" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <div class="detail-matchup">
         <div class="detail-attacker">
@@ -202,6 +206,7 @@
             <span class="detail-label">Wipe %</span>
         </div>
     </div>
+    <p class="results-mc-extra results-attached" id="detail-attached"></p>
     <div class="detail-breakdown">
         <h4>Attack Flow</h4>
         <table class="breakdown-table">
@@ -224,7 +229,7 @@
     <div class="modal-content modal-large">
         <div class="modal-header">
             <h3 id="unit-picker-title">Add Unit</h3>
-            <button class="btn-close" id="close-unit-picker">&times;</button>
+            <button class="btn-close" id="close-unit-picker" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <div class="modal-body">
             <div class="unit-picker-filters">
@@ -232,6 +237,7 @@
                 <select class="filter-select" id="unit-picker-faction">
                     <option value="">All Factions</option>
                 </select>
+                <label class="filter-check"><input type="checkbox" id="unit-picker-legends"> Show Legends</label>
             </div>
             <div class="unit-picker-list" id="unit-picker-list"></div>
         </div>
@@ -243,7 +249,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Load Comparison</h3>
-            <button class="btn-close" id="close-load-modal">&times;</button>
+            <button class="btn-close" id="close-load-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <div class="modal-body">
             <div class="comparison-list" id="comparison-list">
@@ -258,7 +264,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3>Save Comparison</h3>
-            <button class="btn-close" id="close-save-modal">&times;</button>
+            <button class="btn-close" id="close-save-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <div class="modal-body">
             <div class="form-group">
@@ -279,5 +285,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/matchups.js') }}"></script>
+<script src="{{ url_for('static', filename='js/analytics.js') }}"></script>
 {% endblock %}

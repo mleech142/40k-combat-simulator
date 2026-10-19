@@ -1,0 +1,975 @@
+{
+  "schema_version": 2,
+  "source": {
+    "keywords_and_profiles": "40KCombatSimulator_v2.xlsx (via archive/40k_data_v1.json)"
+  },
+  "factions": [],
+  "units": [],
+  "ranged_weapons": [],
+  "melee_weapons": [],
+  "faction_rules": [],
+  "stratagems": [
+    {
+      "id": 1,
+      "faction_id": null,
+      "name": "Command Re-roll",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Both",
+      "modifier": null,
+      "notes": "Re-roll one hit, wound, damage or attacks roll. A single re-roll isn't modelled in the averages.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 2,
+      "faction_id": null,
+      "name": "Epic Challenge",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Fighting",
+      "modifier": "Precision",
+      "notes": "One Character's melee weapons gain Precision. No effect on damage maths.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 3,
+      "faction_id": null,
+      "name": "Explosives",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Shooting",
+      "modifier": null,
+      "notes": "Separate grenade attack sequence; not modelled.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 4,
+      "faction_id": null,
+      "name": "Fire Overwatch",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Shooting",
+      "modifier": "Snap Shooting",
+      "notes": "Shoot using snap shooting: hits only on unmodified 6s, or 4+ if the unit remained stationary. No hit re-rolls.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 5,
+      "faction_id": null,
+      "name": "Counteroffensive",
+      "cp": "2",
+      "applies_to": "Attacker",
+      "phase": "Fighting",
+      "modifier": null,
+      "notes": "Unit gains Fights First. No effect on damage maths.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 6,
+      "faction_id": null,
+      "name": "Smokescreen",
+      "cp": "1",
+      "applies_to": "Target",
+      "phase": "Shooting",
+      "modifier": "Stealth",
+      "notes": "SMOKE unit gains the benefit of cover against ranged attacks.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 7,
+      "faction_id": null,
+      "name": "Insane Bravery",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Auto-pass a battle-shock roll.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 8,
+      "faction_id": null,
+      "name": "Crushing Impact",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Charge-phase mortal wounds from a Monster/Vehicle; not modelled.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 9,
+      "faction_id": null,
+      "name": "Rapid Ingress",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Ingress move at end of opponent's Movement phase.",
+      "detachment_key": null,
+      "detachment_name": null
+    },
+    {
+      "id": 10,
+      "faction_id": null,
+      "name": "Heroic Intervention",
+      "cp": "1",
+      "applies_to": "Attacker",
+      "phase": "Other",
+      "modifier": null,
+      "notes": "Charge at end of opponent's Charge phase.",
+      "detachment_key": null,
+      "detachment_name": null
+    }
+  ],
+  "keywords": [
+    {
+      "id": 1,
+      "name": "Anti",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Anti-X Y+",
+      "summary": "Unmodified wound roll of Y+ is a Critical Wound vs targets with keyword X.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "24.03"
+    },
+    {
+      "id": 2,
+      "name": "Assault",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Assault",
+      "summary": "Unit can use Assault Shooting (shoot after Advancing).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.04"
+    },
+    {
+      "id": 3,
+      "name": "Blast",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Blast / Blast X",
+      "summary": "+1 (or +X) attack dice per 5 models in the target unit (round down).",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "24.05"
+    },
+    {
+      "id": 4,
+      "name": "Cleave",
+      "category": "Weapon",
+      "applies_to": "Melee",
+      "format": "Cleave X",
+      "summary": "+X attack dice per 5 models in the target unit, if all attacks target one unit.",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "24.06"
+    },
+    {
+      "id": 5,
+      "name": "Close-Quarters",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Close-Quarters",
+      "summary": "Unit can use Close-Quarters Shooting while engaged; limits weapon choice with other shooting types.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.07"
+    },
+    {
+      "id": 6,
+      "name": "Devastating Wounds",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Devastating Wounds",
+      "summary": "A Critical Wound ends the attack sequence and inflicts mortal wounds equal to the weapon's D.",
+      "sim_step": "Save",
+      "modelled": true,
+      "rule_ref": "24.10"
+    },
+    {
+      "id": 7,
+      "name": "Extra Attacks",
+      "category": "Weapon",
+      "applies_to": "Melee",
+      "format": "Extra Attacks",
+      "summary": "These weapons are used in addition to one other melee weapon.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.11"
+    },
+    {
+      "id": 8,
+      "name": "Hazardous",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Hazardous",
+      "summary": "After attacking, make one hazard roll per Hazardous weapon selected.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.15"
+    },
+    {
+      "id": 9,
+      "name": "Heavy",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Heavy",
+      "summary": "+1 to hit if unengaged, not set up this turn and no model moved more than 3\".",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.16"
+    },
+    {
+      "id": 10,
+      "name": "Ignores Cover",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Ignores Cover",
+      "summary": "Target cannot gain the benefit of cover, so the attacker's BS is not worsened.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.18"
+    },
+    {
+      "id": 11,
+      "name": "Indirect Fire",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Indirect Fire",
+      "summary": "Unit can use Indirect Shooting (no line of sight needed).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.19"
+    },
+    {
+      "id": 12,
+      "name": "Lance",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Lance",
+      "summary": "+1 to wound if the attacking unit charged this turn.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "24.21"
+    },
+    {
+      "id": 13,
+      "name": "Lethal Hits",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Lethal Hits",
+      "summary": "A Critical Hit can automatically wound (no wound roll).",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.23"
+    },
+    {
+      "id": 14,
+      "name": "Melta",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Melta X",
+      "summary": "+X to D if the target is within half range.",
+      "sim_step": "Damage",
+      "modelled": true,
+      "rule_ref": "24.25"
+    },
+    {
+      "id": 15,
+      "name": "One Shot",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "One Shot",
+      "summary": "Weapon can only be used once per battle.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.26"
+    },
+    {
+      "id": 16,
+      "name": "Pistol",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Pistol",
+      "summary": "Identical to Close-Quarters for all rules purposes (being phased out).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.27"
+    },
+    {
+      "id": 17,
+      "name": "Precision",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Precision",
+      "summary": "Attacks can be allocated to a visible Character in the target unit first.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.28"
+    },
+    {
+      "id": 18,
+      "name": "Psychic",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Psychic",
+      "summary": "Can ignore modifiers to BS/WS (including cover) and negative modifiers to the hit roll; counts as a psychic attack.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.29"
+    },
+    {
+      "id": 19,
+      "name": "Rapid Fire",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Rapid Fire X",
+      "summary": "+X attack dice if the target is within half range.",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "24.30"
+    },
+    {
+      "id": 20,
+      "name": "Sustained Hits",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Sustained Hits X",
+      "summary": "A Critical Hit scores X additional hits.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.36"
+    },
+    {
+      "id": 21,
+      "name": "Torrent",
+      "category": "Weapon",
+      "applies_to": "Ranged",
+      "format": "Torrent",
+      "summary": "Attacks automatically hit. Cannot also have Indirect Fire or Precision.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.37"
+    },
+    {
+      "id": 22,
+      "name": "Twin-Linked",
+      "category": "Weapon",
+      "applies_to": "Both",
+      "format": "Twin-Linked",
+      "summary": "Can re-roll the wound roll.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "24.38"
+    },
+    {
+      "id": 23,
+      "name": "Damaged",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Damaged X",
+      "summary": "While remaining wounds are X or fewer, the model's attacks get -1 to hit.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.39"
+    },
+    {
+      "id": 24,
+      "name": "Deadly Demise",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Deadly Demise X",
+      "summary": "When destroyed, on a 6 each unit within 6\" suffers X mortal wounds.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.08"
+    },
+    {
+      "id": 25,
+      "name": "Deep Strike",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Deep Strike",
+      "summary": "On an ingress move, can set up anywhere more than 8\" horizontally from enemies.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.09"
+    },
+    {
+      "id": 26,
+      "name": "Feel No Pain",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Feel No Pain X+",
+      "summary": "Each time a wound would be lost, roll a D6: on X+ it is not lost.",
+      "sim_step": "Damage",
+      "modelled": true,
+      "rule_ref": "24.12"
+    },
+    {
+      "id": 27,
+      "name": "Fights First",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Fights First",
+      "summary": "Unit fights in the Fights First step of the Fight phase.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.13"
+    },
+    {
+      "id": 28,
+      "name": "Firing Deck",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Firing Deck X",
+      "summary": "Transport can shoot with weapons from up to X embarked models.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.14"
+    },
+    {
+      "id": 29,
+      "name": "Hover",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Hover",
+      "summary": "Don't subtract 2\" from max distance when taking to the skies.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.17"
+    },
+    {
+      "id": 30,
+      "name": "Infiltrators",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Infiltrators",
+      "summary": "Deploy anywhere more than 8\" from the enemy deployment zone and enemy units.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.20"
+    },
+    {
+      "id": 31,
+      "name": "Leader",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Leader",
+      "summary": "Can be attached to a bodyguard unit before the battle.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.22"
+    },
+    {
+      "id": 32,
+      "name": "Lone Operative",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Lone Operative / Lone Operative X\"",
+      "summary": "Unless attached, can't be seen or targeted by Indirect Fire beyond 12\" (or X\").",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.24"
+    },
+    {
+      "id": 33,
+      "name": "Scouts",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Scouts X\"",
+      "summary": "Pre-battle, can make a scout move of up to X\" (or redeploy from strategic reserves).",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.31"
+    },
+    {
+      "id": 34,
+      "name": "Stealth",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Stealth",
+      "summary": "If every model has it, unit gets the benefit of cover against ranged attacks (attacker's BS worsened by 1).",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "24.33"
+    },
+    {
+      "id": 35,
+      "name": "Super-Heavy Walker",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Super-Heavy Walker",
+      "summary": "Can move through models (not Titanic) and terrain 4\" or less in height.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.35"
+    },
+    {
+      "id": 36,
+      "name": "Support",
+      "category": "Core",
+      "applies_to": "Unit",
+      "format": "Support",
+      "summary": "Can be attached to a bodyguard alongside a Leader unit.",
+      "sim_step": "None",
+      "modelled": false,
+      "rule_ref": "24.34"
+    },
+    {
+      "id": 37,
+      "name": "Hit Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Hit Modifier +X / -X",
+      "summary": "Adds X to the hit roll (total modifier capped at ±1).",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 38,
+      "name": "Wound Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Wound Modifier +X / -X",
+      "summary": "Adds X to the wound roll (total modifier capped at ±1).",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 39,
+      "name": "AP Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "AP Modifier -X / +X",
+      "summary": "Changes the weapon's AP by X (-1 makes AP -1 into AP -2).",
+      "sim_step": "Save",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 40,
+      "name": "Damage Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Damage Modifier +X / -X",
+      "summary": "Changes damage per attack by X (minimum 1). Use -1 on a Target rule for damage reduction.",
+      "sim_step": "Damage",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 41,
+      "name": "Toughness Modifier",
+      "category": "Stat",
+      "applies_to": "Unit",
+      "format": "Toughness Modifier +X / -X",
+      "summary": "Changes the target's T by X (minimum 1). Use on a Target rule.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 42,
+      "name": "Save Modifier",
+      "category": "Stat",
+      "applies_to": "Unit",
+      "format": "Save Modifier +X / -X",
+      "summary": "On a target: +X improves its save, -X worsens it. On an attacker or weapon: -X worsens the target's save (e.g. a rule that worsens Sv by 1).",
+      "sim_step": "Save",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 43,
+      "name": "Reroll Hits",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Reroll Hits / Reroll Hits 1",
+      "summary": "Re-roll failed hit rolls, or only hit rolls of 1 when written as Reroll Hits 1.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 44,
+      "name": "Reroll Wounds",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Reroll Wounds / Reroll Wounds 1",
+      "summary": "Re-roll failed wound rolls, or only wound rolls of 1 when written as Reroll Wounds 1.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "—"
+    },
+    {
+      "id": 45,
+      "name": "Snap Shooting",
+      "category": "Stat",
+      "applies_to": "Ranged",
+      "format": "Snap Shooting",
+      "summary": "Hits only on an unmodified 6 (4+ if the unit remained stationary), ignoring BS and modifiers. Hit rolls cannot be re-rolled.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "15.09"
+    },
+    {
+      "id": 46,
+      "name": "Attacks Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Attacks Modifier +X / -X",
+      "summary": "Adds/subtracts X to the weapon's A characteristic (A cannot be less than 1).",
+      "sim_step": "Attacks",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 47,
+      "name": "Strength Modifier",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Strength Modifier +X / -X",
+      "summary": "Adds/subtracts X to the weapon's S characteristic (S cannot be less than 1).",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 48,
+      "name": "BS Modifier",
+      "category": "Stat",
+      "applies_to": "Ranged",
+      "format": "BS Modifier -X / +X",
+      "summary": "Changes the BS number: -1 improves (3+ to 2+), +1 worsens. BS stays between 2+ and 6+. Not limited by the ±1 hit roll cap.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 49,
+      "name": "WS Modifier",
+      "category": "Stat",
+      "applies_to": "Melee",
+      "format": "WS Modifier -X / +X",
+      "summary": "Changes the WS number: -1 improves (3+ to 2+), +1 worsens. WS stays between 2+ and 6+. Not limited by the ±1 hit roll cap.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "02.02.01"
+    },
+    {
+      "id": 50,
+      "name": "Critical Hits",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Critical Hits X+",
+      "summary": "Unmodified hit rolls of X+ are Critical Hits (and always hit). Lowest value applies. Not used when snap shooting.",
+      "sim_step": "Hit",
+      "modelled": true,
+      "rule_ref": "05.01"
+    },
+    {
+      "id": 51,
+      "name": "Critical Wounds",
+      "category": "Stat",
+      "applies_to": "Both",
+      "format": "Critical Wounds X+",
+      "summary": "Unmodified wound rolls of X+ are Critical Wounds (and always wound). Combines with Anti; lowest value applies.",
+      "sim_step": "Wound",
+      "modelled": true,
+      "rule_ref": "05.02"
+    }
+  ],
+  "target_profiles": [
+    {
+      "id": 1,
+      "kind": "generic",
+      "name": "Horde Infantry (GEQ)",
+      "models": 10,
+      "toughness": 3,
+      "wounds": 1,
+      "save": 5,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 2,
+      "kind": "generic",
+      "name": "Marine Infantry (MEQ)",
+      "models": 5,
+      "toughness": 4,
+      "wounds": 2,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 3,
+      "kind": "generic",
+      "name": "Terminator (TEQ)",
+      "models": 5,
+      "toughness": 5,
+      "wounds": 3,
+      "save": 2,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry",
+        "Terminator"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 4,
+      "kind": "generic",
+      "name": "Heavy Infantry",
+      "models": 3,
+      "toughness": 6,
+      "wounds": 3,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 5,
+      "kind": "generic",
+      "name": "Character (Infantry)",
+      "models": 1,
+      "toughness": 4,
+      "wounds": 5,
+      "save": 3,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry",
+        "Character"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 6,
+      "kind": "generic",
+      "name": "Light Vehicle",
+      "models": 1,
+      "toughness": 9,
+      "wounds": 10,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 7,
+      "kind": "generic",
+      "name": "Monster",
+      "models": 1,
+      "toughness": 10,
+      "wounds": 12,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Monster"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 8,
+      "kind": "generic",
+      "name": "Battle Tank",
+      "models": 1,
+      "toughness": 11,
+      "wounds": 13,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 9,
+      "kind": "generic",
+      "name": "Heavy Tank",
+      "models": 1,
+      "toughness": 12,
+      "wounds": 16,
+      "save": 2,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 10,
+      "kind": "generic",
+      "name": "Knight / Titanic",
+      "models": 1,
+      "toughness": 12,
+      "wounds": 22,
+      "save": 3,
+      "invulnerable_save": 5,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle",
+        "Titanic"
+      ],
+      "weight": 1.0,
+      "use": true
+    },
+    {
+      "id": 11,
+      "kind": "role",
+      "name": "Anti-Horde",
+      "models": 10,
+      "toughness": 3,
+      "wounds": 1,
+      "save": 5,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 12,
+      "kind": "role",
+      "name": "Anti-Marine",
+      "models": 5,
+      "toughness": 4,
+      "wounds": 2,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 13,
+      "kind": "role",
+      "name": "Anti-Elite",
+      "models": 5,
+      "toughness": 5,
+      "wounds": 3,
+      "save": 2,
+      "invulnerable_save": 4,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry",
+        "Terminator"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 14,
+      "kind": "role",
+      "name": "Anti-Heavy Infantry",
+      "models": 3,
+      "toughness": 6,
+      "wounds": 3,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Infantry"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 15,
+      "kind": "role",
+      "name": "Anti-Vehicle",
+      "models": 1,
+      "toughness": 10,
+      "wounds": 12,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 16,
+      "kind": "role",
+      "name": "Anti-Monster",
+      "models": 1,
+      "toughness": 10,
+      "wounds": 14,
+      "save": 3,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Monster"
+      ],
+      "weight": null,
+      "use": true
+    },
+    {
+      "id": 17,
+      "kind": "role",
+      "name": "Anti-Tank",
+      "models": 1,
+      "toughness": 12,
+      "wounds": 16,
+      "save": 2,
+      "invulnerable_save": null,
+      "feel_no_pain": null,
+      "keywords": [
+        "Vehicle"
+      ],
+      "weight": null,
+      "use": true
+    }
+  ],
+  "unit_modifiers": []
+}

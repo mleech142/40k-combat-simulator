@@ -4,14 +4,17 @@
 
 {% block content %}
 <div class="page-header">
-    <h2>📁 Data Management</h2>
+    <h2><i class="fa-solid fa-database" aria-hidden="true"></i> Data Management</h2>
     <div class="header-actions">
-        <button class="btn btn-secondary" onclick="exportData()">📤 Export JSON</button>
-        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">📥 Import JSON</button>
+        <button class="btn btn-secondary" onclick="exportData()"><i class="fa-solid fa-file-export" aria-hidden="true"></i> Export JSON</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import JSON</button>
         <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">
     </div>
 </div>
-<p class="data-note">Changes are saved to the data file as soon as you confirm them.</p>
+<div class="bsdata-status" id="bsdata-status"></div>
+<p class="data-note">Changes are saved to the app data file as soon as you confirm them. Units and weapons from
+    BSData are read-only: add rules and stratagems to any faction, extra modifiers to a BSData unit, and your own
+    units and weapons to a custom faction.</p>
 
 <!-- Tabs -->
 <div class="data-tabs">
@@ -55,9 +58,10 @@
 <div class="data-content" id="tab-units">
     <div class="data-toolbar">
         <select id="filter-faction" class="filter-select" onchange="loadUnits()">
-            <option value="">All Factions</option>
+            <option value="">Choose a faction</option>
         </select>
         <input type="text" id="filter-unit" class="filter-input" placeholder="Search units..." oninput="filterUnits()">
+        <label class="filter-check"><input type="checkbox" id="filter-legends" onchange="loadUnits()"> Show Legends</label>
         <button class="btn btn-primary" onclick="showAddUnitModal()">+ Add Unit</button>
     </div>
     <table class="data-table" id="units-table">
@@ -75,7 +79,7 @@
 <div class="data-content" id="tab-weapons">
     <div class="data-toolbar">
         <select id="filter-weapon-faction" class="filter-select" onchange="loadWeapons()">
-            <option value="">All Factions</option>
+            <option value="">Choose a faction</option>
         </select>
         <select id="filter-weapon-type" class="filter-select" onchange="loadWeapons()">
             <option value="all">All Types</option>
@@ -98,11 +102,10 @@
 
 <!-- Target Profiles Tab (read-only, from the workbook) -->
 <div class="data-content" id="tab-profiles">
-    <p class="data-note">Benchmark targets from the workbook. They are read-only here; refresh them with
-        <code>python scripts/migrate_excel.py --reference-only</code>.</p>
+    <p class="data-note">Benchmark targets shipped with the app (from the v2 workbook). They are read-only.</p>
     <section class="data-section">
         <div class="data-section-header"><h3>Generic opponent profiles</h3></div>
-        <p class="weapon-picker-hint">Used by Matchups' <em>Generic profiles</em> mode. Weight sets how much each profile counts in the averages.</p>
+        <p class="weapon-picker-hint">Used by Analytics' <em>Generic profiles</em> mode. Weight sets how much each profile counts in the averages.</p>
         <table class="data-table" id="generic-profiles-table">
             <thead><tr><th>Profile</th><th>Models</th><th>T</th><th>W</th><th>Sv</th><th>Inv</th><th>FNP</th><th>Keywords</th><th>Weight</th><th>Used by default</th></tr></thead>
             <tbody></tbody>
@@ -159,7 +162,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="faction-modal-title">Add Faction</h3>
-            <button class="modal-close" onclick="closeModal('faction-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('faction-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="faction-form" onsubmit="saveFaction(event)">
             <input type="hidden" id="faction-id">
@@ -180,7 +183,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="rule-modal-title">Add Faction Rule</h3>
-            <button class="modal-close" onclick="closeModal('rule-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('rule-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="rule-form" onsubmit="saveRule(event)">
             <input type="hidden" id="rule-id">
@@ -211,6 +214,11 @@
                 <input type="text" id="rule-modifier" placeholder="e.g. Sustained Hits 1, Lance" oninput="checkKeywordInput(this)">
                 <div class="kw-hint" id="rule-modifier-hint"></div>
             </div>
+            <div class="form-group" id="rule-detachment-group">
+                <label>Detachment</label>
+                <select id="rule-detachment"></select>
+                <p class="weapon-picker-hint">Offered in the Simulator and Analytics only when this detachment is chosen.</p>
+            </div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('rule-modal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Save</button>
@@ -224,7 +232,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="stratagem-modal-title">Add Stratagem</h3>
-            <button class="modal-close" onclick="closeModal('stratagem-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('stratagem-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="stratagem-form" onsubmit="saveStratagem(event)">
             <input type="hidden" id="stratagem-id">
@@ -261,6 +269,11 @@
                 <input type="text" id="stratagem-modifier" placeholder="e.g. Hit Modifier +1" oninput="checkKeywordInput(this)">
                 <div class="kw-hint" id="stratagem-modifier-hint"></div>
             </div>
+            <div class="form-group" id="stratagem-detachment-group">
+                <label>Detachment</label>
+                <select id="stratagem-detachment"></select>
+                <p class="weapon-picker-hint">Offered in the Simulator and Analytics only when this detachment is chosen.</p>
+            </div>
             <div class="form-group">
                 <label>Notes</label>
                 <textarea id="stratagem-notes" rows="3"></textarea>
@@ -278,14 +291,16 @@
     <div class="modal-content modal-large">
         <div class="modal-header">
             <h3 id="unit-modal-title">Add Unit</h3>
-            <button class="modal-close" onclick="closeModal('unit-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('unit-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="unit-form" onsubmit="saveUnit(event)">
             <input type="hidden" id="unit-id">
+            <p class="data-note" id="unit-readonly-note" style="display:none">From BSData: read-only. You can add
+                modifiers; they apply to this datasheet in every faction that has it.</p>
             <div class="form-row">
                 <div class="form-group">
                     <label>Faction</label>
-                    <select id="unit-faction" required onchange="renderWeaponPicker()"></select>
+                    <select id="unit-faction" required onchange="onUnitFactionChange()"></select>
                 </div>
                 <div class="form-group">
                     <label>Name</label>
@@ -304,19 +319,20 @@
             </div>
             <div class="form-group">
                 <label>Points by unit size</label>
-                <p class="weapon-picker-hint">First row = the datasheet size. Add a row for each other size the unit can be taken at.</p>
+                <p class="weapon-picker-hint" id="unit-points-hint">First row = the datasheet size. Add a row for each other size the unit can be taken at.</p>
                 <table class="points-table">
                     <thead><tr><th>Models</th><th>Points</th><th></th></tr></thead>
                     <tbody id="unit-points-rows"></tbody>
                 </table>
-                <button type="button" class="btn-small" onclick="addPointsRow()">+ Add size</button>
+                <button type="button" class="btn-small" id="unit-add-size" onclick="addPointsRow()">+ Add size</button>
             </div>
             <div class="form-group">
                 <label>Keywords (comma-separated)</label>
                 <input type="text" id="unit-keywords" placeholder="Infantry, Battleline, Chaos">
             </div>
             <div class="form-group">
-                <label>Modifiers (comma-separated)</label>
+                <label id="unit-modifiers-label">Modifiers (comma-separated)</label>
+                <p class="weapon-picker-hint" id="unit-datasheet-modifiers" style="display:none"></p>
                 <input type="text" id="unit-modifiers" placeholder="e.g. Feel No Pain 5+" oninput="checkKeywordInput(this, 'unit')">
                 <div class="kw-hint" id="unit-modifiers-hint"></div>
             </div>
@@ -324,24 +340,36 @@
                 <label>Can Lead (comma-separated unit names)</label>
                 <input type="text" id="unit-can-lead">
             </div>
+            <div class="form-group" id="unit-leader-buffs-group">
+                <label>Leader buffs</label>
+                <p class="weapon-picker-hint" id="unit-leader-buffs-note">What this unit grants the unit it leads, in the
+                    keyword format of the Keywords tab. "Target" buffs apply when the led unit is attacked.</p>
+                <table class="points-table leader-buffs-table">
+                    <thead><tr><th>Applies to</th><th>Phase</th><th>Modifier</th><th></th></tr></thead>
+                    <tbody id="unit-leader-buff-rows"></tbody>
+                </table>
+                <button type="button" class="btn-small" onclick="addLeaderBuffRow()">+ Add buff</button>
+                <button type="button" class="btn-small" id="unit-leader-buffs-reset" onclick="resetLeaderBuffs()">Use BSData's</button>
+            </div>
             <div class="form-group">
                 <label>Abilities</label>
                 <textarea id="unit-abilities" rows="4"></textarea>
+                <div class="rule-text unit-abilities-formatted" id="unit-abilities-formatted" style="display:none"></div>
             </div>
             <div class="form-group">
                 <div class="weapon-picker-header">
                     <label>Loadout</label>
                     <input type="text" id="unit-weapon-search" class="filter-input" placeholder="Search weapons..." oninput="renderWeaponPicker()">
-                    <button type="button" class="btn-small" onclick="showAddWeaponModal(true)">+ New Weapon</button>
+                    <button type="button" class="btn-small" id="unit-new-weapon" onclick="showAddWeaponModal(true)">+ New Weapon</button>
                 </div>
-                <p class="weapon-picker-hint">Tick each weapon the unit carries; Qty = how many models carry it.</p>
+                <p class="weapon-picker-hint" id="unit-loadout-hint">Tick each weapon the unit carries; Qty = how many models carry it.</p>
                 <div class="weapon-picker">
                     <div class="weapon-picker-column">
-                        <h4>🎯 Shooting <span class="weapon-picker-count" id="unit-ranged-count"></span></h4>
+                        <h4><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Shooting <span class="weapon-picker-count" id="unit-ranged-count"></span></h4>
                         <div class="weapon-picker-list" id="unit-ranged-picker"></div>
                     </div>
                     <div class="weapon-picker-column">
-                        <h4>⚔️ Melee <span class="weapon-picker-count" id="unit-melee-count"></span></h4>
+                        <h4><i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Melee <span class="weapon-picker-count" id="unit-melee-count"></span></h4>
                         <div class="weapon-picker-list" id="unit-melee-picker"></div>
                     </div>
                 </div>
@@ -359,11 +387,19 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="weapon-modal-title">Add Weapon</h3>
-            <button class="modal-close" onclick="closeModal('weapon-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('weapon-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="weapon-form" onsubmit="saveWeapon(event)">
             <input type="hidden" id="weapon-id">
             <input type="hidden" id="weapon-type-hidden">
+            <input type="hidden" id="weapon-linked-id">
+            <div class="form-group" id="weapon-copy-group">
+                <label>Copy a BSData weapon (optional)</label>
+                <input type="text" id="weapon-bsdata-search" class="filter-input" placeholder="Search BSData weapons…"
+                       oninput="searchBsdataWeapons()" autocomplete="off">
+                <div class="bsdata-weapon-results" id="weapon-bsdata-results"></div>
+                <p class="weapon-picker-hint" id="weapon-link-note" style="display:none"></p>
+            </div>
             <div class="form-row">
                 <div class="form-group">
                     <label>Type</label>
@@ -427,7 +463,7 @@
     <div class="modal-content modal-large">
         <div class="modal-header">
             <h3>Import Data - Review Changes</h3>
-            <button class="modal-close" onclick="closeModal('import-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('import-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <div id="import-diff-content"></div>
         <div class="modal-actions">
@@ -447,6 +483,7 @@ const expandedFactions = new Set();
 const keywordFilter = {category: '', modelled: ''};
 
 document.addEventListener('DOMContentLoaded', () => {
+    loadStatus();
     loadFactions();
     loadUnits();
     loadWeapons();
@@ -494,6 +531,41 @@ function refreshAll() {
     loadWeapons();
 }
 
+// BSData import status
+async function loadStatus() {
+    const status = await fetch('/api/data/status').then(r => r.json());
+    const el = document.getElementById('bsdata-status');
+    const folder = `<code>${esc(status.folder || '')}</code>`;
+    if (status.loaded) {
+        const flags = Object.values(status.report_counts || {}).reduce((a, b) => a + b, 0);
+        el.className = 'bsdata-status bsdata-status-ok';
+        el.innerHTML = `BSData: ${status.factions} factions, ${status.units} units from ${folder}` +
+            (flags ? ` <span class="muted">(${flags} import notes)</span>` : '') + ' · <a href="/setup">Setup</a>';
+    } else if (status.error) {
+        el.className = 'bsdata-status bsdata-status-error';
+        el.innerHTML = `BSData folder ${folder} could not be read: ${esc(status.error)} · <a href="/setup">Setup</a>`;
+    } else {
+        el.className = 'bsdata-status bsdata-status-missing';
+        el.innerHTML = `No BSData catalogues in ${folder}. <a href="/setup">Download them or choose a folder</a>.`;
+    }
+}
+
+const SOURCE_LABEL = {bsdata: 'BSData', custom: 'Custom', missing: 'Not in BSData folder'};
+
+function sourceBadge(source) {
+    return `<span class="source-badge source-${esc(source)}">${SOURCE_LABEL[source] || esc(source)}</span>`;
+}
+
+/** <option>s for factions, custom first, then BSData (and placeholders). */
+function factionOptions(factions) {
+    const option = f => `<option value="${f.id}">${esc(f.name)}</option>`;
+    const custom = factions.filter(f => f.editable);
+    const other = factions.filter(f => !f.editable);
+    if (!other.length) return custom.map(option).join('');
+    return (custom.length ? `<optgroup label="Custom">${custom.map(option).join('')}</optgroup>` : '') +
+        `<optgroup label="BSData">${other.map(option).join('')}</optgroup>`;
+}
+
 // =========================
 // Factions, rules and stratagems
 // =========================
@@ -511,15 +583,15 @@ async function loadFactions() {
     tbody.innerHTML = allFactions.map(f => `
         <tr class="faction-row">
             <td class="col-expand">
-                <button class="btn-expand" onclick="toggleFaction(${f.id})" title="Rules & stratagems">${expandedFactions.has(f.id) ? '▾' : '▸'}</button>
+                <button class="btn-expand" onclick="toggleFaction(${f.id})" title="Rules & stratagems">${expandedFactions.has(f.id) ? '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>' : '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i>'}</button>
             </td>
-            <td><strong>${esc(f.name)}</strong></td>
+            <td><strong>${esc(f.name)}</strong> ${sourceBadge(f.source)}</td>
             <td>${f.unit_count}</td>
             <td>${f.rule_count}</td>
             <td>${f.stratagem_count}</td>
-            <td>
+            <td>${f.editable ? `
                 <button class="btn-small" onclick="editFaction(${f.id})">Edit</button>
-                <button class="btn-small btn-danger" onclick="deleteFaction(${f.id})">Delete</button>
+                <button class="btn-small btn-danger" onclick="deleteFaction(${f.id})">Delete</button>` : ''}
             </td>
         </tr>
         <tr class="faction-detail-row" id="faction-detail-${f.id}" style="${expandedFactions.has(f.id) ? '' : 'display:none'}">
@@ -531,16 +603,17 @@ async function loadFactions() {
         if (allFactions.some(f => f.id === id)) loadFactionDetail(id);
     }
 
-    // Faction dropdowns
-    const options = allFactions.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
+    // Faction dropdowns: the filters list every faction; units and weapons can only be made in custom ones
+    const options = factionOptions(allFactions);
     for (const id of ['filter-faction', 'filter-weapon-faction']) {
         const sel = document.getElementById(id);
         const current = sel.value;
-        sel.innerHTML = '<option value="">All Factions</option>' + options;
+        sel.innerHTML = '<option value="">Choose a faction</option>' + options;
         sel.value = current;
     }
-    document.getElementById('unit-faction').innerHTML = options;
-    document.getElementById('weapon-faction').innerHTML = options;
+    const editable = factionOptions(allFactions.filter(f => f.editable));
+    document.getElementById('unit-faction').innerHTML = editable;
+    document.getElementById('weapon-faction').innerHTML = editable;
 }
 
 function toggleFaction(id) {
@@ -555,11 +628,16 @@ function toggleFaction(id) {
 // Rules/stratagems shown in the expanded panels, by id, for their Edit buttons
 const detailRecords = {rules: new Map(), stratagems: new Map()};
 
+// Each faction's BSData detachments, for the panels and the rule/stratagem forms
+const factionDetachments = new Map();
+
 async function loadFactionDetail(factionId) {
-    const [rules, strats] = await Promise.all([
+    const [rules, strats, reference] = await Promise.all([
         fetch(`/api/data/rules?faction_id=${factionId}`).then(r => r.json()),
         fetch(`/api/data/stratagems?faction_id=${factionId}`).then(r => r.json()),
+        fetch(`/api/data/factions/${factionId}/reference`).then(r => r.json()),
     ]);
+    factionDetachments.set(factionId, reference.detachments);
     const body = document.getElementById(`faction-detail-body-${factionId}`);
     if (!body) return;
     rules.forEach(r => detailRecords.rules.set(r.id, r));
@@ -570,10 +648,11 @@ async function loadFactionDetail(factionId) {
             <button class="btn-small" onclick="showRuleModal(${factionId})">+ Add Rule</button>
         </div>
         <table class="data-table data-table-compact">
-            <thead><tr><th>Rule</th><th>Applies To</th><th>Phase</th><th>Modifier</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Rule</th><th>Detachment</th><th>Applies To</th><th>Phase</th><th>Modifier</th><th>Actions</th></tr></thead>
             <tbody>${rules.length ? rules.map(r => `
                 <tr>
                     <td>${esc(r.name)}</td>
+                    <td>${r.detachment_name ? esc(r.detachment_name) : '<span class="muted">Whole faction</span>'}</td>
                     <td>${dash(r.applies_to)}</td>
                     <td>${dash(r.phase)}</td>
                     <td>${dash(r.modifier)}</td>
@@ -581,7 +660,7 @@ async function loadFactionDetail(factionId) {
                         <button class="btn-small" onclick="editRule(${r.id})">Edit</button>
                         <button class="btn-small btn-danger" onclick="deleteRule(${r.id})">Delete</button>
                     </td>
-                </tr>`).join('') : '<tr><td colspan="5" class="empty-cell">No faction rules</td></tr>'}
+                </tr>`).join('') : '<tr><td colspan="6" class="empty-cell">No faction rules</td></tr>'}
             </tbody>
         </table>
         <div class="data-section-header">
@@ -592,15 +671,47 @@ async function loadFactionDetail(factionId) {
             <thead><tr><th>Stratagem</th><th>CP</th><th>Applies To</th><th>Phase</th><th>Modifier</th><th>Notes</th><th>Actions</th></tr></thead>
             <tbody></tbody>
         </table>
+        ${bsdataReferenceHtml(reference)}
     `;
     renderStratagemRows(body.querySelectorAll('tbody')[1], strats, 'No faction stratagems');
+}
+
+/** BSData's own text for a faction (army rules and detachments): read-only, for writing rules from. */
+function bsdataReferenceHtml(reference) {
+    const rules = list => list.map(r =>
+        `<div class="rule-text"><h6>${esc(r.name)}</h6>${Core.formatRuleText(r.text)}</div>`).join('');
+    const army = reference.army_rules || [];
+    const detachments = reference.detachments || [];
+    if (!army.length && !detachments.length) return '';
+    return `
+        <details class="bsdata-reference">
+            <summary>From BSData: ${army.length} army rule(s), ${detachments.length} detachment(s) — text only, for writing rules and stratagems above</summary>
+            ${army.length ? `<h5>Army rules</h5>${rules(army)}` : ''}
+            ${detachments.map(d => `<h5>${esc(d.name)}</h5>${rules(d.rules) || '<p class="muted">No rule text in BSData</p>'}`).join('')}
+        </details>`;
+}
+
+/** Fill a rule/stratagem form's detachment dropdown with the faction's detachments. */
+function fillDetachmentSelect(kind, factionId, record = null) {
+    const group = document.getElementById(`${kind}-detachment-group`);
+    const select = document.getElementById(`${kind}-detachment`);
+    const detachments = factionDetachments.get(factionId) || [];
+    const key = record?.detachment_key || '';
+    let options = '<option value="">Whole faction</option>' +
+        detachments.map(d => `<option value="${esc(d.key)}">${esc(d.name)}</option>`).join('');
+    if (key && !detachments.some(d => d.key === key)) {  // Saved against a detachment that isn't loaded
+        options += `<option value="${esc(key)}">${esc(record.detachment_name || key)} (not in BSData folder)</option>`;
+    }
+    select.innerHTML = options;
+    select.value = key;
+    group.style.display = detachments.length || key ? '' : 'none';
 }
 
 function renderStratagemRows(tbody, strats, emptyText) {
     strats.forEach(s => detailRecords.stratagems.set(s.id, s));
     tbody.innerHTML = strats.length ? strats.map(s => `
         <tr>
-            <td>${esc(s.name)}</td>
+            <td>${esc(s.name)}${s.detachment_name ? ` <span class="rule-detachment">${esc(s.detachment_name)}</span>` : ''}</td>
             <td>${dash(s.cp)}</td>
             <td>${dash(s.applies_to)}</td>
             <td>${dash(s.phase)}</td>
@@ -658,6 +769,7 @@ function showRuleModal(factionId) {
     document.getElementById('rule-form').reset();
     document.getElementById('rule-id').value = '';
     document.getElementById('rule-faction-id').value = factionId;
+    fillDetachmentSelect('rule', factionId);
     openModal('rule-modal');
 }
 
@@ -671,6 +783,7 @@ function editRule(id) {
     document.getElementById('rule-applies-to').value = rule.applies_to || 'Attacker';
     document.getElementById('rule-phase').value = rule.phase || 'Both';
     document.getElementById('rule-modifier').value = rule.modifier || '';
+    fillDetachmentSelect('rule', rule.faction_id, rule);
     openModal('rule-modal');
 }
 
@@ -683,6 +796,7 @@ async function saveRule(e) {
         applies_to: document.getElementById('rule-applies-to').value,
         phase: document.getElementById('rule-phase').value,
         modifier: document.getElementById('rule-modifier').value,
+        detachment_key: document.getElementById('rule-detachment').value || null,
     };
     if (await api(id ? `/api/data/rules/${id}` : '/api/data/rules', id ? 'PUT' : 'POST', data)) {
         closeModal('rule-modal');
@@ -703,6 +817,7 @@ function showStratagemModal(factionId) {
     document.getElementById('stratagem-form').reset();
     document.getElementById('stratagem-id').value = '';
     document.getElementById('stratagem-faction-id').value = factionId ?? '';
+    fillDetachmentSelect('stratagem', factionId);
     openModal('stratagem-modal');
 }
 
@@ -719,6 +834,7 @@ function editStratagem(id) {
     document.getElementById('stratagem-phase').value = strat.phase || 'Both';
     document.getElementById('stratagem-modifier').value = strat.modifier || '';
     document.getElementById('stratagem-notes').value = strat.notes || '';
+    fillDetachmentSelect('stratagem', strat.faction_id, strat);
     openModal('stratagem-modal');
 }
 
@@ -734,6 +850,7 @@ async function saveStratagem(e) {
         phase: document.getElementById('stratagem-phase').value,
         modifier: document.getElementById('stratagem-modifier').value,
         notes: document.getElementById('stratagem-notes').value,
+        detachment_key: document.getElementById('stratagem-detachment').value || null,
     };
     if (await api(id ? `/api/data/stratagems/${id}` : '/api/data/stratagems', id ? 'PUT' : 'POST', data)) {
         closeModal('stratagem-modal');
@@ -752,16 +869,26 @@ async function deleteStratagem(id) {
 
 async function loadUnits() {
     const factionId = document.getElementById('filter-faction')?.value || '';
-    const resp = await fetch(`/api/data/units?faction_id=${factionId}`);
+    if (!factionId) {
+        allUnits = null;  // One faction at a time: BSData has thousands of units
+        filterUnits();
+        return;
+    }
+    const legends = document.getElementById('filter-legends').checked ? '&legends=1' : '';
+    const resp = await fetch(`/api/data/units?faction_id=${factionId}${legends}`);
     allUnits = await resp.json();
     filterUnits();
 }
 
 function renderUnitsTable(units) {
     const tbody = document.querySelector('#units-table tbody');
+    if (units === null) {
+        tbody.innerHTML = '<tr><td colspan="14" class="empty-cell">Choose a faction</td></tr>';
+        return;
+    }
     tbody.innerHTML = units.length ? units.map(u => `
         <tr>
-            <td><strong>${esc(u.name)}</strong></td>
+            <td><strong>${esc(u.name)}</strong>${u.legends ? ' <span class="legends-tag">Legends</span>' : ''}</td>
             <td>${esc(u.faction)}</td>
             <td>${dash(u.move, '"')}</td>
             <td>${u.toughness}</td>
@@ -773,10 +900,11 @@ function renderUnitsTable(units) {
             <td>${dash(u.leadership, '+')}</td>
             <td>${pointsSummary(u.points_by_size)}</td>
             <td>${dash(u.default_models)}</td>
-            <td>🎯 ${u.ranged_weapon_count} · ⚔️ ${u.melee_weapon_count}</td>
-            <td>
+            <td><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> ${u.ranged_weapon_count} · <i class="fa-solid fa-hand-fist" aria-hidden="true"></i> ${u.melee_weapon_count}</td>
+            <td>${u.editable ? `
                 <button class="btn-small" onclick="editUnit(${u.id})">Edit</button>
-                <button class="btn-small btn-danger" onclick="deleteUnit(${u.id})">Delete</button>
+                <button class="btn-small btn-danger" onclick="deleteUnit(${u.id})">Delete</button>` : `
+                <button class="btn-small" onclick="editUnit(${u.id})">View</button>`}
             </td>
         </tr>
     `).join('') : '<tr><td colspan="14" class="empty-cell">No units</td></tr>';
@@ -784,7 +912,7 @@ function renderUnitsTable(units) {
 
 function filterUnits() {
     const search = document.getElementById('filter-unit').value.toLowerCase();
-    renderUnitsTable(allUnits.filter(u => u.name.toLowerCase().includes(search)));
+    renderUnitsTable(allUnits && allUnits.filter(u => u.name.toLowerCase().includes(search)));
 }
 
 // Points by unit size
@@ -800,7 +928,7 @@ function renderPointsRows(brackets) {
         <tr>
             <td><input type="number" class="points-models" min="1" value="${b.models ?? ''}" placeholder="-"></td>
             <td><input type="number" class="points-points" min="0" value="${b.points ?? ''}" placeholder="-"></td>
-            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size">&times;</button></td>
+            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
         </tr>`).join('');
 }
 
@@ -810,7 +938,7 @@ function addPointsRow() {
         <tr>
             <td><input type="number" class="points-models" min="1" placeholder="-"></td>
             <td><input type="number" class="points-points" min="0" placeholder="-"></td>
-            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size">&times;</button></td>
+            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
         </tr>`);
 }
 
@@ -834,8 +962,8 @@ async function loadTargetProfiles() {
     const generic = profiles.filter(t => t.kind === 'generic');
     const roles = profiles.filter(t => t.kind === 'role');
     document.querySelector('#generic-profiles-table tbody').innerHTML = generic.length
-        ? generic.map(t => `<tr><td><strong>${esc(t.name)}</strong></td>${statCells(t)}<td>${dash(t.weight)}</td><td>${t.use ? '✓' : '-'}</td></tr>`).join('')
-        : '<tr><td colspan="10" class="empty-cell">None. Run <code>python scripts/migrate_excel.py --reference-only</code>.</td></tr>';
+        ? generic.map(t => `<tr><td><strong>${esc(t.name)}</strong></td>${statCells(t)}<td>${dash(t.weight)}</td><td>${t.use ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '-'}</td></tr>`).join('')
+        : '<tr><td colspan="10" class="empty-cell">None.</td></tr>';
     document.querySelector('#role-profiles-table tbody').innerHTML = roles.length
         ? roles.map(t => `<tr><td><strong>${esc(t.name)}</strong></td>${statCells(t)}</tr>`).join('')
         : '<tr><td colspan="8" class="empty-cell">None.</td></tr>';
@@ -844,21 +972,131 @@ async function loadTargetProfiles() {
 // Loadout picker: the unit's faction's weapons, ticked with a Qty if the unit carries them
 let pickerWeapons = [];
 let pickerSelected = {ranged: new Map(), melee: new Map()};  // weapon id -> qty
+let unitReadOnly = false;  // Viewing a BSData unit: only its added modifiers and leader buffs can change
+let unitDatasheetBuffs = [];  // A BSData unit's leader buffs as read from its datasheet
+let leaderBuffsTouched = false;  // Leader buffs changed in the form (only then saved for a BSData unit)
+let leaderBuffsReset = false;  // "Use BSData's" clicked: drop the edited buffs
 
-async function loadPickerWeapons() {
-    const resp = await fetch('/api/data/weapons?type=all');
-    pickerWeapons = await resp.json();
+function leaderBuffRowHtml(buff = {}) {
+    const option = (value, label, current) => `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+    return `<tr>
+        <td><select class="buff-side">${option('Attacker', 'Attacker', buff.applies_to || 'Attacker')}${option('Target', 'Target', buff.applies_to)}</select></td>
+        <td><select class="buff-phase">${option('Both', 'Both', buff.phase || 'Both')}${option('Shooting', 'Shooting', buff.phase)}${option('Fighting', 'Fighting', buff.phase)}</select></td>
+        <td><input type="text" class="buff-modifier" value="${esc(buff.modifier || '')}" placeholder="e.g. Lethal Hits"></td>
+        <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove(); leaderBuffsTouched = true" title="Remove buff"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
+    </tr>`;
 }
 
-async function openUnitModal(ranged, melee) {
+function renderLeaderBuffRows(buffs) {
+    const body = document.getElementById('unit-leader-buff-rows');
+    body.innerHTML = (buffs || []).map(leaderBuffRowHtml).join('');
+    body.oninput = body.onchange = () => { leaderBuffsTouched = true; leaderBuffsReset = false; };
+}
+
+function addLeaderBuffRow() {
+    document.getElementById('unit-leader-buff-rows').insertAdjacentHTML('beforeend', leaderBuffRowHtml());
+    leaderBuffsTouched = true;
+    leaderBuffsReset = false;
+}
+
+function resetLeaderBuffs() {
+    renderLeaderBuffRows(unitDatasheetBuffs);
+    leaderBuffsTouched = true;
+    leaderBuffsReset = true;
+}
+
+function readLeaderBuffRows() {
+    return [...document.querySelectorAll('#unit-leader-buff-rows tr')].map(tr => ({
+        applies_to: tr.querySelector('.buff-side').value,
+        phase: tr.querySelector('.buff-phase').value,
+        modifier: tr.querySelector('.buff-modifier').value.trim(),
+    })).filter(b => b.modifier);
+}
+
+/** The leader buffs section for a unit (null = a new custom unit). */
+function showLeaderBuffs(unit) {
+    const group = document.getElementById('unit-leader-buffs-group');
+    const note = document.getElementById('unit-leader-buffs-note');
+    const reset = document.getElementById('unit-leader-buffs-reset');
+    leaderBuffsTouched = false;
+    leaderBuffsReset = false;
+    unitDatasheetBuffs = unit?.datasheet_leader_buffs || [];
+    renderLeaderBuffRows(unit ? unit.leader_buffs : []);
+    const bsdata = unit && !unit.editable;
+    group.style.display = bsdata && !(unit.can_lead || []).length && !(unit.leader_buffs || []).length ? 'none' : '';
+    reset.style.display = bsdata && unit.leader_buffs_edited ? '' : 'none';
+    if (!bsdata) {
+        note.textContent = 'What this unit grants the unit it leads, in the keyword format of the Keywords tab. ' +
+            '"Target" buffs apply when the led unit is attacked.';
+    } else if (unit.leader_buffs_edited) {
+        note.textContent = 'Edited here. Read from its datasheet: ' +
+            (Core.leaderBuffSummary(unitDatasheetBuffs) || 'nothing') + '.';
+    } else {
+        note.textContent = unitDatasheetBuffs.length
+            ? 'Read from its Leader text in BSData. Edit them if they are wrong or incomplete.'
+            : 'Nothing its Leader text says could be read as a modifier. Add what the calculations should use.';
+    }
+}
+
+async function loadPickerWeapons() {
+    const factionId = document.getElementById('unit-faction').value;
+    pickerWeapons = factionId
+        ? await fetch(`/api/data/weapons?type=all&faction_id=${factionId}`).then(r => r.json())
+        : [];
+}
+
+async function onUnitFactionChange() {
+    await loadPickerWeapons();
+    renderWeaponPicker();
+}
+
+/** pickerList: the weapons to offer (read-only units show their loadout and options only). */
+async function openUnitModal(ranged, melee, pickerList = null) {
     pickerSelected = {
         ranged: new Map(ranged.map(w => [w.id, w.qty || 1])),
         melee: new Map(melee.map(w => [w.id, w.qty || 1])),
     };
     document.getElementById('unit-weapon-search').value = '';
-    await loadPickerWeapons();
+    if (pickerList) {
+        pickerWeapons = pickerList;
+    } else {
+        await loadPickerWeapons();
+    }
     renderWeaponPicker();
     openModal('unit-modal');
+}
+
+/** Lock the unit form for a BSData unit (everything but the added modifiers), or unlock it. */
+function setUnitReadOnly(readOnly, unit = null) {
+    unitReadOnly = readOnly;
+    if (!readOnly) {  // Drop the BSData faction added to the dropdown for viewing a BSData unit
+        document.querySelectorAll('#unit-faction option[data-temporary]').forEach(o => o.remove());
+    }
+    document.querySelectorAll('#unit-form input, #unit-form select, #unit-form textarea, #unit-form .btn-small, #unit-form .btn-remove')
+        .forEach(el => {
+            const editable = el.id === 'unit-modifiers' || el.id === 'unit-weapon-search' ||
+                el.closest('#unit-leader-buffs-group');
+            if (!editable) el.disabled = readOnly;
+        });
+    document.getElementById('unit-readonly-note').style.display = readOnly ? '' : 'none';
+    for (const id of ['unit-new-weapon', 'unit-add-size', 'unit-points-hint']) {
+        document.getElementById(id).style.display = readOnly ? 'none' : '';
+    }
+    document.querySelectorAll('#unit-points-rows .btn-remove').forEach(b => b.style.display = readOnly ? 'none' : '');
+    document.getElementById('unit-modifiers-label').textContent =
+        readOnly ? 'Added modifiers (comma-separated)' : 'Modifiers (comma-separated)';
+    document.getElementById('unit-loadout-hint').textContent = readOnly
+        ? 'Default loadout (ticked, with how many models carry each) and the wargear options.'
+        : 'Tick each weapon the unit carries; Qty = how many models carry it.';
+    // BSData abilities are shown formatted (bold, keywords, lists); custom ones stay editable text
+    const formatted = document.getElementById('unit-abilities-formatted');
+    document.getElementById('unit-abilities').style.display = readOnly ? 'none' : '';
+    formatted.style.display = readOnly ? '' : 'none';
+    formatted.innerHTML = readOnly && unit ? Core.formatRuleText(unit.abilities, { labels: true }) : '';
+    const datasheet = document.getElementById('unit-datasheet-modifiers');
+    const own = unit ? unit.datasheet_modifiers || [] : [];
+    datasheet.style.display = readOnly ? '' : 'none';
+    datasheet.textContent = readOnly ? `From the datasheet: ${own.length ? own.join(', ') : 'none'}` : '';
 }
 
 function updatePickerCount(type) {
@@ -875,15 +1113,16 @@ function renderWeaponPicker() {
             w.type === type && w.faction_id === factionId && w.name.toLowerCase().includes(search));
         const skillLabel = type === 'ranged' ? 'BS' : 'WS';
 
+        const lock = unitReadOnly ? 'disabled' : '';
         listEl.innerHTML = weapons.length ? weapons.map(w => {
             const selected = pickerSelected[type].has(w.id);
             return `
             <div class="weapon-picker-item">
-                <input type="checkbox" class="pick" data-type="${type}" data-id="${w.id}" ${selected ? 'checked' : ''}>
+                <input type="checkbox" class="pick" data-type="${type}" data-id="${w.id}" ${selected ? 'checked' : ''} ${lock}>
                 <span class="weapon-picker-name">${esc(w.name)}</span>
                 <span class="weapon-picker-stats">A${esc(w.attacks)} ${skillLabel}${w.skill ? w.skill + '+' : '-'} S${w.strength} AP${w.ap ? '-' + w.ap : '0'} D${esc(w.damage)}</span>
                 <input type="number" class="pick-qty" data-type="${type}" data-id="${w.id}" min="1" max="99"
-                       value="${pickerSelected[type].get(w.id) || 1}" ${selected ? '' : 'disabled'} title="Models carrying this weapon">
+                       value="${pickerSelected[type].get(w.id) || 1}" ${selected && !unitReadOnly ? '' : 'disabled'} title="Models carrying this weapon">
             </div>`;
         }).join('') : '<div class="weapon-picker-empty">No weapons for this faction</div>';
 
@@ -913,13 +1152,25 @@ function renderWeaponPicker() {
     });
 }
 
+/** Units and weapons can only be added to custom factions. */
+function hasCustomFaction() {
+    if (allFactions.some(f => f.editable)) return true;
+    alert('Units and weapons from BSData are read-only. Add a faction of your own on the Factions tab first.');
+    return false;
+}
+
 function showAddUnitModal() {
+    if (!hasCustomFaction()) return;
     document.getElementById('unit-modal-title').textContent = 'Add Unit';
     document.getElementById('unit-form').reset();
+    setUnitReadOnly(false);
+    showLeaderBuffs(null);
     renderPointsRows([]);
     document.getElementById('unit-id').value = '';
     const filterFaction = document.getElementById('filter-faction').value;
-    if (filterFaction) document.getElementById('unit-faction').value = filterFaction;
+    if (allFactions.some(f => f.editable && String(f.id) === filterFaction)) {
+        document.getElementById('unit-faction').value = filterFaction;
+    }
     openUnitModal([], []);
 }
 
@@ -927,9 +1178,15 @@ async function editUnit(id) {
     const resp = await fetch(`/api/units/${id}`);
     const unit = await resp.json();
 
-    document.getElementById('unit-modal-title').textContent = 'Edit Unit';
+    document.getElementById('unit-modal-title').textContent = unit.editable ? 'Edit Unit' : unit.name;
     document.getElementById('unit-id').value = unit.id;
-    document.getElementById('unit-faction').value = unit.faction_id;
+    const factionSelect = document.getElementById('unit-faction');
+    factionSelect.querySelectorAll('option[data-temporary]').forEach(o => o.remove());
+    if (!unit.editable) {  // BSData factions aren't in the dropdown (nothing can be added to them)
+        factionSelect.insertAdjacentHTML('beforeend',
+            `<option value="${unit.faction_id}" data-temporary>${esc(unit.faction)}</option>`);
+    }
+    factionSelect.value = unit.faction_id;
     document.getElementById('unit-name').value = unit.name;
     document.getElementById('unit-move').value = unit.move || '';
     document.getElementById('unit-t').value = unit.toughness;
@@ -941,11 +1198,16 @@ async function editUnit(id) {
     document.getElementById('unit-ld').value = unit.leadership || '';
     renderPointsRows(unit.points_by_size || []);
     document.getElementById('unit-keywords').value = (unit.keywords || []).join(', ');
-    document.getElementById('unit-modifiers').value = (unit.modifiers || []).join(', ');
+    document.getElementById('unit-modifiers').value =
+        ((unit.editable ? unit.modifiers : unit.added_modifiers) || []).join(', ');
     document.getElementById('unit-can-lead').value = (unit.can_lead || []).join(', ');
     document.getElementById('unit-abilities').value = unit.abilities || '';
+    setUnitReadOnly(!unit.editable, unit);
+    showLeaderBuffs(unit);
 
-    openUnitModal(unit.ranged_weapons || [], unit.melee_weapons || []);
+    const offered = unit.editable ? null : ['ranged', 'melee'].flatMap(type =>
+        [...(unit[`${type}_weapons`] || []), ...(unit[`${type}_options`] || [])].map(w => ({...w, type})));
+    openUnitModal(unit.ranged_weapons || [], unit.melee_weapons || [], offered);
 }
 
 async function saveUnit(e) {
@@ -953,6 +1215,15 @@ async function saveUnit(e) {
 
     const id = document.getElementById('unit-id').value;
     const value = elId => document.getElementById(elId).value;
+    if (unitReadOnly) {
+        const change = {added_modifiers: listValue(value('unit-modifiers'))};
+        if (leaderBuffsTouched) change.leader_buffs = leaderBuffsReset ? null : readLeaderBuffRows();
+        if (await api(`/api/data/units/${id}`, 'PUT', change)) {
+            closeModal('unit-modal');
+            loadUnits();
+        }
+        return;
+    }
     const data = {
         faction_id: parseInt(value('unit-faction')),
         name: value('unit-name'),
@@ -968,6 +1239,7 @@ async function saveUnit(e) {
         keywords: listValue(value('unit-keywords')),
         modifiers: listValue(value('unit-modifiers')),
         can_lead: listValue(value('unit-can-lead')),
+        leader_buffs: readLeaderBuffRows(),
         abilities: value('unit-abilities'),
         ranged_weapons: [...pickerSelected.ranged].map(([weapon_id, qty]) => ({weapon_id, qty})),
         melee_weapons: [...pickerSelected.melee].map(([weapon_id, qty]) => ({weapon_id, qty})),
@@ -991,6 +1263,11 @@ async function deleteUnit(id) {
 async function loadWeapons() {
     const type = document.getElementById('filter-weapon-type')?.value || 'all';
     const factionId = document.getElementById('filter-weapon-faction')?.value || '';
+    if (!factionId) {
+        allWeapons = null;  // One faction at a time
+        filterWeapons();
+        return;
+    }
     const resp = await fetch(`/api/data/weapons?type=${type}&faction_id=${factionId}`);
     allWeapons = await resp.json();
     filterWeapons();
@@ -998,22 +1275,26 @@ async function loadWeapons() {
 
 function renderWeaponsTable(weapons) {
     const tbody = document.querySelector('#weapons-table tbody');
+    if (weapons === null) {
+        tbody.innerHTML = '<tr><td colspan="12" class="empty-cell">Choose a faction</td></tr>';
+        return;
+    }
     tbody.innerHTML = weapons.length ? weapons.map(w => `
         <tr>
             <td><strong>${esc(w.name)}</strong></td>
             <td>${esc(w.faction)}</td>
-            <td>${w.type === 'ranged' ? '🎯 Ranged' : '⚔️ Melee'}</td>
+            <td>${w.type === 'ranged' ? '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Ranged' : '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Melee'}</td>
             <td>${w.type === 'ranged' ? dash(w.range, '"') : 'Melee'}</td>
             <td>${esc(w.attacks)}</td>
             <td>${dash(w.skill, '+')}</td>
             <td>${w.strength}</td>
             <td>${w.ap ? '-' + w.ap : '0'}</td>
             <td>${esc(w.damage)}</td>
-            <td>${esc((w.abilities || []).join(', '))}</td>
+            <td>${esc((w.abilities || []).join(', '))}${w.linked_bsdata_id ? ' <span class="source-badge" title="Stats follow BSData">BSData link</span>' : ''}</td>
             <td>${w.unit_names.length ? esc(w.unit_names.join(', ')) : '<em>Unused</em>'}</td>
-            <td>
+            <td>${w.editable ? `
                 <button class="btn-small" onclick="editWeapon('${w.type}', ${w.id})">Edit</button>
-                <button class="btn-small btn-danger" onclick="deleteWeapon('${w.type}', ${w.id})">Delete</button>
+                <button class="btn-small btn-danger" onclick="deleteWeapon('${w.type}', ${w.id})">Delete</button>` : ''}
             </td>
         </tr>
     `).join('') : '<tr><td colspan="12" class="empty-cell">No weapons</td></tr>';
@@ -1021,7 +1302,7 @@ function renderWeaponsTable(weapons) {
 
 function filterWeapons() {
     const search = document.getElementById('filter-weapon').value.toLowerCase();
-    renderWeaponsTable(allWeapons.filter(w => w.name.toLowerCase().includes(search)));
+    renderWeaponsTable(allWeapons && allWeapons.filter(w => w.name.toLowerCase().includes(search)));
 }
 
 // True when the weapon form was opened from the unit form's "+ New Weapon" button
@@ -1033,19 +1314,81 @@ function updateWeaponRangeField() {
     document.getElementById('weapon-skill-label').textContent = isRanged ? 'BS' : 'WS';
 }
 
+// Stat fields a linked weapon takes from BSData (its name and faction stay its own)
+const LINKED_WEAPON_FIELDS = ['weapon-type', 'weapon-range', 'weapon-a', 'weapon-skill', 'weapon-s', 'weapon-ap',
+                              'weapon-d', 'weapon-abilities'];
+let bsdataWeaponResults = [];
+
+/** Link the weapon form to a BSData profile (stats locked to it), or unlink (bsdataId null). */
+function setWeaponLink(bsdataId, label = '') {
+    document.getElementById('weapon-linked-id').value = bsdataId || '';
+    LINKED_WEAPON_FIELDS.forEach(id => {
+        if (id !== 'weapon-type' || !document.getElementById('weapon-id').value) {
+            document.getElementById(id).disabled = !!bsdataId;
+        }
+    });
+    const note = document.getElementById('weapon-link-note');
+    note.style.display = bsdataId ? '' : 'none';
+    note.innerHTML = bsdataId
+        ? `Linked to BSData${label ? ': ' + esc(label) : ''}. Its stats follow BSData on every update. ` +
+          '<button type="button" class="btn-small" onclick="setWeaponLink(null)">Unlink (edit the stats yourself)</button>'
+        : '';
+}
+
+async function searchBsdataWeapons() {
+    const q = document.getElementById('weapon-bsdata-search').value.trim();
+    const results = document.getElementById('weapon-bsdata-results');
+    if (q.length < 2) {
+        results.innerHTML = '';
+        return;
+    }
+    const type = document.getElementById('weapon-id').value ? `&type=${document.getElementById('weapon-type-hidden').value}` : '';
+    bsdataWeaponResults = await fetch(`/api/data/weapons/bsdata?q=${encodeURIComponent(q)}${type}`).then(r => r.json());
+    if (document.getElementById('weapon-bsdata-search').value.trim() !== q) return;
+    results.innerHTML = bsdataWeaponResults.length ? bsdataWeaponResults.map((w, i) => `
+        <button type="button" class="bsdata-weapon-result" onclick="copyBsdataWeapon(${i})">
+            <span>${w.type === 'ranged' ? '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i>' : '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i>'} ${esc(w.name)}</span>
+            <span class="muted">A${esc(w.attacks)} ${w.type === 'ranged' ? 'BS' : 'WS'}${w.skill ? w.skill + '+' : '-'} S${w.strength} AP${w.ap ? '-' + w.ap : '0'} D${esc(w.damage)} · ${esc(w.faction)}</span>
+        </button>`).join('') : '<div class="weapon-picker-empty">No BSData weapons match</div>';
+}
+
+/** Fill the form from a BSData weapon and link to it. */
+function copyBsdataWeapon(index) {
+    const w = bsdataWeaponResults[index];
+    if (!w) return;
+    if (!document.getElementById('weapon-id').value) document.getElementById('weapon-type').value = w.type;
+    if (!document.getElementById('weapon-name').value) document.getElementById('weapon-name').value = w.name;
+    document.getElementById('weapon-range').value = w.range || '';
+    document.getElementById('weapon-a').value = w.attacks;
+    document.getElementById('weapon-skill').value = w.skill || '';
+    document.getElementById('weapon-s').value = w.strength;
+    document.getElementById('weapon-ap').value = w.ap;
+    document.getElementById('weapon-d').value = w.damage;
+    document.getElementById('weapon-abilities').value = (w.abilities || []).join(', ');
+    updateWeaponRangeField();
+    setWeaponLink(w.bsdata_id, `${w.name} (${w.faction})`);
+    document.getElementById('weapon-bsdata-results').innerHTML = '';
+    document.getElementById('weapon-bsdata-search').value = '';
+}
+
 function showAddWeaponModal(forUnit = false) {
+    if (!forUnit && !hasCustomFaction()) return;
     addingWeaponForUnit = forUnit;
     document.getElementById('weapon-modal-title').textContent = 'Add Weapon';
     document.getElementById('weapon-form').reset();
     document.getElementById('weapon-id').value = '';
     document.getElementById('weapon-type-hidden').value = '';
     document.getElementById('weapon-type').disabled = false;
+    document.getElementById('weapon-bsdata-results').innerHTML = '';
+    setWeaponLink(null);
 
     // Default the faction to the unit being edited, or the current filter
     const faction = forUnit
         ? document.getElementById('unit-faction').value
         : document.getElementById('filter-weapon-faction').value;
-    if (faction) document.getElementById('weapon-faction').value = faction;
+    if (allFactions.some(f => f.editable && String(f.id) === faction)) {
+        document.getElementById('weapon-faction').value = faction;
+    }
     document.getElementById('weapon-faction').disabled = forUnit;
 
     updateWeaponRangeField();
@@ -1072,6 +1415,9 @@ async function editWeapon(type, id) {
     document.getElementById('weapon-ap').value = weapon.ap;
     document.getElementById('weapon-d').value = weapon.damage;
     document.getElementById('weapon-abilities').value = (weapon.abilities || []).join(', ');
+    document.getElementById('weapon-bsdata-results').innerHTML = '';
+    document.getElementById('weapon-bsdata-search').value = '';
+    setWeaponLink(weapon.linked_bsdata_id);
     updateWeaponRangeField();
 
     openModal('weapon-modal');
@@ -1084,7 +1430,7 @@ async function saveWeapon(e) {
     const type = document.getElementById('weapon-type-hidden').value || document.getElementById('weapon-type').value;
     const value = elId => document.getElementById(elId).value;
 
-    const original = allWeapons.find(w => w.type === type && String(w.id) === id);
+    const original = (allWeapons || []).find(w => w.type === type && String(w.id) === id);
     if (original && original.faction_id !== parseInt(value('weapon-faction')) && original.unit_names.length &&
         !confirm(`Moving this weapon to another faction removes it from: ${original.unit_names.join(', ')}. Continue?`)) {
         return;
@@ -1101,6 +1447,7 @@ async function saveWeapon(e) {
         ap: parseInt(value('weapon-ap')),
         damage: value('weapon-d'),
         abilities: listValue(value('weapon-abilities')),
+        linked_bsdata_id: value('weapon-linked-id') || null,
     };
 
     const saved = await api(id ? `/api/data/weapons/${type}/${id}` : '/api/data/weapons', id ? 'PUT' : 'POST', data);
@@ -1120,7 +1467,7 @@ async function saveWeapon(e) {
 }
 
 async function deleteWeapon(type, id) {
-    const weapon = allWeapons.find(w => w.type === type && w.id === id);
+    const weapon = (allWeapons || []).find(w => w.type === type && w.id === id);
     const usedBy = weapon?.unit_names?.length
         ? `\n\nIt will be removed from: ${weapon.unit_names.join(', ')}`
         : '';
@@ -1141,7 +1488,7 @@ async function exportData() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = '40k_data.json';
+    a.download = 'app_data.json';
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -1159,7 +1506,7 @@ async function importData(input) {
         return;
     }
     if (!imported || typeof imported.schema_version !== 'number' || !Array.isArray(imported.units)) {
-        alert('That file is not a 40K data file (no schema_version or units).');
+        alert('That file is not an app data file (no schema_version or units).');
         return;
     }
 
@@ -1193,7 +1540,7 @@ function importSummaryHtml(current, imported) {
         ${list(added, 'diff-add', 'add')}${list(removed, 'diff-remove', 'remove')}
         ${added.length || removed.length ? '' : '<div class="diff-item">Same unit names (stats may still differ)</div>'}
     </div></div></div>`;
-    html += '<p class="data-note">Importing replaces all factions, units, weapons, rules and stratagems, and saves the data file. Saved scenarios and comparisons are kept.</p>';
+    html += '<p class="data-note">Importing replaces your custom factions, units and weapons, all rules and stratagems, and modifiers added to BSData units, and saves the app data file. BSData, saved scenarios and comparisons are kept.</p>';
     return html;
 }
 
@@ -1215,7 +1562,8 @@ const KEYWORD_GROUPS = [
     ['Core', 'Unit abilities'],
     ['Stat', 'Stat modifiers'],
 ];
-const APPLIES_LABEL = {Ranged: '🎯 Ranged', Melee: '⚔️ Melee', Both: '🎯⚔️ Both', Unit: '🛡️ Unit'};
+const APPLIES_LABEL = {Ranged: '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Ranged', Melee: '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Melee',
+                       Both: '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i><i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Both', Unit: '<i class="fa-solid fa-users" aria-hidden="true"></i> Unit'};
 
 async function loadKeywords() {
     allKeywords = await fetch('/api/data/keywords').then(r => r.json());
@@ -1238,7 +1586,7 @@ function bindKeywordChips() {
 function renderKeywords() {
     const listEl = document.getElementById('keywords-list');
     if (!allKeywords.length) {
-        listEl.innerHTML = '<p class="empty-cell">No keywords in the data file. Run <code>python scripts/migrate_excel.py --keywords-only</code> to import them.</p>';
+        listEl.innerHTML = '<p class="empty-cell">No keywords in the app data file.</p>';
         return;
     }
     const search = document.getElementById('kw-search').value.trim().toLowerCase();
@@ -1257,7 +1605,7 @@ function renderKeywords() {
                 <header class="kw-card-header">
                     <h4>${esc(k.name)}</h4>
                     ${k.modelled
-                        ? '<span class="kw-badge kw-badge-calc" title="Changes the simulator results">✓ Calculated</span>'
+                        ? '<span class="kw-badge kw-badge-calc" title="Changes the simulator results"><i class="fa-solid fa-check" aria-hidden="true"></i> Calculated</span>'
                         : '<span class="kw-badge kw-badge-ref" title="Listed for reference; does not change the results">Reference</span>'}
                 </header>
                 <button class="kw-format" onclick="copyKeywordFormat(this)" title="Click to copy">${esc(k.format || k.name)}</button>

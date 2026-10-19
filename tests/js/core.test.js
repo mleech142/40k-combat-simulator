@@ -102,6 +102,134 @@ test('scaleUnitSize scales weapon models from the loadout', () => {
     assert.equal(noDatasheet.weapons[0].models, 3);  // nothing to scale from
 });
 
+test('simulatorWeapons: loadout ticked by default_use, then options unticked', () => {
+    const unit = {
+        ranged_weapons: [
+            { id: 1, name: 'Rifle - standard', qty: 4, default_use: true },
+            { id: 2, name: 'Rifle - overcharge', qty: 4, default_use: false },
+        ],
+        ranged_options: [{ id: 3, name: 'Heavy laser' }],
+        melee_weapons: [{ id: 4, name: 'Blade' }],
+    };
+    const weapons = Core.simulatorWeapons(unit);
+    assert.deepEqual(weapons.ranged.map(w => [w.name, w.qty, w.use, !!w.option]), [
+        ['Rifle - standard', 4, true, false], ['Rifle - overcharge', 4, false, false], ['Heavy laser', 1, false, true]]);
+    assert.deepEqual(weapons.melee.map(w => [w.name, w.qty, w.use]), [['Blade', 1, true]]);
+});
+
+test('matchupWeapons: loadout entries then excluded options', () => {
+    const unit = {
+        ranged_weapons: [{ id: 1, type: 'ranged', name: 'Rifle', qty: 5, default_use: true, abilities: ['Assault'] }],
+        melee_weapons: [{ id: 2, type: 'melee', name: 'Knife', qty: 5 }],
+        melee_options: [{ id: 3, type: 'melee', name: 'Power axe' }],
+    };
+    const entries = Core.matchupWeapons(unit);
+    assert.deepEqual(entries.map(e => [e.name, e.models, e.base_qty, e.include, e.option]), [
+        ['Rifle', 5, 5, true, false], ['Knife', 5, 5, true, false], ['Power axe', 1, 1, false, true]]);
+    assert.deepEqual(entries[0].abilities, ['Assault']);
+});
+
+test('detachmentOptionsHtml: faction-wide first, grouped by faction when mixed, escaped', () => {
+    const one = Core.detachmentOptionsHtml([{ key: 'd1', name: 'Vanguard <A>', faction: 'Starfarers' }], 'd1');
+    assert.match(one, /^<option value="">No detachment/);
+    assert.match(one, /<option value="d1" selected>Vanguard &lt;A&gt;<\/option>/);
+    assert.doesNotMatch(one, /optgroup/);
+    const mixed = Core.detachmentOptionsHtml([
+        { key: 'd1', name: 'Vanguard', faction: 'Starfarers' },
+        { key: 'd2', name: 'Task Force', faction: 'Allies' },
+    ], '');
+    assert.match(mixed, /<option value="" selected>/);
+    assert.match(mixed, /<optgroup label="Starfarers"><option value="d1">Vanguard<\/option><\/optgroup>/);
+    assert.match(mixed, /<optgroup label="Allies">/);
+});
+
+test('formatRuleLine: bold, keywords in every BSData order, italics, ins', () => {
+    const kw = word => `<strong><span class="rule-keyword">${word}</span></strong>`;
+    assert.equal(Core.formatRuleLine('While a ^^**Character^^** model leads'), `While a ${kw('Character')} model leads`);
+    assert.equal(Core.formatRuleLine('**^^Transport^^** and ^^**Mounted Daemon**^^ units'),
+        `${kw('Transport')} and ${kw('Mounted Daemon')} units`);
+    // A bold run holding two keywords: " or " stays bold but isn't a keyword
+    assert.equal(Core.formatRuleLine('**^^Monster^^ or ^^Vehicle^^**'),
+        `${kw('Monster')}<strong> or </strong>${kw('Vehicle')}`);
+    assert.equal(Core.formatRuleLine('a ^^Blue Horror^^ model'), 'a <span class="rule-keyword">Blue Horror</span> model');
+    assert.equal(Core.formatRuleLine('has **Stealth** and [^^Lance^^]'),
+        'has <strong>Stealth</strong> and [<span class="rule-keyword">Lance</span>]');
+    assert.equal(Core.formatRuleLine('*Can join even if led.*'), '<em>Can join even if led.</em>');
+    assert.equal(Core.formatRuleLine('<ins>Or:</ins> heal 3'), '<ins>Or:</ins> heal 3');
+    assert.equal(Core.formatRuleLine('roll 2*3 then **unclosed'), 'roll 2*3 then <strong>unclosed</strong>');
+    // BSData typos: lone markers are dropped (real text: "keyword.*" then "*** Designer's Note:** *This means")
+    assert.equal(Core.formatRuleLine('the Character keyword.*'), 'the Character keyword.');
+    assert.equal(Core.formatRuleLine("*** Designer's Note:** *This means"), '<strong> Designer&#39;s Note:</strong> This means');
+});
+
+test('formatRuleLine escapes everything else', () => {
+    assert.equal(Core.formatRuleLine('<script>x</script> **<b>**'), '&lt;script&gt;x&lt;/script&gt; <strong>&lt;b&gt;</strong>');
+    assert.equal(Core.formatRuleLine('<ins onclick="x">Or</ins>'), '&lt;ins onclick=&quot;x&quot;&gt;Or&lt;/ins&gt;');
+});
+
+test('formatRuleText: paragraphs, line breaks, bullet lists and tables', () => {
+    assert.equal(Core.formatRuleText('First line\nsecond line\n\nNext paragraph'),
+        '<p>First line<br>second line</p><p>Next paragraph</p>');
+    assert.equal(Core.formatRuleText('Select one:\n▪ +1 to hit\n■ **Stealth**\n- Or: heal'),
+        '<p>Select one:</p><ul><li>+1 to hit</li><li><strong>Stealth</strong></li><li>Or: heal</li></ul>');
+    assert.equal(Core.formatRuleText('**Size | Units**\nIncursion | 2\nStrike Force | 3'),
+        '<table class="rule-table"><thead><tr><th><strong>Size</strong></th><th>Units</th></tr></thead>' +
+        '<tbody><tr><td>Incursion</td><td>2</td></tr><tr><td>Strike Force</td><td>3</td></tr></tbody></table>');
+    assert.equal(Core.formatRuleText('Iron Will: This model has **Feel No Pain 5+**.\n\nDeep Strike', { labels: true }),
+        '<p><strong class="rule-label">Iron Will:</strong> This model has <strong>Feel No Pain 5+</strong>.</p><p>Deep Strike</p>');
+    assert.equal(Core.formatRuleText('Iron Will: as above'), '<p>Iron Will: as above</p>');  // Only when asked
+    assert.equal(Core.formatRuleText(''), '');
+    assert.equal(Core.formatRuleText(null), '');
+});
+
+test('leaderBuffSummary: attacker buffs with phases, then target buffs', () => {
+    assert.equal(Core.leaderBuffSummary([
+        { applies_to: 'Attacker', phase: 'Shooting', modifier: 'Lethal Hits' },
+        { applies_to: 'Attacker', phase: 'Both', modifier: 'Hit Modifier +1' },
+        { applies_to: 'Target', phase: 'Both', modifier: 'Invulnerable Save 4+' },
+    ]), 'Lethal Hits (shooting), Hit Modifier +1 · as a target: Invulnerable Save 4+');
+    assert.equal(Core.leaderBuffSummary([]), '');
+});
+
+test('withLeaderWeapons adds the leader loadout, replacing a previous leader', () => {
+    const unit = { ranged: [{ id: 1, name: 'Rifle', qty: 5, use: true }], melee: [] };
+    const captain = { name: 'Captain', ranged_weapons: [{ id: 9, name: 'Pistol', qty: 1, default_use: true }],
+                      melee_weapons: [{ id: 8, name: 'Sword' }] };
+    const led = Core.withLeaderWeapons(unit, captain);
+    assert.deepEqual(led.ranged.map(w => [w.name, w.qty, w.use, !!w.leader]), [['Rifle', 5, true, false], ['Pistol', 1, true, true]]);
+    assert.equal(led.melee[0].leader_name, 'Captain');
+    const other = Core.withLeaderWeapons(led, { name: 'Lieutenant', ranged_weapons: [], melee_weapons: [{ id: 7, name: 'Axe' }] });
+    assert.deepEqual(other.ranged.map(w => w.name), ['Rifle']);
+    assert.deepEqual(other.melee.map(w => w.name), ['Axe']);
+    assert.deepEqual(Core.withLeaderWeapons(led, null).melee, []);  // Leader removed
+    // Before the unit's wargear options
+    const withOptions = Core.withLeaderWeapons({ ranged: [{ name: 'Rifle' }, { name: 'Plasma', option: true }], melee: [] }, captain);
+    assert.deepEqual(withOptions.ranged.map(w => w.name), ['Rifle', 'Pistol', 'Plasma']);
+});
+
+test('withLeaderEntries and scaling: the leader is never scaled with the unit', () => {
+    const atk = { default_models: 5, unit_size: 5, weapons: [
+        { name: 'Rifle', weapon_id: 1, models: 5, base_qty: 5, include: true }] };
+    atk.weapons = Core.withLeaderEntries(atk.weapons, { name: 'Captain', ranged_weapons: [{ id: 9, type: 'ranged', name: 'Pistol', qty: 1 }] });
+    Core.scaleUnitSize(atk, 10);
+    assert.deepEqual(atk.weapons.map(w => [w.name, w.models, !!w.leader]), [['Rifle', 10, false], ['Pistol', 1, true]]);
+    assert.deepEqual(Core.withLeaderEntries(atk.weapons, null).map(w => w.name), ['Rifle']);
+});
+
+test('buildMatrixRequest carries leaders for attackers, their weapons and defenders', () => {
+    const request = Core.buildMatrixRequest({
+        attackers: [{ unit_id: 1, unit_name: 'Squad', leader_id: 9, default_models: 5, weapons: [
+            { weapon_id: 1, weapon_type: 'ranged', name: 'Rifle', models: 5, include: true },
+            { weapon_id: 2, weapon_type: 'ranged', name: 'Pistol', models: 1, include: true, leader: true, leader_name: 'Captain' }] }],
+        defenders: [{ unit_id: 3, unit_name: 'Target', model_count: 5, leader_id: 4, leader_name: 'Champion' }],
+        weaponTypeFilter: 'both', defenderMode: 'real', attackerTicked: [], defenderTicked: [],
+    });
+    assert.equal(request.attackers[0].leader_id, 9);
+    assert.deepEqual(request.attackers[0].weapons.map(w => [w.label, w.leader_id]), [['Rifle', 9], ['Pistol (Captain)', 9]]);
+    assert.equal(request.defenders[0].leader_id, 4);
+    assert.equal(request.defenders[0].label, 'Target (x5) + Champion');
+});
+
 test('usedWeapons and weaponPayload build the Simulator request', () => {
     const weapons = {
         ranged: [{ name: 'Boltgun', use: true, qty: 3, attacks: '2', skill: 3, strength: 4, ap: 1, damage: '1' },
@@ -176,8 +304,8 @@ test('buildMatrixRequest: real defenders, included weapons, labels and rules', (
     assert.equal(request.attackers[1].unit_size, 5);  // datasheet size when not set
 
     assert.deepEqual(request.defenders, [
-        { unit_id: 2, model_count: 5, label: 'Hellblasters (x5)', extra_modifiers: 'Stealth' },
-        { unit_id: 2, model_count: 10, label: 'Hellblasters #2 (x10)', extra_modifiers: '' },
+        { unit_id: 2, model_count: 5, label: 'Hellblasters (x5)', extra_modifiers: 'Stealth', leader_id: null },
+        { unit_id: 2, model_count: 10, label: 'Hellblasters #2 (x10)', extra_modifiers: '', leader_id: null },
     ]);
     assert.deepEqual(request.attacker_rules, { rule_ids: [1], stratagem_ids: [] });
     assert.deepEqual(request.defender_rules, { rule_ids: [], stratagem_ids: [2] });

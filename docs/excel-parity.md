@@ -8,14 +8,14 @@ The goal is for the Python app to do everything `40KCombatSimulator_v2.xlsx` doe
 
 | Area | Status | Headline |
 |---|---|---|
-| Datasheet data (units, weapons, loadouts, rules, stratagems) | ✅ | Imported from v2 and editable in the app |
+| Datasheet data (units, weapons, loadouts, rules, stratagems) | ✅ | Since 2.0 units, weapons, loadouts and points come from BSData (read-only, every faction); rules and stratagems are written in the app |
 | Combat maths: weapon keywords | ✅ | Every keyword Excel models (stages 1–3), checked against Excel's results |
 | Combat maths: stat modifiers (Hit/Wound/AP/… Modifier, Critical Hits X+, Reroll …) | ✅ | Excel's modifier language, with the ±1 cap (stage 2) |
 | Battle conditions | ✅ | 11th edition cover, *Attacker Damaged*, Stealth (stage 3) |
-| Faction rules and stratagems in the maths | ✅ | Tick panels on the Simulator (attacker and target) and Matchups (army-wide, both sides) (stage 4) |
+| Faction rules and stratagems in the maths | ✅ | Tick panels on the Simulator (attacker and target) and Analytics (army-wide, both sides) (stage 4) |
 | Single simulator (Sim-Shooting / Sim-Fighting) | ✅ | Several ticked weapons with Qty, per-weapon results and totals (stage 5) |
 | Roster | ✅ | Unit sizes with points by size, generic target profiles with weights, army-wide rules (stages 4 and 6) |
-| Results analyses | ✅ | Army Analysis panel on Matchups: summary, gaps, role scores with spider chart, T/Sv coverage, reverse durability (stage 7) |
+| Results analyses | ✅ | Army Analysis panel on Analytics: summary, gaps, role scores with spider chart, T/Sv coverage, reverse durability (stage 7) |
 | Maths approach | ✅ | Excel's capped damage and attacks-per-kill method (stage 8) |
 
 ## 1. Datasheet data
@@ -23,9 +23,9 @@ The goal is for the Python app to do everything `40KCombatSimulator_v2.xlsx` doe
 | v2 feature | App | Notes |
 |---|---|---|
 | Unit stats T, W, Sv, InSv, FNP | ✅ | |
-| M, OC, Ld, Points, Models, Keywords, Leader (can lead), Abilities | ✅ | Stored, editable and shown; not used in the maths (Excel doesn't use them either, apart from Points and Models) |
+| M, OC, Ld, Points, Models, Keywords, Leader (can lead), Abilities | ✅ | Stored and shown. Since 2.0 *can lead* and the Leader text are used: a leader can be attached in the Simulator and Analytics, adding its weapons, points and buffs (Excel had no leaders) |
 | Unit Modifiers (column H, e.g. `Feel No Pain 5+`, keywords for Anti) | ✅ | Used as keywords for Anti; `Feel No Pain X+` here counts (best of this and the FNP column) |
-| Loadout with Qty (models carrying each weapon) | ✅ | Pre-fills Simulator and Matchups quantities |
+| Loadout with Qty (models carrying each weapon) | ✅ | Pre-fills Simulator and Analytics quantities |
 | Weapon profiles per faction | ✅ | |
 | Weapon range | ➕ | App-only, for reference; Excel has no range column |
 | Faction rules (Applies To, Phase, Modifier) | ✅ | Stored and editable on the Factions tab |
@@ -82,10 +82,10 @@ Excel lets weapons, units, faction rules and stratagems carry these in their Mod
 | Attacker stationary | ✅ Heavy | ✅ |
 | Target in cover | Worsens the attacker's **BS by 1** (11th edition), unless Ignores Cover/Psychic | ✅ Same rule (stage 3) |
 | Charged this turn | ✅ Lance | ✅ |
-| Attacker damaged | ✅ -1 to hit | ✅ Switch on the Simulator and Matchups |
+| Attacker damaged | ✅ -1 to hit | ✅ Switch on the Simulator and Analytics |
 | Target models | Typed in (Blast, Cleave, kills cap) | ✅ Defender model count, now defaulting to the datasheet |
 | Re-rolls | Via `Reroll …` modifiers on ticked rules | ✅ Modifiers plus the global dropdowns |
-| Phase (Shooting / Fighting / Both) on the Roster | ✅ | ✅ Matchups Shooting/Both/Melee filter |
+| Phase (Shooting / Fighting / Both) on the Roster | ✅ | ✅ Analytics Shooting/Both/Melee filter |
 
 ## 5. Faction rules and stratagems in the maths
 
@@ -94,8 +94,8 @@ Excel lets weapons, units, faction rules and stratagems carry these in their Mod
 | Sim sheets: tick attacker rules/stratagems (faction + core) | ✅ Panel under the Attacker card |
 | Sim sheets: tick target rules/stratagems (e.g. Stealth, Save Modifier) | ✅ Panel under the Defender card |
 | Applies To (Attacker / Target) and Phase decide where a rule can be ticked | ✅ Lists follow the Shooting/Melee choice; the server also checks side, faction and phase per weapon |
-| Roster: army-wide rules and stratagems ticked once, applied to every unit | ✅ Matchups "Rules & Stratagems" card; each faction's entries apply only to that faction's units, core stratagems to all |
-| Opponent rules on the Roster | ➕ Excel's Roster has none; Matchups adds a Defenders column |
+| Roster: army-wide rules and stratagems ticked once, applied to every unit | ✅ Analytics "Rules & Stratagems" card; each faction's entries apply only to that faction's units, core stratagems to all |
+| Opponent rules on the Roster | ➕ Excel's Roster has none; Analytics adds a Defenders column |
 | Attacker/Target Effects summary | ✅ "Active: …" line on each panel |
 | Entries with no modelled effect (Command Re-roll, Explosives…) | ✅ Listed greyed out, marked "No effect on the calculations" |
 | Up to 15 rules/stratagems per side | ➕ No limit |
@@ -116,7 +116,7 @@ Ticks are remembered when switching tabs and saved with Scenarios and Comparison
 | Monte Carlo and damage distribution | ➕ |
 | Saved scenarios | ➕ |
 
-## 7. Roster vs Matchups
+## 7. Roster vs Analytics
 
 | v2 feature | App |
 |---|---|
@@ -124,7 +124,7 @@ Ticks are remembered when switching tabs and saved with Scenarios and Comparison
 | **Points scale with unit size** (datasheet points × models ÷ datasheet models) | ✅ Better than Excel: units list points per legal size (e.g. 10 = 65, 20 = 120); other sizes use the nearest listed size below plus its per-model rate |
 | Opponent mode: **Generic profiles** (MEQ, TEQ, Heavy Infantry, Character, Light Vehicle, Monster, Battle Tank, Heavy Tank, Knight/Titanic, plus a horde profile), each with a **weight** | ✅ Real units / Generic profiles switch; profiles are read-only data (Data → Target Profiles), included by tick, weights shown in the matrix headers |
 | Opponent mode: **Real roster** (opponent faction, ticked units, sizes) | ✅ Defender table, with points for the chosen size |
-| Real roster: per-unit **Extra Mods** column (e.g. Stealth) | ✅ **Extra modifiers** box on each real defender row in Matchups (and on the Simulator's Defender card); applies to that defender only, never saved to the datasheet, not used when that unit attacks in reverse durability |
+| Real roster: per-unit **Extra Mods** column (e.g. Stealth) | ✅ **Extra modifiers** box on each real defender row in Analytics (and on the Simulator's Defender card); applies to that defender only, never saved to the datasheet, not used when that unit attacks in reverse durability |
 | Shared conditions and army-wide rules | ✅ |
 
 ## 8. Results analyses
@@ -151,7 +151,7 @@ Ticks are remembered when switching tabs and saved with Scenarios and Comparison
 | Damage per attack vs target wounds | Capped at the target's W (no overkill per attack) | ✅ Both engines cap each attack's damage at W; "Overkill" now means damage lost to the cap |
 | Models killed | Attacks needed per kill, then divided; capped at target models | ✅ Same method; a unit's weapons' kills add up (capped per unit), army totals add units' kills. Monte Carlo allocates model by model ➕ |
 | Hit/Wound modifier cap ±1 | ✅ | n/a (no modifiers yet) |
-| Mixed units (leader + bodyguard) | Not modelled (one target profile) | Not modelled |
+| Mixed units (leader + bodyguard) | Not modelled (one target profile) | ✅ Better than Excel. Attacking: the leader's weapons and buffs. As a target: bodyguard models first, then the leader, each with its own profile, in both engines; results split bodyguards and leader. Precision and the "majority Toughness" rule aren't modelled |
 
 ## 10. App-only features (keep)
 
@@ -161,10 +161,10 @@ Monte Carlo simulation and damage distributions; per-cell wipe %; saved scenario
 
 1. ~~**Engine fixes**: Anti-X, Blast at 5 models and `Blast X`, dice values in keyword numbers, FNP from unit Modifiers.~~ Done; checked against Excel's own results in `tests/test_simulation.py`.
 2. ~~**Modifier language**~~ and 3. ~~**Conditions**~~: done together. Every keyword and modifier Excel models, the ±1 caps, 11th edition cover, Attacker Damaged, and the Keywords tab.
-4. ~~**Rules and stratagems in use**~~: done. Tick panels on the Simulator, army-wide ticks for both sides on Matchups.
-5. ~~**Simulator**~~: done. Several weapons at once, per-weapon results, Monte Carlo rolling them together; Matchups uses the same default ticks.
-6. ~~**Roster**~~: done. Points by unit size, unit Size box on Matchups, generic profiles mode. (Per-defender Extra Mods not built.)
-7. ~~**Results**~~: done. Army Analysis panel on Matchups.
+4. ~~**Rules and stratagems in use**~~: done. Tick panels on the Simulator, army-wide ticks for both sides on Analytics.
+5. ~~**Simulator**~~: done. Several weapons at once, per-weapon results, Monte Carlo rolling them together; Analytics uses the same default ticks.
+6. ~~**Roster**~~: done. Points by unit size, unit Size box on Analytics, generic profiles mode. (Per-defender Extra Mods not built.)
+7. ~~**Results**~~: done. Army Analysis panel on Analytics.
 8. ~~**Analytical maths**~~: done (built before stage 7).
 
 **Remaining known gaps:** none. Every v2 feature is matched or exceeded.

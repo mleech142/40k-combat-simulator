@@ -1,0 +1,74 @@
+{
+ "gameSystem": {
+  "name": "Test System",
+  "id": "gs-test",
+  "battleScribeVersion": 2.03,
+  "revision": 7,
+  "type": "gameSystem",
+  "costTypes": [
+   {
+    "name": "pts",
+    "id": "51b2-306e-1021-d207",
+    "defaultCostLimit": -1
+   }
+  ],
+  "profileTypes": [
+   {
+    "name": "Unit",
+    "id": "pt-unit"
+   },
+   {
+    "name": "Ranged Weapons",
+    "id": "pt-ranged"
+   },
+   {
+    "name": "Melee Weapons",
+    "id": "pt-melee"
+   },
+   {
+    "name": "Abilities",
+    "id": "pt-abil"
+   }
+  ],
+  "sharedRules": [
+   {
+    "name": "Feel No Pain",
+    "id": "r-fnp",
+    "description": "Feel No Pain"
+   },
+   {
+    "name": "Stealth",
+    "id": "r-stealth",
+    "description": "Stealth"
+   },
+   {
+    "name": "Leader",
+    "id": "r-leader",
+    "description": "Leader"
+   },
+   {
+    "name": "Deep Strike",
+    "id": "r-ds",
+    "description": "Deep Strike"
+   }
+  ],
+  "categoryEntries": [
+   {
+    "name": "Infantry",
+    "id": "k-inf"
+   },
+   {
+    "name": "Vehicle",
+    "id": "k-veh"
+   },
+   {
+    "name": "Character",
+    "id": "k-char"
+   },
+   {
+    "name": "Battleline",
+    "id": "k-bl"
+   }
+  ]
+ }
+}

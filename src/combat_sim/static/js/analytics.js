@@ -1,5 +1,5 @@
 /**
- * Matchups page JavaScript for matrix comparison functionality.
+ * Analytics page (formerly Matchups): the attacker x defender matrix and Army Analysis.
  *
  * Attackers are unit entries (the same unit may appear several times, labelled
  * "#2", "#3"...), each holding its weapons with an include tick and a model count.
@@ -17,9 +17,11 @@
     // State
     const state = {
         // [{unit_id, unit_name, faction, weapons: [{weapon_id, weapon_type, name, range, attacks,
-        //   skill, strength, ap, damage, abilities, models, include}]}]
+        //   skill, strength, ap, damage, abilities, models, include, leader}], leaders, leader_id, leader_name,
+        //   leader_points}] (an attached leader's weapons are in `weapons`, marked leader: true)
         attackers: [],
-        // [{unit_id, unit_name, faction, toughness, save, wounds, invulnerable_save, feel_no_pain, model_count}]
+        // [{unit_id, unit_name, faction, toughness, save, wounds, invulnerable_save, feel_no_pain, model_count,
+        //   leaders, leader_id}] (a leader's buffs apply to the defender; its stats aren't part of it yet)
         defenders: [],
         results: null,
         currentMetric: 'avg_damage',
@@ -29,10 +31,11 @@
         defenderMode: 'real',  // 'real' (defender table) or 'generic' (benchmark profiles)
         genericProfiles: [],  // read-only, from /api/data/target-profiles
         genericIncluded: null,  // Set of included profile ids (null = each profile's default)
-        // Rules & stratagems each side can tick, and which are ticked ('rule:3', 'stratagem:7')
+        // Rules & stratagems each side can tick, which are ticked ('rule:3', 'stratagem:7'), and the
+        // side's detachment (BSData key; '' = faction-wide rules only) from its factions' detachments
         rules: {
-            attacker: { available: [], ticked: new Set(), factions: '' },
-            defender: { available: [], ticked: new Set(), factions: '' },
+            attacker: { available: [], ticked: new Set(), factions: '', detachment: '', detachments: [] },
+            defender: { available: [], ticked: new Set(), factions: '', detachment: '', detachments: [] },
         },
         pickerMode: 'attacker',  // which table the Add Unit pop-up adds to
         conditions: {
@@ -77,7 +80,7 @@
     // Remember setup across tab changes (see PageState in app.js)
     // =========================
 
-    const PAGE_STATE_KEY = 'matchupsState';
+    const PAGE_STATE_KEY = 'analyticsState';
 
     function savePageState() {
         PageState.save(PAGE_STATE_KEY, {
@@ -162,6 +165,14 @@
         document.getElementById('close-unit-picker').addEventListener('click', closeUnitPicker);
         elements.unitPickerSearch.addEventListener('input', debounce(loadUnitPickerList, 250));
         elements.unitPickerFaction.addEventListener('change', loadUnitPickerList);
+        document.getElementById('unit-picker-legends').addEventListener('change', loadUnitPickerList);
+        ['attacker', 'defender'].forEach(side => {
+            document.getElementById(`${side}-detachment`).addEventListener('change', (e) => {
+                state.rules[side].detachment = e.target.value;
+                state.rules[side].factions = '';  // force a reload of the offered rules
+                refreshRules(side);
+            });
+        });
 
         // Table edits (event delegation, rows are re-rendered)
         elements.attackerBody.addEventListener('change', onAttackerTableChange);
@@ -242,11 +253,11 @@
         return state.defenderMode === 'generic' ? [] : state.defenders;
     }
 
-    /** Reload a side's tickable list when the factions in its table change. */
+    /** Reload a side's detachments and tickable list when the factions in its table change. */
     async function refreshRules(side) {
         const panel = state.rules[side];
         const factionIds = [...new Set(sideEntries(side).map(e => e.faction_id).filter(Boolean))].sort((a, b) => a - b);
-        const signature = factionIds.join(',');
+        const signature = factionIds.join(',') + '|' + panel.detachment;
         if (signature === panel.factions && panel.available.length) {
             renderRulesList(side);
             return;
@@ -256,8 +267,17 @@
         const params = new URLSearchParams({ side: side === 'attacker' ? 'Attacker' : 'Target' });
         factionIds.forEach(id => params.append('faction_id', id));
         try {
+            panel.detachments = factionIds.length
+                ? await fetch(`/api/detachments?${params}`).then(r => r.json())
+                : [];
+            if (!panel.detachments.some(d => d.key === panel.detachment)) panel.detachment = '';
+            const select = document.getElementById(`${side}-detachment`);
+            select.innerHTML = Core.detachmentOptionsHtml(panel.detachments, panel.detachment);
+            select.style.display = panel.detachments.length ? '' : 'none';
+            if (panel.detachment) params.append('detachment', panel.detachment);
+
             const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
-            if (panel.factions !== signature) return;  // a newer refresh started
+            if (panel.factions !== factionIds.join(',') + '|' + panel.detachment) return;  // a newer refresh started
             const keys = new Set(available.map(e => e.key));
             panel.available = available;
             panel.ticked = new Set([...panel.ticked].filter(k => keys.has(k)));
@@ -295,6 +315,7 @@
                        title="${e.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)'}">
                     <input type="checkbox" data-key="${e.key}" ${panel.ticked.has(e.key) ? 'checked' : ''}>
                     <span class="rule-name">${escapeHtml(e.name)}</span>
+                    ${e.detachment ? `<span class="rule-detachment">${escapeHtml(e.detachment)}</span>` : ''}
                     <span class="rule-kind">${RULE_KIND_LABEL[e.kind]}</span>
                     <span class="rule-phase">${escapeHtml(e.phase)}</span>
                     ${e.cp ? `<span class="rule-cp">${escapeHtml(e.cp)} CP</span>` : ''}
@@ -322,12 +343,17 @@
     }
 
     function ticksForSaving() {
-        return { attacker: [...state.rules.attacker.ticked], defender: [...state.rules.defender.ticked] };
+        return {
+            attacker: [...state.rules.attacker.ticked], defender: [...state.rules.defender.ticked],
+            detachments: { attacker: state.rules.attacker.detachment, defender: state.rules.defender.detachment },
+        };
     }
 
     function restoreTicks(saved) {
         state.rules.attacker.ticked = new Set(saved?.attacker || []);
         state.rules.defender.ticked = new Set(saved?.defender || []);
+        state.rules.attacker.detachment = saved?.detachments?.attacker || '';
+        state.rules.defender.detachment = saved?.detachments?.defender || '';
         state.rules.attacker.factions = '';  // force a reload; ticks are kept if still available
         state.rules.defender.factions = '';
     }
@@ -340,27 +366,13 @@
 
 
 
-    function toWeaponEntry(w) {
-        return {
-            weapon_id: w.id,
-            weapon_type: w.type,
-            name: w.name,
-            range: w.range ?? null,
-            attacks: w.attacks,
-            skill: w.skill,
-            strength: w.strength,
-            ap: w.ap,
-            damage: w.damage,
-            abilities: w.abilities || [],
-            models: w.qty || 1,  // Loadout quantity: models in the unit carrying this weapon
-            base_qty: w.qty || 1,  // Loadout quantity at the datasheet unit size
-            include: w.default_use ?? true,  // Server's default: only the first "Weapon - Profile" variant
-        };
-    }
+    const toWeaponEntry = w => Core.matchupWeaponEntry(w);
 
 
     function toDefenderEntry(unit, modelCount) {
         return {
+            leaders: unit.leaders || [],
+            leader_id: null,
             unit_id: unit.id,
             unit_name: unit.name,
             faction: unit.faction,
@@ -404,6 +416,7 @@
         const search = elements.unitPickerSearch.value.trim();
         if (search) params.set('search', search);
         if (elements.unitPickerFaction.value) params.set('faction_id', elements.unitPickerFaction.value);
+        if (document.getElementById('unit-picker-legends').checked) params.set('legends', '1');
 
         try {
             const response = await fetch(`/api/units?${params}`);
@@ -444,7 +457,9 @@
                     default_models: unit.default_models || null,
                     unit_size: unit.default_models || null,
                     points_table: unit.points_by_model_count || [],
-                    weapons: [...(unit.ranged_weapons || []), ...(unit.melee_weapons || [])].map(toWeaponEntry),
+                    weapons: Core.matchupWeapons(unit),  // Loadout, then wargear options (not included)
+                    leaders: unit.leaders || [],
+                    leader_id: null,
                 });
                 renderAttackerTable();
             } else {
@@ -485,9 +500,10 @@
                         Size <input type="number" class="roster-models unit-size-input" data-a="${a}"
                                     value="${atk.unit_size || atk.default_models}" min="1" max="99">
                     </label>` : ''}
-                    <span class="unit-points">${pointsLabel(atk.points_table, atk.unit_size || atk.default_models)}</span>
+                    <span class="unit-points">${unitPointsLabel(atk)}</span>
+                    ${leaderSelect(atk.leaders, atk.leader_id, `data-a="${a}"`, 'atk-leader')}
                 </td>`;
-            const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit">&times;</button>`;
+            const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
 
             if (visible.length === 0) {
                 const msg = atk.weapons.length === 0
@@ -509,8 +525,8 @@
                                title="Include in matrix">
                     </td>
                     ${i === 0 ? unitCell(visible.length) : ''}
-                    <td class="roster-weapon">${escapeHtml(w.name)}</td>
-                    <td class="roster-type" title="${isRanged ? 'Shooting' : 'Melee'}">${isRanged ? '🎯' : '⚔️'}</td>
+                    <td class="roster-weapon">${escapeHtml(w.name)}${w.option ? ' <span class="option-tag" title="Wargear option: tick to include it">option</span>' : ''}${w.leader ? ` <span class="option-tag" title="${escapeHtml(w.leader_name)}'s weapon">leader</span>` : ''}</td>
+                    <td class="roster-type" title="${isRanged ? 'Shooting' : 'Melee'}">${isRanged ? '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i>' : '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i>'}</td>
                     <td>${isRanged ? (w.range ? escapeHtml(w.range) + '"' : '-') : 'Melee'}</td>
                     <td>${escapeHtml(w.attacks)}</td>
                     <td>${w.skill ? escapeHtml(w.skill) + '+' : '-'}</td>
@@ -528,8 +544,41 @@
         elements.attackerBody.innerHTML = html;
     }
 
+    /** Points of the unit at its size, plus its leader's. */
+    function unitPointsLabel(atk) {
+        const label = pointsLabel(atk.points_table, atk.unit_size || atk.default_models);
+        return atk.leader_points ? `${label} + ${atk.leader_points} leader` : label;
+    }
+
+    /** A "Leader" dropdown for a table row ('' when no leader can join the unit). */
+    function leaderSelect(leaders, selectedId, dataAttr, cls) {
+        if (!leaders?.length) return '';
+        const chosen = leaders.find(l => l.id === selectedId);
+        const summary = chosen ? Core.leaderBuffSummary(chosen.leader_buffs) : '';
+        return `<select class="roster-leader ${cls}" ${dataAttr} title="${escapeHtml(summary ? 'Grants: ' + summary : 'Attach a leader')}">
+            <option value="">No leader</option>
+            ${leaders.map(l => `<option value="${l.id}" ${l.id === selectedId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+        </select>${chosen ? `<span class="leader-buffs">${escapeHtml(summary || 'nothing the maths uses')}</span>` : ''}`;
+    }
+
+    /** Attach a leader to an attacker unit (its weapons and points join the unit) or detach it. */
+    async function setAttackerLeader(a, leaderId) {
+        const atk = state.attackers[a];
+        const choice = (atk.leaders || []).find(l => l.id === leaderId) || null;
+        const detail = choice ? await fetch(`/api/units/${choice.id}`).then(r => r.json()) : null;
+        atk.weapons = Core.withLeaderEntries(atk.weapons, detail);
+        atk.leader_id = choice?.id ?? null;
+        atk.leader_name = choice?.name ?? null;
+        atk.leader_points = choice?.points ?? null;
+        renderAttackerTable();
+    }
+
     function onAttackerTableChange(e) {
         const el = e.target;
+        if (el.classList.contains('atk-leader')) {
+            setAttackerLeader(parseInt(el.dataset.a), el.value ? parseInt(el.value) : null);
+            return;
+        }
         if (el.classList.contains('unit-size-input')) {
             Core.scaleUnitSize(state.attackers[parseInt(el.dataset.a)], parseInt(el.value));
             renderAttackerTable();
@@ -596,7 +645,8 @@
 
         elements.defenderBody.innerHTML = state.defenders.map((d, idx) => `
             <tr>
-                <td class="roster-unit-name">${escapeHtml(copyLabel(state.defenders, idx))}</td>
+                <td class="roster-unit-name">${escapeHtml(copyLabel(state.defenders, idx))}
+                    ${leaderSelect(d.leaders, d.leader_id, `data-d="${idx}"`, 'def-leader')}</td>
                 <td class="roster-muted">${escapeHtml(d.faction || '')}</td>
                 <td>${d.toughness}</td>
                 <td>${d.save}+</td>
@@ -611,7 +661,7 @@
                            placeholder="e.g. Stealth" autocomplete="off" title="For this defender only; not saved to the datasheet">
                     <div class="kw-hint" id="def-extra-hint-${idx}"></div>
                 </td>
-                <td class="col-remove"><button class="btn-remove remove-defender" data-d="${idx}" title="Remove">&times;</button></td>
+                <td class="col-remove"><button class="btn-remove remove-defender" data-d="${idx}" title="Remove"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
             </tr>
         `).join('');
 
@@ -656,6 +706,13 @@
     }
 
     function onDefenderTableChange(e) {
+        if (e.target.classList.contains('def-leader')) {
+            const defender = state.defenders[parseInt(e.target.dataset.d)];
+            defender.leader_id = e.target.value ? parseInt(e.target.value) : null;
+            defender.leader_name = defender.leaders.find(l => l.id === defender.leader_id)?.name || null;
+            renderDefenderTable();
+            return;
+        }
         const el = e.target;
         if (el.classList.contains('profile-inc')) {
             const set = genericIncludedSet();
@@ -748,10 +805,11 @@
             const value = cell[metric] || 0;
             const displayVal = formatMetricValue(value, metric);
             const style = kind === 'total' ? '' : `style="background-color: ${getHeatColor(Math.min(value, maxVal), minVal, maxVal)}"`;
-            const wiped = kind === 'total' && cell.wiped ? '<span class="wiped-badge" title="Wiped in one turn">✓ wiped</span>' : '';
+            const wiped = kind === 'total' && cell.wiped ? '<span class="wiped-badge" title="Wiped in one turn"><i class="fa-solid fa-check" aria-hidden="true"></i> wiped</span>' : '';
             return `<td class="matrix-cell ${kind === 'total' ? 'matrix-total-cell' : ''}" ${style}
                         data-kind="${kind}" data-a="${a}" data-w="${w}" data-d="${d}"
-                        title="${escapeHtml(rowLabel)} vs ${escapeHtml(defenders[d].label)}: ${displayVal}">
+                        title="${escapeHtml(rowLabel)} vs ${escapeHtml(defenders[d].label)}: ${displayVal}${cell.leader_killed != null
+                            ? ` (${cell.bodyguards_killed} bodyguards killed; expected damage to the leader ${cell.leader_damage} of ${cell.leader_wounds} wounds)` : ''}">
                         ${displayVal}${wiped}
                     </td>`;
         };
@@ -881,14 +939,14 @@
         const top = Math.max(100, ...scores);
         Plotly.newPlot(el, [
             { type: 'scatterpolar', r: names.map(() => 100).concat(100), theta: names.concat(names[0]),
-              mode: 'lines', line: { color: 'rgba(160,160,160,0.6)', dash: 'dot' }, name: 'Wiped (100%)', hoverinfo: 'skip' },
+              mode: 'lines', line: { color: themeColor('--text-muted'), dash: 'dot' }, name: 'Wiped (100%)', hoverinfo: 'skip' },
             { type: 'scatterpolar', r: scores.concat(scores[0]), theta: names.concat(names[0]), fill: 'toself',
-              fillcolor: 'rgba(233,69,96,0.25)', line: { color: '#e94560' }, name: 'Army',
+              fillcolor: themeColor('--accent-tint'), line: { color: themeColor('--accent') }, name: 'Army',
               hovertemplate: '%{theta}: %{r}%<extra></extra>' },
         ], {
-            polar: { bgcolor: 'transparent', radialaxis: { range: [0, top], ticksuffix: '%', gridcolor: '#2a2a4a', color: '#a0a0a0' },
-                     angularaxis: { gridcolor: '#2a2a4a', color: '#eaeaea' } },
-            paper_bgcolor: 'transparent', font: { color: '#eaeaea', size: 11 },
+            polar: { bgcolor: 'transparent', radialaxis: { range: [0, top], ticksuffix: '%', gridcolor: themeColor('--border'), color: themeColor('--text-secondary') },
+                     angularaxis: { gridcolor: themeColor('--border'), color: themeColor('--text-primary') } },
+            paper_bgcolor: 'transparent', font: { color: themeColor('--text-primary'), size: 11 },
             margin: { t: 30, r: 60, b: 30, l: 60 }, showlegend: false,
         }, { responsive: true, displayModeBar: false });
     }
@@ -933,6 +991,7 @@
                     unit_id: defender.unit_id,
                     profile_id: defender.profile_id,
                     extra_modifiers: defender.extra_modifiers || '',
+                    leader_id: defender.leader_id || null,
                     model_count: defender.model_count,
                     conditions: request.conditions,
                     attacker_rules: request.attacker_rules,
@@ -949,6 +1008,10 @@
             document.getElementById('detail-models-killed').textContent = data.summary.models_killed.toFixed(2);
             document.getElementById('detail-kill-prob').textContent = `${data.summary.kill_probability}%`;
             document.getElementById('detail-wipe-prob').textContent = `${data.summary.wipe_probability}%`;
+            document.getElementById('detail-attached').textContent = data.summary.leader_killed != null
+                ? `Attached unit: ${data.summary.bodyguards_killed} bodyguard models killed on average; ` +
+                  `the leader dies in ${data.summary.leader_kill_probability}% of runs (average damage to it ${data.summary.leader_damage})`
+                : '';
             document.getElementById('detail-attacks').textContent = data.breakdown.attacks.toFixed(2);
             document.getElementById('detail-hits').textContent = data.breakdown.hits.toFixed(2);
             document.getElementById('detail-wounds').textContent = data.breakdown.wounds.toFixed(2);
@@ -973,22 +1036,22 @@
             y: distribution.probabilities,
             type: 'bar',
             marker: {
-                color: '#4fc3f7'
+                color: themeColor('--accent')
             },
             hovertemplate: '%{x} damage: %{y:.1f}%<extra></extra>'
         }], {
             margin: { t: 10, r: 10, b: 30, l: 40 },
             paper_bgcolor: 'transparent',
             plot_bgcolor: 'transparent',
-            font: { color: '#e0e0e0' },
+            font: { color: themeColor('--text-primary') },
             xaxis: {
                 title: 'Damage',
                 type: 'category',
-                gridcolor: 'rgba(255,255,255,0.1)'
+                gridcolor: themeColor('--border')
             },
             yaxis: {
                 title: '%',
-                gridcolor: 'rgba(255,255,255,0.1)'
+                gridcolor: themeColor('--border')
             }
         }, {
             responsive: true,

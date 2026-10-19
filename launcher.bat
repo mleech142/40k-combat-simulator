@@ -33,11 +33,11 @@ call venv\Scripts\activate.bat
 echo Checking dependencies...
 pip install -q -r requirements.txt
 
-:: Build the data file from the Excel workbook if it doesn't exist yet
-if not exist "data\40k_data.json" (
+:: Unit data comes from BSData: the catalogue .json files go in data\bsdata
+if not exist "data\bsdata\*.json" (
     echo.
-    echo Building data\40k_data.json from the Excel workbook...
-    python scripts\migrate_excel.py
+    echo No BSData catalogues in data\bsdata - download the .json files from
+    echo https://github.com/BSData/wh40k-11e into that folder to get factions and units.
 )
 
 :: Start the application

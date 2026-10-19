@@ -1,19 +1,25 @@
-/* 40K Combat Simulator - Dark Theme */
+/* 40K Combat Simulator - "Carbon & Blaze" dark theme
+ * Palette: Carbon Black #23231a, Charcoal Brown #322f20, Olive Bark #6a5837, Olive #988f2a, Blaze Orange #fe5f00
+ * (chosen from the colour theme prototype; see the prototype/colour-themes branch). Charts read these tokens too
+ * (themeColor in app.js), so change colours here only.
+ */
 
 :root {
-    --bg-primary: #1a1a2e;
-    --bg-secondary: #16213e;
-    --bg-tertiary: #0f0f1a;
-    --accent: #e94560;
-    --accent-hover: #ff6b6b;
-    --accent-dim: #a63344;
-    --text-primary: #eaeaea;
-    --text-secondary: #a0a0a0;
-    --text-muted: #666;
-    --border: #2a2a4a;
-    --success: #4ade80;
-    --warning: #fbbf24;
-    --error: #ef4444;
+    --bg-primary: #23231a;         /* Carbon Black: page */
+    --bg-secondary: #322f20;       /* Charcoal Brown: cards */
+    --bg-tertiary: #1a1a13;        /* darker than Carbon Black: header, inputs, table heads */
+    --accent: #fe5f00;             /* Blaze Orange */
+    --accent-hover: #ff7d2e;
+    --accent-dim: #6a5837;         /* Olive Bark */
+    --on-accent: #1a1a13;          /* text on accent-coloured buttons and chips */
+    --accent-tint: rgba(254, 95, 0, 0.14);  /* faint accent wash: selected rows, focused inputs */
+    --text-primary: #efe9d8;
+    --text-secondary: #bdb48f;
+    --text-muted: #8c8262;
+    --border: #4b4430;             /* between Charcoal Brown and Olive Bark */
+    --success: #b5aa32;            /* Olive, lifted for dark backgrounds */
+    --warning: #e0b23c;
+    --error: #e5484d;
 }
 
 * {
@@ -62,6 +68,81 @@ body {
     padding: 1.5rem;
     max-width: 1400px;
     margin: 0 auto;
+}
+
+.footer {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 1.5rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+}
+
+.footer a {
+    color: var(--text-secondary);
+}
+
+/* Setup page */
+.setup-page {
+    max-width: 860px;
+}
+
+.setup-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.setup-card h3 {
+    margin-bottom: 0.5rem;
+}
+
+.setup-card p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+}
+
+.setup-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.setup-row .filter-input {
+    flex: 1 1 360px;
+    min-width: 0;
+}
+
+.setup-message {
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+}
+
+.setup-message:empty {
+    display: none;
+}
+
+.setup-message.error {
+    color: var(--error);
+}
+
+.setup-message.ok {
+    color: var(--success);
+}
+
+.setup-report summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.setup-report table {
+    margin-top: 0.75rem;
 }
 
 /* Card */
@@ -137,7 +218,7 @@ body {
 .autocomplete-input:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.1);
+    box-shadow: 0 0 0 3px var(--accent-tint);
 }
 
 .autocomplete-input::placeholder {
@@ -381,7 +462,7 @@ body {
 .toggle:has(input:checked) {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .toggle input {
@@ -430,7 +511,7 @@ body {
 .btn-option.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 /* Simulation options */
@@ -479,7 +560,7 @@ body {
 
 .btn-primary {
     background: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .btn-primary:hover {
@@ -693,7 +774,7 @@ body {
 
 .data-tab.active {
     background: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .data-content {
@@ -1033,7 +1114,7 @@ body {
 
 .scenario-card.selected {
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.2);
+    box-shadow: 0 0 0 2px var(--accent-tint);
 }
 
 .scenario-checkbox {
@@ -1265,7 +1346,7 @@ body {
 }
 
 /* =========================================================================
-   Matchups Page - Matrix Comparison
+   Analytics Page - Matrix Comparison
    ========================================================================= */
 
 /* Single column: conditions, attackers, defenders, actions, results */
@@ -1549,7 +1630,7 @@ body {
 
 .toggle-btn.active {
     background: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 /* Conditions Bar */
@@ -1895,14 +1976,14 @@ body {
 .btn-load {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .modal-body {
     padding: 1.5rem;
 }
 
-/* Responsive Matchups */
+/* Responsive Analytics */
 @media (max-width: 900px) {
     .roster-header .btn-add-unit {
         margin-left: 0;
@@ -1930,6 +2011,70 @@ body {
     font-size: 0.8rem;
     color: var(--text-muted);
     margin: -0.5rem 0 1rem;
+}
+
+.data-note a,
+.bsdata-status a {
+    color: var(--accent-hover);
+}
+
+/* BSData import status and record sources (Data page) */
+.bsdata-status {
+    font-size: 0.85rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    margin-bottom: 1rem;
+}
+
+.bsdata-status:empty {
+    display: none;
+}
+
+.bsdata-status-error {
+    border-color: var(--error);
+}
+
+.bsdata-status-missing {
+    border-color: var(--warning);
+}
+
+.bsdata-status .muted {
+    color: var(--text-muted);
+}
+
+.source-badge,
+.legends-tag {
+    display: inline-block;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.source-custom {
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+    color: var(--success);
+}
+
+.source-missing {
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    color: var(--warning);
+}
+
+.filter-check {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 .data-section {
@@ -2097,7 +2242,7 @@ body {
 .kw-chip.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: white;
+    color: var(--on-accent);
 }
 
 .kw-guide {
@@ -2201,7 +2346,7 @@ body {
 }
 
 .kw-badge-calc {
-    background: rgba(74, 222, 128, 0.15);
+    background: color-mix(in srgb, var(--success) 18%, transparent);
     color: var(--success);
 }
 
@@ -2290,7 +2435,7 @@ body {
 }
 
 /* =========================================================================
-   Rules & stratagems panels (Simulator and Matchups)
+   Rules & stratagems panels (Simulator and Analytics)
    ========================================================================= */
 
 .rules-panel {
@@ -2315,13 +2460,15 @@ body {
 }
 
 .rules-panel > summary::before {
-    content: '▸';
+    content: '\f054';  /* Font Awesome chevron-right */
+    font: var(--fa-font-solid);
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.7rem;
+    width: 0.8rem;
 }
 
 .rules-panel[open] > summary::before {
-    content: '▾';
+    content: '\f078';  /* chevron-down */
 }
 
 .rules-panel-title {
@@ -2385,7 +2532,7 @@ body {
 }
 
 .rule-row:has(input:checked) {
-    background: rgba(233, 69, 96, 0.12);
+    background: var(--accent-tint);
 }
 
 .rule-name {
@@ -2431,7 +2578,7 @@ body {
     text-align: center;
 }
 
-/* Matchups: attackers and defenders side by side */
+/* Analytics: attackers and defenders side by side */
 .matchup-rules {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2552,7 +2699,7 @@ body {
     color: var(--error);
 }
 
-/* Matchups: unit size, points, generic profiles */
+/* Analytics: unit size, points, generic profiles */
 .unit-size {
     display: flex;
     align-items: center;
@@ -2593,7 +2740,7 @@ body {
     opacity: 0.4;
 }
 
-/* Matchups: Army Analysis */
+/* Analytics: Army Analysis */
 .army-analysis {
     margin-top: 1rem;
 }
@@ -2684,7 +2831,7 @@ body {
     }
 }
 
-/* Extra modifiers (Simulator defender card, Matchups defender rows) */
+/* Extra modifiers (Simulator defender card, Analytics defender rows) */
 .text-input,
 .roster-text {
     width: 100%;
@@ -2717,4 +2864,209 @@ body {
 
 .roster-table td.roster-extra {
     text-align: left;
+}
+
+/* Detachments, wargear options, BSData reference text and weapon copying */
+.label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.label-row .filter-check {
+    font-size: 0.75rem;
+}
+
+.detachment-select {
+    width: 100%;
+    margin: 0.5rem 0;
+}
+
+.rule-detachment,
+.option-tag {
+    display: inline-block;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    color: var(--warning);
+    white-space: nowrap;
+}
+
+.option-tag {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.weapon-options-header td {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    padding-top: 0.6rem;
+}
+
+.weapon-row.weapon-option .weapon-row-name {
+    font-style: italic;
+}
+
+.muted {
+    color: var(--text-muted);
+}
+
+.bsdata-reference {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+}
+
+.bsdata-reference summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.bsdata-reference h5 {
+    margin: 1rem 0 0.25rem;
+    font-size: 0.95rem;
+    color: var(--accent-hover);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.15rem;
+}
+
+.bsdata-reference p {
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+    white-space: pre-line;
+}
+
+.bsdata-weapon-results {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-top: 0.35rem;
+}
+
+.bsdata-weapon-result {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+    margin-bottom: 0.25rem;
+}
+
+.bsdata-weapon-result:hover {
+    border-color: var(--accent);
+}
+
+/* BSData rule text (Core.formatRuleText) */
+.rule-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.rule-text h6 {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    margin: 0.6rem 0 0.15rem;
+}
+
+.rule-text p {
+    margin-bottom: 0.4rem;
+    white-space: normal;
+}
+
+.rule-text ul {
+    margin: 0.2rem 0 0.5rem 1.25rem;
+}
+
+.rule-text strong {
+    color: var(--text-primary);
+}
+
+.rule-text ins {
+    text-decoration: underline;
+}
+
+.rule-keyword {
+    font-variant: small-caps;
+    letter-spacing: 0.03em;
+}
+
+.rule-table {
+    border-collapse: collapse;
+    margin: 0.4rem 0;
+}
+
+.rule-table th,
+.rule-table td {
+    border: 1px solid var(--border);
+    padding: 0.2rem 0.6rem;
+    text-align: left;
+}
+
+.unit-abilities-formatted {
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+/* Leaders */
+.roster-leader {
+    display: block;
+    margin-top: 0.35rem;
+    max-width: 100%;
+    font-size: 0.75rem;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.15rem 0.3rem;
+}
+
+.leader-buffs {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.7rem;
+    color: var(--warning);
+    white-space: normal;
+}
+
+.leader-group .filter-select {
+    width: 100%;
+}
+
+.leader-buffs-table select,
+.leader-buffs-table input {
+    width: 100%;
+}
+
+.leader-buffs-table td:nth-child(3) {
+    width: 55%;
+}
+
+/* Font Awesome icons next to text */
+.header-brand h1 .fa-solid,
+.nav-link .fa-solid,
+h2 .fa-solid,
+h3 .fa-solid,
+h4 .fa-solid,
+.btn .fa-solid {
+    margin-right: 0.35em;
+}
+
+.nav-link .fa-solid {
+    opacity: 0.8;
 }

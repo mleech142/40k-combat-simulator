@@ -5,16 +5,21 @@ Flask application for 40K Combat Simulator.
 import os
 import secrets
 import uuid
-from flask import Flask, render_template, request, jsonify
+from pathlib import Path
+from datetime import datetime, timezone
+from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy.exc import IntegrityError
-from .models import (db, init_db, Faction, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
-                     SavedScenario, SavedComparison, unit_ranged_weapons, unit_melee_weapons)
+from .models import (db, init_db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
+                     SavedScenario, SavedComparison, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
-from .paths import DATA_FILE, DATABASE_FILE, prepare_data_dir
-from .data_store import (DataFileError, read_data_file, check_data,
-                         rebuild_reference_tables, export_data, write_data_file)
+from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, prepare_data_dir
+from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
+                         rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
+from . import bsdata_download, folder_dialog
+from .settings import settings_path, load_settings, update_settings
 from .simulation import (
-    simulate, simulate_analytical, simulate_monte_carlo_combined, keyword_name, check_keywords,
+    simulate, simulate_analytical, simulate_monte_carlo_combined, simulate_attached_analytical,
+    simulate_monte_carlo_attached, keyword_name, check_keywords,
     AttackerProfile, DefenderProfile, BattleConditions
 )
 
@@ -23,9 +28,11 @@ def create_app(config=None):
     """Application factory."""
     app = Flask(__name__)
 
-    # Configuration. The data JSON (factions, units, weapons, rules, stratagems) and the database
-    # default to the folder from paths.data_dir(): the repository's data/ from source, a per-user
-    # folder in the packaged exe.
+    # Configuration. The app data JSON (custom factions, rules, stratagems, references) and the
+    # database default to the folder from paths.data_dir(): the repository's data/ from source,
+    # a per-user folder in the packaged exe. Settings, the import cache and "Download latest"
+    # sit next to the app data JSON. The BSData folder is the one chosen on the Setup page,
+    # else BSDATA_DIR, else the bsdata folder next to the app data JSON.
     data_json = os.environ.get('DATA_JSON')
     database_url = os.environ.get('DATABASE_URL')
     if not (data_json and database_url):
@@ -34,6 +41,10 @@ def create_app(config=None):
         database_url = database_url or 'sqlite:///' + (folder / DATABASE_FILE).as_posix()
     app.config['DATA_JSON'] = data_json
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['DOWNLOAD_DIR'] = str(Path(data_json).parent / BSDATA_FOLDER)
+    app.config['DEFAULT_BSDATA_DIR'] = os.environ.get('BSDATA_DIR') or app.config['DOWNLOAD_DIR']
+    app.config['BSDATA_CACHE'] = str(Path(data_json).parent / BSDATA_CACHE_FILE)
+    app.config['SETTINGS_JSON'] = str(settings_path(data_json))
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -43,22 +54,61 @@ def create_app(config=None):
 
     @app.context_processor
     def inject_page_globals():
-        return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__}
+        return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
+                'bsdata_label': bsdata_label(app)}
 
     if config:
         app.config.update(config)
 
-    # Initialize database, then rebuild the reference tables from the data JSON
+    # Initialize database, then rebuild the reference tables from BSData and the app data JSON
     init_db(app)
     with app.app_context():
-        data = read_data_file(app.config['DATA_JSON'])
-        app.config['DATA_SOURCE'] = data.get('source')
-        rebuild_reference_tables(data)
+        reload_bsdata(app)
 
     # Register routes
     register_routes(app)
 
     return app
+
+
+def bsdata_folder(app):
+    """The BSData folder in use: chosen on the Setup page, else the default."""
+    chosen = load_settings(app.config['SETTINGS_JSON']).get('bsdata_dir')
+    return chosen or app.config['DEFAULT_BSDATA_DIR']
+
+
+def reload_bsdata(app, fresh=False):
+    """(Re)import the BSData folder and rebuild the reference tables. fresh: ignore the cache."""
+    if fresh:
+        Path(app.config['BSDATA_CACHE']).unlink(missing_ok=True)
+    data = read_data_file(app.config['DATA_JSON'])
+    known = [k['name'] for k in data.get('keywords', [])] or None
+    app.config['BSDATA_DIR'] = bsdata_folder(app)
+    result, status = load_bsdata(app.config['BSDATA_DIR'], app.config['BSDATA_CACHE'], known)
+    app.config['BSDATA_RESULT'] = result
+    app.config['BSDATA_STATUS'] = status
+    load_reference_data(app, data)
+    return status
+
+
+def bsdata_label(app):
+    """Data version for the footer: the downloaded commit, else the game system revision."""
+    status = app.config.get('BSDATA_STATUS') or {}
+    if not status.get('loaded'):
+        return None
+    download = load_settings(app.config['SETTINGS_JSON']).get('download') or {}
+    if download.get('sha') and download.get('folder') == app.config.get('BSDATA_DIR'):
+        return f"@ {download['sha'][:7]}, {(download.get('date') or '')[:10]}".rstrip(', ')
+    revision = ((status.get('source') or {}).get('game_system') or {}).get('revision')
+    return f'game system revision {revision}' if revision is not None else None
+
+
+def load_reference_data(app, data):
+    """Rebuild the reference tables from app data JSON `data` plus the loaded BSData import."""
+    merged, unmatched = merge_data(data, app.config.get('BSDATA_RESULT'))
+    app.config['DATA_SOURCE'] = data.get('source')
+    app.config['UNMATCHED'] = unmatched
+    rebuild_reference_tables(merged)
 
 
 def conditions_from_request(conditions_data):
@@ -106,6 +156,60 @@ def rule_modifiers(records, side, faction_id, weapon_type):
     return modifiers
 
 
+BUFF_SIDES = ('Attacker', 'Target')
+BUFF_PHASES = ('Shooting', 'Fighting', 'Both')
+
+
+def load_leader(leader_id):
+    """The unit named as leading another in a request, or None."""
+    try:
+        return db.session.get(Unit, int(leader_id)) if leader_id not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
+
+
+def leader_modifiers(leader, side, weapon_type):
+    """Modifier text a leader grants the unit it leads, for one side and the attacking weapon's phase."""
+    if leader is None:
+        return []
+    modifiers = []
+    for buff in leader.effective_leader_buffs:
+        if (buff.get('applies_to') or 'Attacker') != side:
+            continue
+        if (buff.get('phase') or 'Both') not in RULE_PHASES['melee' if weapon_type == 'melee' else 'ranged']:
+            continue
+        modifiers += [m.strip() for m in (buff.get('modifier') or '').split(',') if m.strip()]
+    return modifiers
+
+
+def leader_target(leader, extra_keywords=()):
+    """A leader's own profile as the last stage of an attached-unit target (its models after the bodyguard)."""
+    return DefenderProfile(
+        toughness=leader.toughness,
+        save=leader.save,
+        wounds=leader.wounds,
+        invulnerable_save=leader.invulnerable_save,
+        feel_no_pain=leader.feel_no_pain,
+        keywords=leader.target_keywords + list(extra_keywords),
+        model_count=leader.default_models or 1,
+    )
+
+
+def clean_buffs(rows):
+    """Leader buff rows from a request: side and phase checked, empty modifiers dropped."""
+    cleaned = []
+    for row in rows or []:
+        modifier = str(row.get('modifier') or '').strip()
+        if not modifier:
+            continue
+        cleaned.append({
+            'applies_to': row.get('applies_to') if row.get('applies_to') in BUFF_SIDES else 'Attacker',
+            'phase': row.get('phase') if row.get('phase') in BUFF_PHASES else 'Both',
+            'modifier': modifier,
+        })
+    return cleaned
+
+
 def modifier_has_effect(text, modelled_names):
     """True if any entry of a modifier text is a keyword the calculations use."""
     entries = [m for m in (text or '').split(',') if m.strip() and m.strip().lower() != 'none']
@@ -117,7 +221,7 @@ def modifier_has_effect(text, modelled_names):
 def default_used(names):
     """
     Which weapons are used by default: all, except later profiles of a "Weapon - Profile" family
-    (alternative profiles of one gun). Same rule as the Simulator and Matchups pages.
+    (alternative profiles of one gun). Same rule as the Simulator and Analytics pages.
     """
     families, used = set(), []
     for name in names:
@@ -144,7 +248,10 @@ def register_routes(app):
 
     @app.route('/')
     def index():
-        """Main simulation page."""
+        """Main simulation page (the Setup page until BSData loads or the user skips it)."""
+        status = app.config.get('BSDATA_STATUS') or {}
+        if not status.get('loaded') and not load_settings(app.config['SETTINGS_JSON']).get('setup_skipped'):
+            return redirect('/setup')
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
         return render_template('index.html', factions=factions_list)
@@ -155,7 +262,7 @@ def register_routes(app):
         faction_id = request.args.get('faction_id', type=int)
         search = request.args.get('search', '').strip()
 
-        query = Unit.query
+        query = legends_filter(Unit.query)
 
         if faction_id:
             query = query.filter(Unit.faction_id == faction_id)
@@ -163,8 +270,15 @@ def register_routes(app):
         if search:
             query = query.filter(Unit.name.ilike(f'%{search}%'))
 
-        units = query.order_by(Unit.name).limit(50).all()
+        query = query.order_by(Unit.name)
+        units = query.all() if faction_id else query.limit(50).all()  # Search results are capped
         return jsonify([u.to_dict() for u in units])
+
+    def legends_filter(query):
+        """Legends units only with ?legends=1."""
+        if request.args.get('legends') in ('1', 'true'):
+            return query
+        return query.filter(db.or_(Unit.legends.is_(None), Unit.legends.is_(False)))
 
     @app.route('/api/units/<int:unit_id>')
     def api_unit(unit_id):
@@ -178,6 +292,14 @@ def register_routes(app):
                 dict(w.to_dict(), qty=qty, default_use=used)
                 for (w, qty), used in zip(loadout, default_used([w.name for w, _ in loadout]))
             ]
+        # Leaders that can join this unit (with what they grant and their points)
+        data['leaders'] = [dict(id=u.id, name=u.name, leader_buffs=u.effective_leader_buffs,
+                                points=u.points_for(u.default_models or 1)) for u in unit.leaders()]
+        # Wargear options not in the default loadout (BSData units)
+        for weapon_type, model in (('ranged', RangedWeapon), ('melee', MeleeWeapon)):
+            ids = getattr(unit, f'{weapon_type}_options') or []
+            weapons = {w.id: w for w in model.query.filter(model.id.in_(ids))} if ids else {}
+            data[f'{weapon_type}_options'] = [weapons[i].to_dict() for i in ids if i in weapons]
         # Points for every unit size the pages offer (index = model count), from Unit.points_for
         data['points_by_model_count'] = [None] + [unit.points_for(n) for n in range(1, MAX_UNIT_SIZE + 1)]
         return jsonify(data)
@@ -187,12 +309,18 @@ def register_routes(app):
         """
         Rules and stratagems that can be ticked for one side.
 
-        ?side=Attacker|Target and one or more ?faction_id=N. Returns the factions' rules and
-        stratagems for that side plus the core stratagems, each with whether its modifier text
-        changes the calculations.
+        ?side=Attacker|Target, one or more ?faction_id=N and any ?detachment=<BSData ID>.
+        Returns the factions' rules and stratagems for that side (those for the whole faction,
+        plus those for a chosen detachment) and the core stratagems, each with whether its
+        modifier text changes the calculations.
         """
         side = request.args.get('side', 'Attacker')
         faction_ids = [i for i in request.args.getlist('faction_id', type=int) if i]
+        chosen = set(request.args.getlist('detachment'))
+
+        def offered(record):
+            return (record.applies_to or 'Attacker') == side and (
+                not record.detachment_key or record.detachment_key in chosen)
         modelled = {k.name.lower() for k in Keyword.query.filter_by(modelled=True)}
         names = {f.id: f.name for f in Faction.query}
 
@@ -208,17 +336,27 @@ def register_routes(app):
                 'phase': record.phase or 'Both',
                 'modifier': record.modifier,
                 'has_effect': modifier_has_effect(record.modifier, modelled),
+                'detachment': record.detachment_name,
             }
 
         entries = []
         if faction_ids:
             rules = FactionRule.query.filter(FactionRule.faction_id.in_(faction_ids)).order_by(FactionRule.name)
-            entries += [entry(r, 'rule') for r in rules if (r.applies_to or 'Attacker') == side]
+            entries += [entry(r, 'rule') for r in rules if offered(r)]
             strats = Stratagem.query.filter(Stratagem.faction_id.in_(faction_ids)).order_by(Stratagem.name)
-            entries += [entry(st, 'stratagem') for st in strats if (st.applies_to or 'Attacker') == side]
+            entries += [entry(st, 'stratagem') for st in strats if offered(st)]
         core = Stratagem.query.filter(Stratagem.faction_id.is_(None)).order_by(Stratagem.name)
-        entries += [entry(st, 'core') for st in core if (st.applies_to or 'Attacker') == side]
+        entries += [entry(st, 'core') for st in core if offered(st)]
         return jsonify(entries)
+
+    @app.route('/api/detachments')
+    def api_detachments():
+        """BSData detachments of one or more ?faction_id=N, with their rule text."""
+        faction_ids = [i for i in request.args.getlist('faction_id', type=int) if i]
+        if not faction_ids:
+            return jsonify([])
+        rows = Detachment.query.filter(Detachment.faction_id.in_(faction_ids)).order_by(Detachment.name)
+        return jsonify([d.to_dict() for d in rows])
 
     def rules_from_keys(keys):
         """{'rule_ids', 'stratagem_ids'} from saved tick keys like 'rule:3' / 'stratagem:7'."""
@@ -243,6 +381,10 @@ def register_routes(app):
             "conditions": {...}, "method": "analytical" | "monte_carlo", "iterations": 1000,
             "attacker_rules": {"rule_ids": [], "stratagem_ids": []}, "target_rules": {...}
         }
+        "attacker" and "defender" can name a "leader_id": a leader attached to that unit, whose
+        buffs apply to its side (the leader's own weapons are sent as weapons like the others). A
+        defender with a leader is an attached unit: attacks go to the bodyguard models, then to the
+        leader with its own profile, and the results give bodyguards_killed and leader_killed.
         A single weapon's fields directly in "attacker" (older saved scenarios) also work.
 
         Per-weapon rows are averages, as in Excel; the totals use the chosen method,
@@ -261,6 +403,8 @@ def register_routes(app):
 
         # One-off target modifiers for this defender (never saved to the datasheet)
         extra_modifiers = text_list(defender_data.get('extra_modifiers'))
+        attacker_leader = load_leader(attacker_data.get('leader_id'))
+        defender_leader = load_leader(defender_data.get('leader_id'))
 
         def target_profile(extra_keywords=()):
             return DefenderProfile(
@@ -273,13 +417,15 @@ def register_routes(app):
                 model_count=int(defender_data.get('model_count', 1))
             )
 
-        profiles, targets, rows = [], [], []
+        profiles, targets, leader_targets, rows = [], [], [], []
         applied = {'attacker': [], 'target': []}
         for w in weapons_data:
             w_type = 'melee' if w.get('type') == 'melee' else 'ranged'
             # Ticked rules and stratagems add modifier text to the weapon (attacker) or the target
-            attacker_modifiers = rule_modifiers(attacker_rules, 'Attacker', w.get('faction_id', attacker_data.get('faction_id')), w_type)
-            target_modifiers = rule_modifiers(target_rules, 'Target', defender_data.get('faction_id'), w_type)
+            attacker_modifiers = (rule_modifiers(attacker_rules, 'Attacker', w.get('faction_id', attacker_data.get('faction_id')), w_type)
+                                  + leader_modifiers(attacker_leader, 'Attacker', w_type))
+            target_modifiers = (rule_modifiers(target_rules, 'Target', defender_data.get('faction_id'), w_type)
+                                + leader_modifiers(defender_leader, 'Target', w_type))
             for side, side_modifiers in (('attacker', attacker_modifiers), ('target', target_modifiers)):
                 applied[side] += [m for m in side_modifiers if m not in applied[side]]
 
@@ -297,6 +443,8 @@ def register_routes(app):
             target = target_profile(target_modifiers)
             profiles.append(profile)
             targets.append(target)
+            if defender_leader is not None:
+                leader_targets.append(leader_target(defender_leader, extra_modifiers + target_modifiers))
 
             r = simulate_analytical(profile, target, conditions)
             rows.append({
@@ -319,7 +467,44 @@ def register_routes(app):
             return jsonify({'error': 'No weapons to simulate'}), 400
 
         base_target = target_profile()
-        if method == 'monte_carlo':
+        attached = None
+        if defender_leader is not None:
+            leader_base = leader_target(defender_leader, extra_modifiers)
+            attached = {'leader': defender_leader.name, 'leader_models': leader_base.model_count,
+                        'leader_wounds': leader_base.wounds * leader_base.model_count,
+                        'bodyguard_models': base_target.model_count}
+            combined, per_weapon = simulate_attached_analytical(profiles, base_target, leader_base, conditions,
+                                                                bodyguard_targets=targets, leader_targets=leader_targets)
+            for row, r in zip(rows, per_weapon):  # Each weapon in order against what is left of the unit
+                row.update(attacks=r.attacks_made, hits=r.hits, auto_wounds=r.auto_wounds, wounds=r.wounds,
+                           mortal_wounds=r.mortal_wounds, unsaved=r.unsaved, total_damage=r.average_damage,
+                           models_killed=r.models_killed, overkill=r.overkill,
+                           bodyguards_killed=r.bodyguards_killed, leader_killed=r.leader_killed,
+                           leader_damage=r.leader_damage)
+
+        if method == 'monte_carlo' and attached:
+            result = simulate_monte_carlo_attached(profiles, base_target, leader_base, conditions, iterations,
+                                                   bodyguard_targets=targets, leader_targets=leader_targets)
+            summary = {
+                'average_damage': result.average_damage,
+                'models_killed': result.models_killed,
+                'overkill': result.overkill,
+                'kill_probability': result.kill_probability,
+                'wipe_probability': result.wipe_probability,
+                'bodyguards_killed': result.bodyguards_killed,
+                'leader_killed': result.leader_killed,
+                'leader_damage': result.leader_damage,
+                'leader_kill_probability': result.leader_kill_probability,
+            }
+            breakdown = {
+                'attacks': result.attacks_made,
+                'hits': result.hits,
+                'wounds': result.wounds,
+                'failed_saves': result.failed_saves,
+                'damage': result.damage_dealt,
+            }
+            distribution, iterations_run = result.damage_distribution, result.iterations
+        elif method == 'monte_carlo':
             result = simulate_monte_carlo_combined(profiles, base_target, conditions, iterations, weapon_defenders=targets)
             summary = {
                 'average_damage': result.average_damage,
@@ -344,6 +529,9 @@ def register_routes(app):
                 'models_killed': round(min(sum(row['models_killed'] for row in rows), base_target.model_count), 2),
                 'overkill': round(sum(row['overkill'] for row in rows), 2),
             }
+            if attached:
+                summary.update(models_killed=combined.models_killed, bodyguards_killed=combined.bodyguards_killed,
+                               leader_killed=combined.leader_killed, leader_damage=combined.leader_damage)
             breakdown = {
                 'attacks': round(sum(row['attacks'] for row in rows), 2),
                 'hits': round(sum(row['hits'] for row in rows), 2),
@@ -361,6 +549,7 @@ def register_routes(app):
             'method': method,
             'iterations': iterations_run,
             'applied': applied,
+            'attached': attached,
         })
 
     @app.route('/api/scenarios', methods=['POST'])
@@ -405,13 +594,113 @@ def register_routes(app):
     # =========================================================================
     # Data Management API
     #
-    # Every change is committed to the database and then written straight to the
-    # data JSON, which is the source of truth (see data_store.py).
+    # Every change is committed to the database and then written straight to the app
+    # data JSON (see data_store.py). BSData factions' units and weapons are read-only;
+    # their rules and stratagems, and modifiers added to their units, are app data.
     # =========================================================================
 
     def save_data():
         db.session.commit()
-        write_data_file(app.config['DATA_JSON'], export_data(app.config.get('DATA_SOURCE')))
+        write_data_file(app.config['DATA_JSON'],
+                        export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED')))
+
+    def read_only(message='BSData records are read-only.'):
+        return jsonify({'error': message}), 403
+
+    def next_custom_id(model):
+        """IDs for records made in the app stay below the BSData range."""
+        top = db.session.query(db.func.max(model.id)).filter(model.id < BSDATA_ID_BASE).scalar()
+        return (top or 0) + 1
+
+    def editable_faction(faction_id):
+        faction = db.session.get(Faction, int(faction_id)) if faction_id not in (None, '') else None
+        return faction is not None and faction.editable
+
+    @app.route('/api/data/status')
+    def api_data_status():
+        """The BSData folder and import: where, whether it loaded, revisions and report."""
+        status = app.config.get('BSDATA_STATUS') or {}
+        report = status.get('report') or []
+        counts = {}
+        for item in report:
+            counts[item['kind']] = counts.get(item['kind'], 0) + 1
+        return jsonify({
+            'folder': status.get('folder'),
+            'loaded': bool(status.get('loaded')),
+            'error': status.get('error'),
+            'from_cache': bool(status.get('from_cache')),
+            'source': status.get('source'),
+            'report_counts': counts,
+            'report': report if request.args.get('report') else None,
+            'factions': Faction.query.filter_by(source='bsdata').count(),
+            'units': Unit.query.join(Faction).filter(Faction.source == 'bsdata').count(),
+            'label': bsdata_label(app),
+            'download': load_settings(app.config['SETTINGS_JSON']).get('download'),
+            'download_folder': app.config['DOWNLOAD_DIR'],
+            'default_folder': app.config['DEFAULT_BSDATA_DIR'],
+        })
+
+    # --- Setup: choosing, downloading and re-importing the BSData folder -------------
+
+    @app.route('/setup')
+    def setup_page():
+        return render_template('setup.html')
+
+    @app.route('/api/bsdata/folder', methods=['POST'])
+    def api_bsdata_folder():
+        """Use the BSData folder {'path'} (null = back to the default), if it loads."""
+        path = (request.get_json() or {}).get('path')
+        settings_file = app.config['SETTINGS_JSON']
+        previous = load_settings(settings_file).get('bsdata_dir')
+        if path:
+            folder = Path(str(path).strip()).expanduser()
+            if not folder.is_dir():
+                return jsonify({'error': f'{folder} is not a folder.'}), 400
+            if not any(folder.glob('*.json')):
+                return jsonify({'error': f'{folder} holds no .json files. Choose the folder with the BSData '
+                                         'catalogues (e.g. "Warhammer 40,000.json").'}), 400
+            update_settings(settings_file, bsdata_dir=str(folder.resolve()))
+        else:
+            update_settings(settings_file, bsdata_dir=None)
+        status = reload_bsdata(app)
+        if status.get('error'):  # Keep the folder that worked
+            update_settings(settings_file, bsdata_dir=previous)
+            reload_bsdata(app)
+            return jsonify({'error': status['error']}), 400
+        return api_data_status()
+
+    @app.route('/api/bsdata/browse', methods=['POST'])
+    def api_bsdata_browse():
+        """Open the computer's folder dialog; {'path'} or {'path': null} if cancelled or unavailable."""
+        return jsonify({'path': folder_dialog.choose_folder(initial=app.config.get('BSDATA_DIR'))})
+
+    @app.route('/api/bsdata/download', methods=['POST'])
+    def api_bsdata_download():
+        """Download the latest catalogues from GitHub into the download folder and use it."""
+        try:
+            commit = bsdata_download.latest_commit()
+            count = bsdata_download.install_zip(bsdata_download.download_zip(commit['sha']), app.config['DOWNLOAD_DIR'])
+        except bsdata_download.DownloadError as err:
+            return jsonify({'error': str(err)}), 502
+        update_settings(app.config['SETTINGS_JSON'], bsdata_dir=app.config['DOWNLOAD_DIR'], download={
+            'sha': commit['sha'], 'date': commit['date'], 'files': count, 'folder': app.config['DOWNLOAD_DIR'],
+            'downloaded_at': datetime.now(timezone.utc).isoformat(timespec='seconds')})
+        status = reload_bsdata(app, fresh=True)
+        if status.get('error'):
+            return jsonify({'error': status['error']}), 400
+        return api_data_status()
+
+    @app.route('/api/bsdata/reimport', methods=['POST'])
+    def api_bsdata_reimport():
+        """Import the BSData folder again (after changing its files), ignoring the cache."""
+        reload_bsdata(app, fresh=True)
+        return api_data_status()
+
+    @app.route('/api/bsdata/skip-setup', methods=['POST'])
+    def api_bsdata_skip_setup():
+        """Use the app without BSData for now: the Simulator stops redirecting to Setup."""
+        update_settings(app.config['SETTINGS_JSON'], setup_skipped=True)
+        return jsonify({'message': 'Setup skipped'})
 
     def int_or_none(value):
         if value in (None, '', '-'):
@@ -431,19 +720,18 @@ def register_routes(app):
 
     @app.route('/api/data/export')
     def api_data_export():
-        """The current data JSON."""
-        return jsonify(export_data(app.config.get('DATA_SOURCE')))
+        """The current app data JSON (BSData records are left out)."""
+        return jsonify(export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED')))
 
     @app.route('/api/data/import', methods=['POST'])
     def api_data_import():
-        """Replace all reference data with an uploaded data JSON."""
+        """Replace all app data with an uploaded app data JSON (BSData stays as loaded)."""
         data = request.get_json()
         try:
             check_data(data)
         except DataFileError as err:
             return jsonify({'error': str(err)}), 400
-        rebuild_reference_tables(data)
-        app.config['DATA_SOURCE'] = data.get('source')
+        load_reference_data(app, data)
         save_data()
         return jsonify({'message': 'Data imported'})
 
@@ -473,27 +761,39 @@ def register_routes(app):
     def api_data_factions():
         """Get all factions with counts."""
         factions = Faction.query.order_by(Faction.name).all()
+        unit_counts = dict(db.session.query(Unit.faction_id, db.func.count(Unit.id)).group_by(Unit.faction_id))
         return jsonify([{
             'id': f.id,
             'name': f.name,
-            'unit_count': f.units.count(),
+            'source': f.source,
+            'editable': f.editable,
+            'unit_count': unit_counts.get(f.id, 0),
             'rule_count': f.faction_rules.count(),
             'stratagem_count': f.stratagems.count(),
         } for f in factions])
 
+    @app.route('/api/data/factions/<int:faction_id>/reference')
+    def api_data_faction_reference(faction_id):
+        """BSData's text for a faction: army rules and detachments (read-only reference)."""
+        faction = db.get_or_404(Faction, faction_id)
+        detachments = Detachment.query.filter_by(faction_id=faction.id).order_by(Detachment.name)
+        return jsonify({'army_rules': faction.army_rules or [], 'detachments': [d.to_dict() for d in detachments]})
+
     @app.route('/api/data/factions', methods=['POST'])
     def api_data_create_faction():
-        """Create a new faction."""
+        """Create a new (custom) faction."""
         data = request.get_json()
-        faction = Faction(name=data['name'].strip())
+        faction = Faction(id=next_custom_id(Faction), name=data['name'].strip(), source='custom')
         db.session.add(faction)
         save_data()
         return jsonify({'id': faction.id, 'name': faction.name})
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['PUT'])
     def api_data_update_faction(faction_id):
-        """Rename a faction."""
+        """Rename a custom faction."""
         faction = db.get_or_404(Faction, faction_id)
+        if not faction.editable:
+            return read_only()
         data = request.get_json()
         faction.name = data.get('name', faction.name).strip()
         save_data()
@@ -501,8 +801,10 @@ def register_routes(app):
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['DELETE'])
     def api_data_delete_faction(faction_id):
-        """Delete a faction with its units, weapons, rules and stratagems."""
+        """Delete a custom faction with its units, weapons, rules and stratagems."""
         faction = db.get_or_404(Faction, faction_id)
+        if not faction.editable:
+            return read_only()
         for unit in faction.units:
             unit.set_loadout('ranged', [])
             unit.set_loadout('melee', [])
@@ -517,11 +819,24 @@ def register_routes(app):
 
     # --- Faction rules ------------------------------------------------------
 
+    def apply_detachment(record, data):
+        """detachment_key from the request; its name is looked up (kept if the detachment isn't loaded)."""
+        key = (data.get('detachment_key') or '').strip() or None
+        known = Detachment.query.filter_by(bsdata_id=key).first() if key else None
+        if not key:
+            record.detachment_name = None
+        elif known:
+            record.detachment_name = known.name
+        elif key != record.detachment_key:
+            record.detachment_name = data.get('detachment_name') or key
+        record.detachment_key = key
+
     def apply_rule_fields(rule, data):
         rule.name = data['name'].strip()
         rule.applies_to = data.get('applies_to') or None
         rule.phase = data.get('phase') or None
         rule.modifier = (data.get('modifier') or '').strip() or None
+        apply_detachment(rule, data)
 
     @app.route('/api/data/rules')
     def api_data_rules():
@@ -562,6 +877,7 @@ def register_routes(app):
         strat.phase = data.get('phase') or None
         strat.modifier = (data.get('modifier') or '').strip() or None
         strat.notes = (data.get('notes') or '').strip() or None
+        apply_detachment(strat, data)
 
     @app.route('/api/data/stratagems')
     def api_data_stratagems():
@@ -601,7 +917,7 @@ def register_routes(app):
     def api_data_units():
         """Get all units with faction info and loadout counts."""
         faction_id = request.args.get('faction_id', type=int)
-        query = Unit.query.join(Faction)
+        query = legends_filter(Unit.query.join(Faction))
 
         if faction_id:
             query = query.filter(Unit.faction_id == faction_id)
@@ -639,6 +955,8 @@ def register_routes(app):
         unit.keywords = text_list(data.get('keywords'))
         unit.modifiers = text_list(data.get('modifiers'))
         unit.can_lead = text_list(data.get('can_lead'))
+        if 'leader_buffs' in data:
+            unit.leader_buffs = clean_buffs(data.get('leader_buffs'))
         unit.abilities = (data.get('abilities') or '').strip() or None
 
     def apply_unit_loadout(unit, data):
@@ -654,9 +972,11 @@ def register_routes(app):
 
     @app.route('/api/data/units', methods=['POST'])
     def api_data_create_unit():
-        """Create a new unit."""
+        """Create a new unit in a custom faction."""
         data = request.get_json()
-        unit = Unit()
+        if not editable_faction(data.get('faction_id')):
+            return read_only('Units can only be added to custom factions.')
+        unit = Unit(id=next_custom_id(Unit))
         apply_unit_fields(unit, data)
         db.session.add(unit)
         db.session.flush()
@@ -666,9 +986,25 @@ def register_routes(app):
 
     @app.route('/api/data/units/<int:unit_id>', methods=['PUT'])
     def api_data_update_unit(unit_id):
-        """Update a unit and its loadout."""
+        """
+        Update a custom unit and its loadout. A BSData unit only takes 'added_modifiers' and
+        'leader_buffs' (null = back to the ones read from BSData), which apply to that datasheet
+        in every faction that has it.
+        """
         unit = db.get_or_404(Unit, unit_id)
         data = request.get_json()
+        if not unit.editable:
+            if set(data) - {'added_modifiers', 'leader_buffs'}:
+                return read_only('BSData units are read-only apart from added modifiers and leader buffs.')
+            for same in Unit.query.filter_by(bsdata_id=unit.bsdata_id):
+                if 'added_modifiers' in data:
+                    same.added_modifiers = text_list(data.get('added_modifiers'))
+                if 'leader_buffs' in data:
+                    same.leader_buffs_override = None if data['leader_buffs'] is None else clean_buffs(data['leader_buffs'])
+            save_data()
+            return jsonify({'id': unit.id, 'message': 'Unit updated'})
+        if not editable_faction(data.get('faction_id', unit.faction_id)):
+            return read_only('Units can only be moved to custom factions.')
         apply_unit_fields(unit, data)
         db.session.flush()
         apply_unit_loadout(unit, data)
@@ -677,8 +1013,10 @@ def register_routes(app):
 
     @app.route('/api/data/units/<int:unit_id>', methods=['DELETE'])
     def api_data_delete_unit(unit_id):
-        """Delete a unit. Its faction's weapons stay."""
+        """Delete a custom unit. Its faction's weapons stay."""
         unit = db.get_or_404(Unit, unit_id)
+        if not unit.editable:
+            return read_only()
         unit.set_loadout('ranged', [])
         unit.set_loadout('melee', [])
         db.session.delete(unit)
@@ -689,11 +1027,11 @@ def register_routes(app):
 
     WEAPON_MODELS = {'ranged': RangedWeapon, 'melee': MeleeWeapon}
 
-    def weapon_dict(weapon):
+    def weapon_dict(weapon, unit_names=None):
         return dict(
             weapon.to_dict(),
             faction=weapon.faction.name if weapon.faction else None,
-            unit_names=sorted(u.name for u in weapon.units),
+            unit_names=sorted(u.name for u in weapon.units) if unit_names is None else sorted(unit_names),
         )
 
     @app.route('/api/data/weapons')
@@ -708,13 +1046,53 @@ def register_routes(app):
             query = model.query
             if faction_id:
                 query = query.filter(model.faction_id == faction_id)
-            weapons.extend(weapon_dict(w) for w in query.order_by(model.name).all())
+            # Units carrying each weapon, in one query (a faction can have hundreds of weapons)
+            table = unit_ranged_weapons if type_name == 'ranged' else unit_melee_weapons
+            users = {}
+            rows = db.session.query(table.c.weapon_id, Unit.name).join(Unit, Unit.id == table.c.unit_id)
+            if faction_id:
+                rows = rows.filter(Unit.faction_id == faction_id)
+            for weapon_id, unit_name in rows:
+                users.setdefault(weapon_id, set()).add(unit_name)
+            weapons.extend(weapon_dict(w, users.get(w.id, ())) for w in query.order_by(model.name).all())
         weapons.sort(key=lambda w: ((w['faction'] or '').lower(), w['name'].lower()))
         return jsonify(weapons)
+
+    def bsdata_profile(weapon_type, bsdata_id):
+        """A BSData weapon with this profile ID (any faction: the profile is the same)."""
+        if not bsdata_id:
+            return None
+        model = WEAPON_MODELS[weapon_type]
+        return model.query.join(Faction).filter(model.bsdata_id == bsdata_id, Faction.source == 'bsdata').first()
+
+    @app.route('/api/data/weapons/bsdata')
+    def api_data_bsdata_weapons():
+        """BSData weapons to copy into a custom faction: ?q=name&type=ranged|melee (one per profile, 40 at most)."""
+        search = request.args.get('q', '').strip()
+        types = [request.args.get('type')] if request.args.get('type') in WEAPON_MODELS else list(WEAPON_MODELS)
+        found, seen = [], set()
+        for type_name in types:
+            model = WEAPON_MODELS[type_name]
+            query = model.query.join(Faction).filter(Faction.source == 'bsdata')
+            if search:
+                query = query.filter(model.name.ilike(f'%{search}%'))
+            for w in query.order_by(model.name, model.id).limit(400):
+                if (type_name, w.bsdata_id) in seen:
+                    continue
+                seen.add((type_name, w.bsdata_id))
+                found.append(dict(w.to_dict(), faction=w.faction.name))
+        found.sort(key=lambda w: w['name'].lower())
+        return jsonify(found[:40])
 
     def apply_weapon_fields(weapon, weapon_type, data):
         weapon.faction_id = int(data['faction_id'])
         weapon.name = data['name'].strip()
+        linked = bsdata_profile(weapon_type, (data.get('linked_bsdata_id') or '').strip() or None)
+        weapon.linked_bsdata_id = linked.bsdata_id if linked else None
+        if linked:  # Stats come from BSData (and are refreshed from it on every start)
+            for field in LINKED_FIELDS[weapon_type]:
+                setattr(weapon, field, getattr(linked, field))
+            return
         weapon.attacks = str(data['attacks']).strip()
         weapon.strength = int(data['strength'])
         weapon.armor_penetration = abs(int(data['ap'] or 0))
@@ -729,10 +1107,12 @@ def register_routes(app):
 
     @app.route('/api/data/weapons', methods=['POST'])
     def api_data_create_weapon():
-        """Create a new weapon for a faction."""
+        """Create a new weapon for a custom faction."""
         data = request.get_json()
+        if not editable_faction(data.get('faction_id')):
+            return read_only('Weapons can only be added to custom factions.')
         weapon_type = 'ranged' if data.get('type') == 'ranged' else 'melee'
-        weapon = WEAPON_MODELS[weapon_type]()
+        weapon = WEAPON_MODELS[weapon_type](id=next_custom_id(WEAPON_MODELS[weapon_type]))
         apply_weapon_fields(weapon, weapon_type, data)
         db.session.add(weapon)
         save_data()
@@ -749,7 +1129,10 @@ def register_routes(app):
         """Update a weapon. Moving it to another faction drops it from other factions' units."""
         weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
         weapon = db.get_or_404(WEAPON_MODELS[weapon_type], weapon_id)
-        apply_weapon_fields(weapon, weapon_type, request.get_json())
+        data = request.get_json()
+        if not weapon.faction.editable or not editable_faction(data.get('faction_id', weapon.faction_id)):
+            return read_only()
+        apply_weapon_fields(weapon, weapon_type, data)
         db.session.flush()
 
         table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
@@ -765,6 +1148,8 @@ def register_routes(app):
         """Delete a weapon and remove it from every loadout."""
         weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
         weapon = db.get_or_404(WEAPON_MODELS[weapon_type], weapon_id)
+        if not weapon.faction.editable:
+            return read_only()
         table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
         db.session.execute(table.delete().where(table.c.weapon_id == weapon.id))
         db.session.delete(weapon)
@@ -806,15 +1191,20 @@ def register_routes(app):
         } for s in scenarios])
 
     # =========================================================================
-    # Matchups (Matrix Comparison) Routes
+    # Analytics (matrix comparison and Army Analysis) routes; the page was called Matchups
     # =========================================================================
 
     @app.route('/matchups')
     def matchups_page():
+        """The page's old address."""
+        return redirect('/analytics', code=301)
+
+    @app.route('/analytics')
+    def analytics_page():
         """Matrix comparison page for army analysis."""
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
-        return render_template('matchups.html', factions=factions_list)
+        return render_template('analytics.html', factions=factions_list)
 
     # Units without a points cost count as this many points per unit (placeholder until costs are entered)
     DEFAULT_UNIT_POINTS = 1
@@ -897,7 +1287,9 @@ def register_routes(app):
         }
 
         Each attacker unit's row adds up its weapons' average damage. A per-weapon
-        breakdown and an "All attackers" total row are returned alongside.
+        breakdown and an "All attackers" total row are returned alongside. An attacker or
+        defender can name a "leader_id": its buffs apply to that unit, and an attacker's leader
+        adds its points (its weapons come in the weapons list).
         """
         data = request.get_json()
         conditions = conditions_from_request(data.get('conditions', {}))
@@ -910,10 +1302,12 @@ def register_routes(app):
         attackers = []
         for atk in data.get('attackers', []):
             atk_unit = db.session.get(Unit, atk['unit_id']) if atk.get('unit_id') else None
+            atk_leader = load_leader(atk.get('leader_id'))
             weapons = []
             for w in atk.get('weapons', []):
                 w_type = 'melee' if w.get('weapon_type') == 'melee' else 'ranged'
-                weapon_modifiers = rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
+                weapon_modifiers = (rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
+                                    + leader_modifiers(atk_leader, 'Attacker', w_type))
                 weapon, profile = attacker_profile(w_type, w.get('weapon_id'), w.get('models', 1), weapon_modifiers)
                 if profile:
                     models = profile.models
@@ -926,6 +1320,8 @@ def register_routes(app):
             # Points for the chosen unit size (datasheet size if not given)
             unit_size = int(atk.get('unit_size') or (atk_unit.default_models if atk_unit else 0) or 0)
             points = atk_unit.points_for(unit_size) if atk_unit else None
+            if atk_leader is not None and points is not None:
+                points += atk_leader.points_for(atk_leader.default_models or 1) or 0
 
             # Kept even if its weapons were deleted, so rows stay aligned with the request
             attackers.append({
@@ -933,6 +1329,7 @@ def register_routes(app):
                 'points': points or DEFAULT_UNIT_POINTS,
                 'weapons': weapons,
                 'unit': atk_unit,
+                'leader': atk_leader,
                 'size': unit_size or 1,
             })
 
@@ -951,45 +1348,50 @@ def register_routes(app):
                     'weight': unit.weight if isinstance(unit, TargetProfile) else None,
                     # One-off target modifiers for this defender only (real units; never saved to the datasheet)
                     'extra_modifiers': text_list(def_config.get('extra_modifiers')) if isinstance(unit, Unit) else [],
+                    'leader': load_leader(def_config.get('leader_id')) if isinstance(unit, Unit) else None,
                 })
 
-        # Each defender as seen by ranged and by melee attacks (target rules can be phase-specific)
+        # Each defender as seen by ranged and by melee attacks (target rules can be phase-specific);
+        # with a leader it is an attached unit: its bodyguard models first, then the leader
         for d in defenders:
-            d['profiles'] = {
-                w_type: defender_profile(d['unit'], d['model_count'],
-                                         rule_modifiers(defender_rules, 'Target', d['unit'].faction_id, w_type)
-                                         + d['extra_modifiers'])
+            target_modifiers = {
+                w_type: (rule_modifiers(defender_rules, 'Target', d['unit'].faction_id, w_type)
+                         + leader_modifiers(d['leader'], 'Target', w_type) + d['extra_modifiers'])
                 for w_type in ('ranged', 'melee')
             }
+            d['profiles'] = {w_type: defender_profile(d['unit'], d['model_count'], mods)
+                             for w_type, mods in target_modifiers.items()}
+            d['leader_profiles'] = {w_type: leader_target(d['leader'], mods) for w_type, mods in target_modifiers.items()} \
+                if d['leader'] is not None else None
+            d['total_models'] = d['model_count'] + (d['leader'].default_models or 1 if d['leader'] is not None else 0)
 
         def weapon_part(result):
             return (result.average_damage, result.models_killed, result.overkill)
 
-        # Average damage and kills of every weapon against every defender
-        weapon_damage = [
-            [
-                [weapon_part(simulate_analytical(w['profile'], d['profiles'][w['type']], conditions))
-                 for d in defenders]
-                for w in atk['weapons']
-            ]
-            for atk in attackers
-        ]
+        def cell(weapons, d, points):
+            """Matrix metrics for weapons attacking a defender together (in order, for an attached unit)."""
+            if d['leader_profiles'] is None:
+                return combine_cells([weapon_part(simulate_analytical(w['profile'], d['profiles'][w['type']], conditions))
+                                      for w in weapons], d['unit'], d['model_count'], points)
+            result, _ = simulate_attached_analytical(
+                [w['profile'] for w in weapons], d['profiles']['ranged'], d['leader_profiles']['ranged'], conditions,
+                bodyguard_targets=[d['profiles'][w['type']] for w in weapons],
+                leader_targets=[d['leader_profiles'][w['type']] for w in weapons])
+            metrics = combine_cells([weapon_part(result)], d['unit'], d['total_models'], points)
+            metrics.update(bodyguards_killed=result.bodyguards_killed, leader_killed=result.leader_killed,
+                           leader_damage=result.leader_damage, leader_wounds=d['leader'].wounds * (d['leader'].default_models or 1))
+            return metrics
 
         matrix = []
         weapon_matrix = []
-        for atk_idx, atk in enumerate(attackers):
-            matrix.append([
-                combine_cells([wd[def_idx] for wd in weapon_damage[atk_idx]], d['unit'], d['model_count'], atk['points'])
-                for def_idx, d in enumerate(defenders)
-            ])
-            weapon_matrix.append([
-                [combine_cells([weapon_damage[atk_idx][w_idx][def_idx]], d['unit'], d['model_count'], atk['points'])
-                 for def_idx, d in enumerate(defenders)]
-                for w_idx in range(len(atk['weapons']))
-            ])
+        for atk in attackers:
+            matrix.append([cell(atk['weapons'], d, atk['points']) for d in defenders])
+            weapon_matrix.append([[cell([w], d, atk['points']) for d in defenders] for w in atk['weapons']])
 
         total_points = sum(a['points'] for a in attackers)
+        all_weapons = [w for atk in attackers for w in atk['weapons']]
         total_cells = [
+            cell(all_weapons, d, total_points) if d['leader_profiles'] is not None else
             combine_cells([(row[def_idx]['avg_damage'], row[def_idx]['models_killed'], row[def_idx]['overkill'])
                            for row in matrix],
                           d['unit'], d['model_count'], total_points)
@@ -1002,7 +1404,8 @@ def register_routes(app):
                 'points': a['points'],
                 'weapons': [{'label': w['label'], 'type': w['type'], 'models': w['models']} for w in a['weapons']],
             } for a in attackers],
-            'defenders': [{'label': d['label'], 'points': d['points'], 'weight': d['weight']} for d in defenders],
+            'defenders': [{'label': d['label'], 'points': d['points'], 'weight': d['weight'],
+                           'leader': d['leader'].name if d['leader'] is not None else None} for d in defenders],
             'matrix': matrix,  # [attacker unit][defender]
             'weapon_matrix': weapon_matrix,  # [attacker unit][weapon][defender]
             'total': {'label': 'All attackers', 'points': total_points, 'cells': total_cells},
@@ -1039,12 +1442,12 @@ def register_routes(app):
 
         for atk_idx, atk in enumerate(attackers):
             for def_idx, d in enumerate(defenders):
-                add_percentages(matrix[atk_idx][def_idx], d['model_count'], atk['points'])
+                add_percentages(matrix[atk_idx][def_idx], d['total_models'], atk['points'])
                 for weapon_cells in weapon_matrix[atk_idx]:
-                    add_percentages(weapon_cells[def_idx], d['model_count'], atk['points'])
+                    add_percentages(weapon_cells[def_idx], d['total_models'], atk['points'])
         for def_idx, d in enumerate(defenders):
-            add_percentages(total_cells[def_idx], d['model_count'], total_points)
-            total_cells[def_idx]['wiped'] = total_cells[def_idx]['kills_uncapped'] >= d['model_count']
+            add_percentages(total_cells[def_idx], d['total_models'], total_points)
+            total_cells[def_idx]['wiped'] = total_cells[def_idx]['kills_uncapped'] >= d['total_models'] - 1e-9
 
         results['analysis'] = army_analysis(attackers, defenders, matrix, total_cells, total_points,
                                             conditions, data.get('weapon_filter', 'both'))
@@ -1079,9 +1482,9 @@ def register_routes(app):
         gaps = []
         for d, cell in zip(defenders, total_cells):
             if not cell.get('wiped'):
-                killed = min(cell['kills_uncapped'], d['model_count'])
-                gaps.append({'label': d['label'], 'models': d['model_count'],
-                             'survivors': round(d['model_count'] - killed, 2), 'pct_destroyed': cell['pct_destroyed']})
+                killed = min(cell['kills_uncapped'], d['total_models'])
+                gaps.append({'label': d['label'], 'models': d['total_models'],
+                             'survivors': round(d['total_models'] - killed, 2), 'pct_destroyed': cell['pct_destroyed']})
         gaps.sort(key=lambda g: (-g['survivors'], g['pct_destroyed']))
 
         def army_kills(target):
@@ -1148,11 +1551,18 @@ def register_routes(app):
                 continue
             models = atk['size'] or unit.default_models or 1
             target = defender_profile(unit, models)
+            leader = leader_target(atk['leader']) if atk['leader'] is not None else None
+            total_models = models + (leader.model_count if leader else 0)
             cells = []
             for enemy in enemies:
-                kills = sum(simulate_analytical(profile, target, conditions).models_killed for profile in enemy['profiles'])
-                cells.append(round(min(1.0, kills / models) * 100, 1))
-            rows.append({'label': atk['label'], 'models': models, 'cells': cells, 'total': round(min(100.0, sum(cells)), 1)})
+                if leader is not None:  # My unit with its leader: bodyguard models first, then the leader
+                    kills = simulate_attached_analytical(enemy['profiles'], target, leader, conditions)[0].models_killed \
+                        if enemy['profiles'] else 0
+                else:
+                    kills = sum(simulate_analytical(profile, target, conditions).models_killed for profile in enemy['profiles'])
+                cells.append(round(min(1.0, kills / total_models) * 100, 1))
+            rows.append({'label': atk['label'], 'models': total_models, 'cells': cells,
+                         'total': round(min(100.0, sum(cells)), 1)})
 
         threat = [round(sum(row['cells'][j] for row in rows), 1) for j in range(len(enemies))]
         biggest = max(range(len(enemies)), key=lambda j: threat[j]) if enemies and rows else None
@@ -1179,9 +1589,10 @@ def register_routes(app):
         Request body:
         {
             "weapons": [{"weapon_id": 1, "weapon_type": "ranged", "models": 9}, ...],
-            "unit_id": 4, "model_count": 5,
+            "unit_id": 4, "model_count": 5, "leader_id": 9,
             "conditions": {...}, "iterations": 1000
         }
+        Each weapon can carry the "leader_id" of its unit's leader; the top-level one leads the defender.
 
         All weapons are rolled together in each iteration, so a unit row or the
         "All attackers" row gets a true combined damage distribution.
@@ -1196,27 +1607,37 @@ def register_routes(app):
         attacker_rules = selected_rules(data.get('attacker_rules'))
         defender_rules = selected_rules(data.get('defender_rules'))
         extra_modifiers = text_list(data.get('extra_modifiers')) if isinstance(unit, Unit) else []
+        defender_leader = load_leader(data.get('leader_id')) if isinstance(unit, Unit) else None
 
         # Each weapon with its own unit's attacker rules, against the target as its phase sees it
-        profiles, targets = [], []
+        profiles, targets, leader_targets = [], [], []
         for w in data.get('weapons', []):
             w_type = 'melee' if w.get('weapon_type') == 'melee' else 'ranged'
             atk_unit = db.session.get(Unit, w['unit_id']) if w.get('unit_id') else None
-            weapon_modifiers = rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
+            weapon_modifiers = (rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
+                                + leader_modifiers(load_leader(w.get('leader_id')), 'Attacker', w_type))
             _, profile = attacker_profile(w_type, w.get('weapon_id'), w.get('models', 1), weapon_modifiers)
             if profile:
                 profiles.append(profile)
-                targets.append(defender_profile(unit, model_count,
-                                                rule_modifiers(defender_rules, 'Target', unit.faction_id, w_type)
-                                                + extra_modifiers))
+                target_modifiers = (rule_modifiers(defender_rules, 'Target', unit.faction_id, w_type)
+                                    + leader_modifiers(defender_leader, 'Target', w_type) + extra_modifiers)
+                targets.append(defender_profile(unit, model_count, target_modifiers))
+                if defender_leader is not None:
+                    leader_targets.append(leader_target(defender_leader, target_modifiers))
         if not profiles:
             return jsonify({'error': 'No weapons found'}), 400
 
-        result = simulate_monte_carlo_combined(
-            profiles, defender_profile(unit, model_count, extra_modifiers),
-            conditions_from_request(data.get('conditions', {})), iterations,
-            weapon_defenders=targets,
-        )
+        conditions = conditions_from_request(data.get('conditions', {}))
+        if defender_leader is not None:  # Attached unit: bodyguard models first, then the leader
+            result = simulate_monte_carlo_attached(
+                profiles, defender_profile(unit, model_count, extra_modifiers),
+                leader_target(defender_leader, extra_modifiers), conditions, iterations,
+                bodyguard_targets=targets, leader_targets=leader_targets)
+        else:
+            result = simulate_monte_carlo_combined(
+                profiles, defender_profile(unit, model_count, extra_modifiers), conditions, iterations,
+                weapon_defenders=targets,
+            )
 
         return jsonify({
             'summary': {
@@ -1225,6 +1646,10 @@ def register_routes(app):
                 'overkill': result.overkill,
                 'kill_probability': result.kill_probability,
                 'wipe_probability': result.wipe_probability,
+                'bodyguards_killed': result.bodyguards_killed,
+                'leader_killed': result.leader_killed,
+                'leader_damage': result.leader_damage,
+                'leader_kill_probability': result.leader_kill_probability,
             },
             'breakdown': {
                 'attacks': result.attacks_made,
