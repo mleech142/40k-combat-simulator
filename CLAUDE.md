@@ -8,7 +8,7 @@ Flask app in `src/combat_sim/`. Entry point: `python run.py` (waitress on 127.0.
 
 Two sources, merged into the reference tables on every start (`create_app()` → `data_store.merge_data` → `rebuild_reference_tables`):
 
-- **BSData catalogues** ([BSData/wh40k-11e](https://github.com/BSData/wh40k-11e)): factions, units, weapons, loadouts, points. Users download the `.json` files themselves into the `bsdata` folder next to the app data JSON (`BSDATA_DIR` overrides). **Never commit or ship them** (`data/bsdata/` is gitignored). `src/combat_sim/bsdata.py` imports them; the result is cached in `bsdata_cache.json` until the files change (bump `bsdata.IMPORTER_VERSION` when the importer's output changes). Open import findings: `docs/bsdata-import-findings.md`.
+- **BSData catalogues** ([BSData/wh40k-11e](https://github.com/BSData/wh40k-11e)): factions, units, weapons, loadouts, points. Users get the `.json` files themselves on the Setup page (`/setup`): "Download latest" (`bsdata_download.py`, GitHub zipball into the `bsdata` folder next to the app data JSON) or a folder they choose (native dialog in `folder_dialog.py`). The folder in use is the one saved in `settings.json` (`settings.py`), else `BSDATA_DIR`, else that `bsdata` folder. **Never commit or ship them** (`data/bsdata/` is gitignored). `src/combat_sim/bsdata.py` imports them; the result is cached in `bsdata_cache.json` until the files change (bump `bsdata.IMPORTER_VERSION` when the importer's output changes). Open import findings: `docs/bsdata-import-findings.md`.
 - **App data JSON** (`data/app_data.json`, committed and shipped): everything the app owns — custom factions with their units and weapons, faction rules and stratagems, modifiers added to BSData units (`unit_modifiers`), the keyword glossary and target profiles. Format and loading live in `src/combat_sim/data_store.py` (`schema_version` 2, record keys = DB column names; version 1 files load as all-custom data).
 
 Rules:
@@ -38,6 +38,7 @@ The v2 workbook `40KCombatSimulator_v2.xlsx` is frozen; it is now only the simul
 - `/` - Single combat simulator
 - `/matchups` - Attacker units × defender units matrix + Army Analysis
 - `/scenarios` - Saved scenarios
+- `/setup` - Choose, download or re-import the BSData folder; import notes. `/` redirects here until BSData loads or setup is skipped
 - `/data` - BSData import status; factions (with rules and stratagems), units and weapons (BSData read-only, custom editable); read-only Keywords and Target Profiles
 
 API routes in `app.py` under `register_routes()`. `static/js/app.js` is loaded on every page (shared `PageState`, `KeywordHints`). `/api/units` and `/api/data/units` leave Legends units out unless `?legends=1`.

@@ -6,7 +6,8 @@ import os
 import secrets
 import uuid
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify
+from datetime import datetime, timezone
+from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy.exc import IntegrityError
 from .models import (db, init_db, Faction, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
                      SavedScenario, SavedComparison, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
@@ -14,6 +15,8 @@ from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file)
+from . import bsdata_download, folder_dialog
+from .settings import settings_path, load_settings, update_settings
 from .simulation import (
     simulate, simulate_analytical, simulate_monte_carlo_combined, keyword_name, check_keywords,
     AttackerProfile, DefenderProfile, BattleConditions
@@ -24,10 +27,11 @@ def create_app(config=None):
     """Application factory."""
     app = Flask(__name__)
 
-    # Configuration. The app data JSON (custom factions, rules, stratagems, references), the
-    # BSData folder and the database default to the folder from paths.data_dir(): the
-    # repository's data/ from source, a per-user folder in the packaged exe.
-    # The BSData folder and the import cache sit next to the app data JSON unless BSDATA_DIR says otherwise.
+    # Configuration. The app data JSON (custom factions, rules, stratagems, references) and the
+    # database default to the folder from paths.data_dir(): the repository's data/ from source,
+    # a per-user folder in the packaged exe. Settings, the import cache and "Download latest"
+    # sit next to the app data JSON. The BSData folder is the one chosen on the Setup page,
+    # else BSDATA_DIR, else the bsdata folder next to the app data JSON.
     data_json = os.environ.get('DATA_JSON')
     database_url = os.environ.get('DATABASE_URL')
     if not (data_json and database_url):
@@ -36,8 +40,10 @@ def create_app(config=None):
         database_url = database_url or 'sqlite:///' + (folder / DATABASE_FILE).as_posix()
     app.config['DATA_JSON'] = data_json
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-    app.config['BSDATA_DIR'] = os.environ.get('BSDATA_DIR') or str(Path(data_json).parent / BSDATA_FOLDER)
+    app.config['DOWNLOAD_DIR'] = str(Path(data_json).parent / BSDATA_FOLDER)
+    app.config['DEFAULT_BSDATA_DIR'] = os.environ.get('BSDATA_DIR') or app.config['DOWNLOAD_DIR']
     app.config['BSDATA_CACHE'] = str(Path(data_json).parent / BSDATA_CACHE_FILE)
+    app.config['SETTINGS_JSON'] = str(settings_path(data_json))
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -47,7 +53,8 @@ def create_app(config=None):
 
     @app.context_processor
     def inject_page_globals():
-        return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__}
+        return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
+                'bsdata_label': bsdata_label(app)}
 
     if config:
         app.config.update(config)
@@ -55,17 +62,44 @@ def create_app(config=None):
     # Initialize database, then rebuild the reference tables from BSData and the app data JSON
     init_db(app)
     with app.app_context():
-        data = read_data_file(app.config['DATA_JSON'])
-        known = [k['name'] for k in data.get('keywords', [])] or None
-        result, status = load_bsdata(app.config['BSDATA_DIR'], app.config['BSDATA_CACHE'], known)
-        app.config['BSDATA_RESULT'] = result
-        app.config['BSDATA_STATUS'] = status
-        load_reference_data(app, data)
+        reload_bsdata(app)
 
     # Register routes
     register_routes(app)
 
     return app
+
+
+def bsdata_folder(app):
+    """The BSData folder in use: chosen on the Setup page, else the default."""
+    chosen = load_settings(app.config['SETTINGS_JSON']).get('bsdata_dir')
+    return chosen or app.config['DEFAULT_BSDATA_DIR']
+
+
+def reload_bsdata(app, fresh=False):
+    """(Re)import the BSData folder and rebuild the reference tables. fresh: ignore the cache."""
+    if fresh:
+        Path(app.config['BSDATA_CACHE']).unlink(missing_ok=True)
+    data = read_data_file(app.config['DATA_JSON'])
+    known = [k['name'] for k in data.get('keywords', [])] or None
+    app.config['BSDATA_DIR'] = bsdata_folder(app)
+    result, status = load_bsdata(app.config['BSDATA_DIR'], app.config['BSDATA_CACHE'], known)
+    app.config['BSDATA_RESULT'] = result
+    app.config['BSDATA_STATUS'] = status
+    load_reference_data(app, data)
+    return status
+
+
+def bsdata_label(app):
+    """Data version for the footer: the downloaded commit, else the game system revision."""
+    status = app.config.get('BSDATA_STATUS') or {}
+    if not status.get('loaded'):
+        return None
+    download = load_settings(app.config['SETTINGS_JSON']).get('download') or {}
+    if download.get('sha') and download.get('folder') == app.config.get('BSDATA_DIR'):
+        return f"@ {download['sha'][:7]}, {(download.get('date') or '')[:10]}".rstrip(', ')
+    revision = ((status.get('source') or {}).get('game_system') or {}).get('revision')
+    return f'game system revision {revision}' if revision is not None else None
 
 
 def load_reference_data(app, data):
@@ -159,7 +193,10 @@ def register_routes(app):
 
     @app.route('/')
     def index():
-        """Main simulation page."""
+        """Main simulation page (the Setup page until BSData loads or the user skips it)."""
+        status = app.config.get('BSDATA_STATUS') or {}
+        if not status.get('loaded') and not load_settings(app.config['SETTINGS_JSON']).get('setup_skipped'):
+            return redirect('/setup')
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
         return render_template('index.html', factions=factions_list)
@@ -472,7 +509,73 @@ def register_routes(app):
             'report': report if request.args.get('report') else None,
             'factions': Faction.query.filter_by(source='bsdata').count(),
             'units': Unit.query.join(Faction).filter(Faction.source == 'bsdata').count(),
+            'label': bsdata_label(app),
+            'download': load_settings(app.config['SETTINGS_JSON']).get('download'),
+            'download_folder': app.config['DOWNLOAD_DIR'],
+            'default_folder': app.config['DEFAULT_BSDATA_DIR'],
         })
+
+    # --- Setup: choosing, downloading and re-importing the BSData folder -------------
+
+    @app.route('/setup')
+    def setup_page():
+        return render_template('setup.html')
+
+    @app.route('/api/bsdata/folder', methods=['POST'])
+    def api_bsdata_folder():
+        """Use the BSData folder {'path'} (null = back to the default), if it loads."""
+        path = (request.get_json() or {}).get('path')
+        settings_file = app.config['SETTINGS_JSON']
+        previous = load_settings(settings_file).get('bsdata_dir')
+        if path:
+            folder = Path(str(path).strip()).expanduser()
+            if not folder.is_dir():
+                return jsonify({'error': f'{folder} is not a folder.'}), 400
+            if not any(folder.glob('*.json')):
+                return jsonify({'error': f'{folder} holds no .json files. Choose the folder with the BSData '
+                                         'catalogues (e.g. "Warhammer 40,000.json").'}), 400
+            update_settings(settings_file, bsdata_dir=str(folder.resolve()))
+        else:
+            update_settings(settings_file, bsdata_dir=None)
+        status = reload_bsdata(app)
+        if status.get('error'):  # Keep the folder that worked
+            update_settings(settings_file, bsdata_dir=previous)
+            reload_bsdata(app)
+            return jsonify({'error': status['error']}), 400
+        return api_data_status()
+
+    @app.route('/api/bsdata/browse', methods=['POST'])
+    def api_bsdata_browse():
+        """Open the computer's folder dialog; {'path'} or {'path': null} if cancelled or unavailable."""
+        return jsonify({'path': folder_dialog.choose_folder(initial=app.config.get('BSDATA_DIR'))})
+
+    @app.route('/api/bsdata/download', methods=['POST'])
+    def api_bsdata_download():
+        """Download the latest catalogues from GitHub into the download folder and use it."""
+        try:
+            commit = bsdata_download.latest_commit()
+            count = bsdata_download.install_zip(bsdata_download.download_zip(commit['sha']), app.config['DOWNLOAD_DIR'])
+        except bsdata_download.DownloadError as err:
+            return jsonify({'error': str(err)}), 502
+        update_settings(app.config['SETTINGS_JSON'], bsdata_dir=app.config['DOWNLOAD_DIR'], download={
+            'sha': commit['sha'], 'date': commit['date'], 'files': count, 'folder': app.config['DOWNLOAD_DIR'],
+            'downloaded_at': datetime.now(timezone.utc).isoformat(timespec='seconds')})
+        status = reload_bsdata(app, fresh=True)
+        if status.get('error'):
+            return jsonify({'error': status['error']}), 400
+        return api_data_status()
+
+    @app.route('/api/bsdata/reimport', methods=['POST'])
+    def api_bsdata_reimport():
+        """Import the BSData folder again (after changing its files), ignoring the cache."""
+        reload_bsdata(app, fresh=True)
+        return api_data_status()
+
+    @app.route('/api/bsdata/skip-setup', methods=['POST'])
+    def api_bsdata_skip_setup():
+        """Use the app without BSData for now: the Simulator stops redirecting to Setup."""
+        update_settings(app.config['SETTINGS_JSON'], setup_skipped=True)
+        return jsonify({'message': 'Setup skipped'})
 
     def int_or_none(value):
         if value in (None, '', '-'):

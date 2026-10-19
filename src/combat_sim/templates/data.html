@@ -510,14 +510,13 @@ async function loadStatus() {
         const flags = Object.values(status.report_counts || {}).reduce((a, b) => a + b, 0);
         el.className = 'bsdata-status bsdata-status-ok';
         el.innerHTML = `BSData: ${status.factions} factions, ${status.units} units from ${folder}` +
-            (flags ? ` <span class="muted">(${flags} import notes)</span>` : '');
+            (flags ? ` <span class="muted">(${flags} import notes)</span>` : '') + ' · <a href="/setup">Setup</a>';
     } else if (status.error) {
         el.className = 'bsdata-status bsdata-status-error';
-        el.innerHTML = `BSData folder ${folder} could not be read: ${esc(status.error)}`;
+        el.innerHTML = `BSData folder ${folder} could not be read: ${esc(status.error)} · <a href="/setup">Setup</a>`;
     } else {
         el.className = 'bsdata-status bsdata-status-missing';
-        el.innerHTML = `No BSData catalogues in ${folder}. Download the <code>.json</code> files from ` +
-            `github.com/BSData/wh40k-11e into that folder and restart the app.`;
+        el.innerHTML = `No BSData catalogues in ${folder}. <a href="/setup">Download them or choose a folder</a>.`;
     }
 }
 

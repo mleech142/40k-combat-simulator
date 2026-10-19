@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}Setup - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="setup-page">
+    <div class="page-header">
+        <h2>🛠️ Setup</h2>
+    </div>
+    <p class="data-note">Factions, units, weapons and points come from the community-maintained
+        <a href="https://github.com/BSData/wh40k-11e" target="_blank" rel="noopener">BSData wh40k-11e</a> catalogues
+        (not endorsed by Games Workshop). The app doesn't include them: download your own copy here, or point it at a
+        folder of the <code>.json</code> files you already have.</p>
+
+    <div class="bsdata-status" id="setup-status">Checking…</div>
+
+    <section class="setup-card">
+        <h3>Download the latest catalogues</h3>
+        <p>Fetches the newest version of every catalogue from GitHub into <code id="download-folder"></code> and
+            uses it. If the download fails, the current data stays as it is.</p>
+        <div class="setup-row">
+            <button class="btn btn-primary" id="download-btn" onclick="downloadLatest()">⬇️ Download latest</button>
+        </div>
+        <div class="setup-message" id="download-message"></div>
+    </section>
+
+    <section class="setup-card">
+        <h3>Use a folder you already have</h3>
+        <p>The folder holding <code>Warhammer 40,000.json</code> and the faction catalogues (for example a
+            downloaded and unzipped copy of the GitHub repository).</p>
+        <div class="setup-row">
+            <input type="text" id="folder-input" class="filter-input" placeholder="C:\path\to\wh40k-11e">
+            <button class="btn btn-secondary" id="browse-btn" onclick="browseFolder()">Browse…</button>
+            <button class="btn btn-primary" id="folder-btn" onclick="useFolder()">Use this folder</button>
+        </div>
+        <div class="setup-row" style="margin-top: 0.5rem">
+            <button class="btn-small" onclick="useFolder(null)">Use the default folder</button>
+            <span class="weapon-picker-hint" id="default-folder"></span>
+        </div>
+        <div class="setup-message" id="folder-message"></div>
+    </section>
+
+    <section class="setup-card">
+        <h3>Re-import</h3>
+        <p>Changed the files in the folder yourself? Import them again (the app also notices on its next start).</p>
+        <div class="setup-row">
+            <button class="btn btn-secondary" id="reimport-btn" onclick="reimport()">🔄 Re-import</button>
+        </div>
+        <div class="setup-message" id="reimport-message"></div>
+    </section>
+
+    <section class="setup-card" id="report-card" style="display:none">
+        <h3>Import notes</h3>
+        <p>Things the importer couldn't read fully. The units still import; these are worth knowing when a result
+            looks off.</p>
+        <details class="setup-report" id="report-details">
+            <summary id="report-summary"></summary>
+            <table class="data-table data-table-compact">
+                <thead><tr><th>Kind</th><th>Faction</th><th>Unit</th><th>Detail</th></tr></thead>
+                <tbody id="report-rows"></tbody>
+            </table>
+        </details>
+    </section>
+
+    <div class="setup-row">
+        <a class="btn btn-primary" href="/" id="continue-btn" style="display:none">Continue to the Simulator</a>
+        <button class="btn btn-secondary" id="skip-btn" onclick="skipSetup()" style="display:none">Continue without BSData</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const esc = Core.escapeHtml;
+
+const REPORT_KINDS = {
+    leader: 'Leader target not found', unknown_keyword: 'Unknown weapon keyword', mixed_profile: 'Mixed stat lines',
+    weapon_stats: 'Unreadable weapon', points: 'Points not fully worked out', missing_link: 'Broken link',
+    skipped_unit: 'Unit skipped', skipped_faction: 'Faction skipped',
+};
+
+document.addEventListener('DOMContentLoaded', () => loadStatus());
+
+async function loadStatus(status = null) {
+    status = status || await fetch('/api/data/status').then(r => r.json());
+    renderStatus(status);
+    return status;
+}
+
+function renderStatus(status) {
+    const el = document.getElementById('setup-status');
+    const folder = `<code>${esc(status.folder || '')}</code>`;
+    if (status.loaded) {
+        el.className = 'bsdata-status bsdata-status-ok';
+        el.innerHTML = `✓ Using ${folder}: ${status.factions} factions, ${status.units} units` +
+            (status.label ? ` <span class="muted">(${esc(status.label)})</span>` : '');
+    } else if (status.error) {
+        el.className = 'bsdata-status bsdata-status-error';
+        el.innerHTML = `${folder} could not be read: ${esc(status.error)}`;
+    } else {
+        el.className = 'bsdata-status bsdata-status-missing';
+        el.innerHTML = `No BSData catalogues yet (looked in ${folder}). Download them or choose a folder below.`;
+    }
+    document.getElementById('download-folder').textContent = status.download_folder || '';
+    document.getElementById('default-folder').textContent = status.default_folder ? `(${status.default_folder})` : '';
+    const input = document.getElementById('folder-input');
+    if (!input.value) input.value = status.folder || '';
+    document.getElementById('continue-btn').style.display = status.loaded ? '' : 'none';
+    document.getElementById('skip-btn').style.display = status.loaded ? 'none' : '';
+    renderReportSummary(status);
+}
+
+function renderReportSummary(status) {
+    const counts = status.report_counts || {};
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    document.getElementById('report-card').style.display = status.loaded && total ? '' : 'none';
+    document.getElementById('report-summary').textContent = `${total} notes: ` +
+        Object.entries(counts).map(([kind, n]) => `${n} × ${REPORT_KINDS[kind] || kind}`).join(', ');
+    document.getElementById('report-rows').innerHTML = '';
+    document.getElementById('report-details').open = false;
+}
+
+// The full report is large: fetched the first time it is opened
+document.addEventListener('toggle', async e => {
+    if (e.target.id !== 'report-details' || !e.target.open) return;
+    const rows = document.getElementById('report-rows');
+    if (rows.children.length) return;
+    const status = await fetch('/api/data/status?report=1').then(r => r.json());
+    rows.innerHTML = (status.report || []).map(item => `<tr>
+        <td>${esc(REPORT_KINDS[item.kind] || item.kind)}</td><td>${esc(item.faction || '')}</td>
+        <td>${esc(item.unit || '')}</td><td>${esc(item.detail)}</td></tr>`).join('');
+}, true);
+
+/** POST and show the outcome in a message line; returns the new status or null. */
+async function run(button, messageId, url, body, working) {
+    const message = document.getElementById(messageId);
+    const buttons = document.querySelectorAll('.setup-page button');
+    buttons.forEach(b => b.disabled = true);
+    message.className = 'setup-message';
+    message.textContent = working;
+    try {
+        const resp = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                       body: JSON.stringify(body || {})});
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            message.className = 'setup-message error';
+            message.textContent = data.error || 'That did not work.';
+            return null;
+        }
+        message.className = 'setup-message ok';
+        message.textContent = data.loaded ? `Done: ${data.factions} factions, ${data.units} units.` : 'Done.';
+        await loadStatus(data);
+        return data;
+    } catch (err) {
+        message.className = 'setup-message error';
+        message.textContent = 'The app could not be reached.';
+        return null;
+    } finally {
+        buttons.forEach(b => b.disabled = false);
+    }
+}
+
+function downloadLatest() {
+    run(null, 'download-message', '/api/bsdata/download', {}, 'Downloading from GitHub and importing… (this can take a minute)');
+}
+
+async function browseFolder() {
+    const message = document.getElementById('folder-message');
+    message.className = 'setup-message';
+    message.textContent = 'A folder window has opened (it may be behind this browser window)…';
+    const resp = await fetch('/api/bsdata/browse', {method: 'POST'}).then(r => r.json()).catch(() => ({}));
+    message.textContent = '';
+    if (resp.path) document.getElementById('folder-input').value = resp.path;
+    else message.textContent = 'No folder chosen. You can also paste its path in the box.';
+}
+
+function useFolder(path = undefined) {
+    const value = path === undefined ? document.getElementById('folder-input').value.trim() : path;
+    if (path === null) document.getElementById('folder-input').value = '';
+    run(null, 'folder-message', '/api/bsdata/folder', {path: value || null}, 'Importing the folder…');
+}
+
+function reimport() {
+    run(null, 'reimport-message', '/api/bsdata/reimport', {}, 'Importing again…');
+}
+
+async function skipSetup() {
+    await fetch('/api/bsdata/skip-setup', {method: 'POST'});
+    window.location.href = '/';
+}
+</script>
+{% endblock %}

@@ -80,7 +80,7 @@ def test_app_defaults_to_the_prepared_data_folder(frozen, monkeypatch):
     app = create_app()
     assert app.config['DATA_JSON'] == str(user / paths.DATA_FILE)
     assert app.config['SQLALCHEMY_DATABASE_URI'] == 'sqlite:///' + (user / paths.DATABASE_FILE).as_posix()
-    assert f'v{__version__}' in app.test_client().get('/').get_data(as_text=True)
+    assert f'v{__version__}' in app.test_client().get('/', follow_redirects=True).get_data(as_text=True)
 
 
 @pytest.fixture(scope='module')

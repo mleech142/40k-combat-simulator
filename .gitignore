@@ -39,7 +39,10 @@ data/*.db
 
 # BSData catalogues (users download them; never committed or shipped), the cached import, v1 archive
 data/bsdata/
+data/bsdata.old/
+data/bsdata-new-*/
 data/bsdata_cache.json
+data/settings.json
 data/archive-v1/
 
 # Logs

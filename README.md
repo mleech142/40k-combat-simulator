@@ -43,7 +43,7 @@ The browser opens <http://127.0.0.1:5000> (or another free port if 5000 is taken
 - Windows: double-click `launcher.bat`
 - Linux/Mac: `chmod +x launcher.sh && ./launcher.sh`
 
-The launchers create a virtual environment, install the requirements, warn if `data/bsdata` holds no BSData catalogues, and start the app.
+The launchers create a virtual environment, install the requirements and start the app. On first run the app opens its **Setup** page: click **Download latest** to fetch the BSData catalogues from GitHub, or choose a folder of them you already have.
 
 ## Using the app
 
@@ -68,7 +68,8 @@ Both pages remember their setup while you move between tabs; it is cleared when 
 
 | File | What it holds |
 | --- | --- |
-| `data/bsdata/*.json` | **Unit data** — the BSData catalogues from [github.com/BSData/wh40k-11e](https://github.com/BSData/wh40k-11e): factions, units, weapons, loadouts and points. Download them yourself; they are never committed or shipped, and are read-only in the app. |
+| `data/bsdata/*.json` | **Unit data** — the BSData catalogues from [github.com/BSData/wh40k-11e](https://github.com/BSData/wh40k-11e): factions, units, weapons, loadouts and points. Get them on the Setup page (or use another folder chosen there); they are never committed or shipped, and are read-only in the app. |
+| `data/settings.json` | The BSData folder chosen on the Setup page and the last download. Not committed. |
 | `data/app_data.json` | **The app's own data** — your custom factions, units and weapons, faction rules and stratagems, modifiers added to BSData units, keywords and target profiles. Committed and distributed; the app writes every edit back to it. |
 | `data/bsdata_cache.json` | The last BSData import, reused until the catalogue files change. Not committed. |
 | `data/combat_sim.db` | SQLite working copy (rebuilt on start) plus your saved scenarios and comparisons. Not committed. |
