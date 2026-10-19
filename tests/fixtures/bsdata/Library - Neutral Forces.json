@@ -1,0 +1,84 @@
+{
+ "catalogue": {
+  "name": "Library - Neutral Forces",
+  "id": "cat-neutral",
+  "battleScribeVersion": 2.03,
+  "revision": 4,
+  "gameSystemId": "gs-test",
+  "gameSystemRevision": 7,
+  "library": true,
+  "type": "catalogue",
+  "sharedSelectionEntries": [
+   {
+    "name": "Neutral Wall",
+    "id": "u-wall",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Vehicle",
+      "id": "cl-k-veh",
+      "primary": false,
+      "targetId": "k-veh"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Neutral Wall",
+      "id": "p-wall",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "-"
+       },
+       {
+        "name": "T",
+        "$text": "9"
+       },
+       {
+        "name": "Sv",
+        "$text": "4+"
+       },
+       {
+        "name": "W",
+        "$text": "12"
+       },
+       {
+        "name": "LD",
+        "$text": "-"
+       },
+       {
+        "name": "OC",
+        "$text": "0"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 40
+     }
+    ]
+   }
+  ],
+  "entryLinks": [
+   {
+    "name": "Neutral Wall",
+    "id": "rl-wall",
+    "hidden": false,
+    "targetId": "u-wall",
+    "type": "selectionEntry",
+    "constraints": []
+   }
+  ]
+ }
+}

@@ -1,0 +1,1841 @@
+{
+ "catalogue": {
+  "name": "Xenos - Starfarers",
+  "id": "cat-star",
+  "battleScribeVersion": 2.03,
+  "revision": 3,
+  "gameSystemId": "gs-test",
+  "gameSystemRevision": 7,
+  "library": false,
+  "type": "catalogue",
+  "catalogueLinks": [
+   {
+    "name": "Starfarers Library",
+    "id": "cl-star-lib",
+    "targetId": "cat-star-lib",
+    "type": "catalogue",
+    "importRootEntries": true
+   },
+   {
+    "name": "Imperium - Allies",
+    "id": "cl-allies",
+    "targetId": "cat-allies",
+    "type": "catalogue"
+   }
+  ],
+  "categoryEntries": [
+   {
+    "name": "Faction: Starfarers",
+    "id": "k-faction-star"
+   }
+  ],
+  "sharedSelectionEntries": [
+   {
+    "name": "Laser pistol",
+    "id": "e-laser-pistol",
+    "hidden": false,
+    "type": "upgrade",
+    "profiles": [
+     {
+      "name": "Laser pistol",
+      "id": "p-laser-pistol",
+      "hidden": false,
+      "typeId": "pt-ranged",
+      "typeName": "Ranged Weapons",
+      "characteristics": [
+       {
+        "name": "Range",
+        "$text": "12\""
+       },
+       {
+        "name": "A",
+        "$text": "1"
+       },
+       {
+        "name": "BS",
+        "$text": "3+"
+       },
+       {
+        "name": "S",
+        "$text": "4"
+       },
+       {
+        "name": "AP",
+        "$text": "-1"
+       },
+       {
+        "name": "D",
+        "$text": "1"
+       },
+       {
+        "name": "Keywords",
+        "$text": "Pistol"
+       }
+      ]
+     }
+    ],
+    "constraints": [
+     {
+      "id": "c-1",
+      "field": "selections",
+      "scope": "parent",
+      "shared": true,
+      "type": "min",
+      "value": 1
+     },
+     {
+      "id": "c-2",
+      "field": "selections",
+      "scope": "parent",
+      "shared": true,
+      "type": "max",
+      "value": 1
+     }
+    ]
+   },
+   {
+    "name": "Laser rifle",
+    "id": "e-laser-rifle",
+    "hidden": false,
+    "type": "upgrade",
+    "profiles": [
+     {
+      "name": "➤ Laser rifle - standard",
+      "id": "p-rifle-std",
+      "hidden": false,
+      "typeId": "pt-ranged",
+      "typeName": "Ranged Weapons",
+      "characteristics": [
+       {
+        "name": "Range",
+        "$text": "24\""
+       },
+       {
+        "name": "A",
+        "$text": "2"
+       },
+       {
+        "name": "BS",
+        "$text": "3+"
+       },
+       {
+        "name": "S",
+        "$text": "4"
+       },
+       {
+        "name": "AP",
+        "$text": "0"
+       },
+       {
+        "name": "D",
+        "$text": "1"
+       },
+       {
+        "name": "Keywords",
+        "$text": "Rapid Fire 1"
+       }
+      ]
+     },
+     {
+      "name": "➤ Laser rifle - overcharge",
+      "id": "p-rifle-over",
+      "hidden": false,
+      "typeId": "pt-ranged",
+      "typeName": "Ranged Weapons",
+      "characteristics": [
+       {
+        "name": "Range",
+        "$text": "24\""
+       },
+       {
+        "name": "A",
+        "$text": "2"
+       },
+       {
+        "name": "BS",
+        "$text": "3+"
+       },
+       {
+        "name": "S",
+        "$text": "7"
+       },
+       {
+        "name": "AP",
+        "$text": "-2"
+       },
+       {
+        "name": "D",
+        "$text": "2"
+       },
+       {
+        "name": "Keywords",
+        "$text": "Hazardous"
+       }
+      ]
+     }
+    ],
+    "constraints": [
+     {
+      "id": "c-3",
+      "field": "selections",
+      "scope": "parent",
+      "shared": true,
+      "type": "min",
+      "value": 1
+     },
+     {
+      "id": "c-4",
+      "field": "selections",
+      "scope": "parent",
+      "shared": true,
+      "type": "max",
+      "value": 1
+     }
+    ]
+   },
+   {
+    "name": "Plasma pistol",
+    "id": "e-plasma-pistol",
+    "hidden": false,
+    "type": "upgrade",
+    "profiles": [
+     {
+      "name": "Plasma pistol",
+      "id": "p-plasma-pistol",
+      "hidden": false,
+      "typeId": "pt-ranged",
+      "typeName": "Ranged Weapons",
+      "characteristics": [
+       {
+        "name": "Range",
+        "$text": "12\""
+       },
+       {
+        "name": "A",
+        "$text": "1"
+       },
+       {
+        "name": "BS",
+        "$text": "3+"
+       },
+       {
+        "name": "S",
+        "$text": "7"
+       },
+       {
+        "name": "AP",
+        "$text": "-2"
+       },
+       {
+        "name": "D",
+        "$text": "1"
+       },
+       {
+        "name": "Keywords",
+        "$text": "Pistol"
+       }
+      ]
+     }
+    ],
+    "constraints": []
+   },
+   {
+    "name": "Close combat weapon",
+    "id": "e-ccw",
+    "hidden": false,
+    "type": "upgrade",
+    "profiles": [
+     {
+      "name": "Close combat weapon",
+      "id": "p-ccw",
+      "hidden": false,
+      "typeId": "pt-melee",
+      "typeName": "Melee Weapons",
+      "characteristics": [
+       {
+        "name": "Range",
+        "$text": "Melee"
+       },
+       {
+        "name": "A",
+        "$text": "1"
+       },
+       {
+        "name": "WS",
+        "$text": "4+"
+       },
+       {
+        "name": "S",
+        "$text": "4"
+       },
+       {
+        "name": "AP",
+        "$text": "0"
+       },
+       {
+        "name": "D",
+        "$text": "1"
+       },
+       {
+        "name": "Keywords",
+        "$text": null
+       }
+      ]
+     }
+    ],
+    "constraints": [
+     {
+      "id": "c-5",
+      "field": "selections",
+      "scope": "parent",
+      "shared": true,
+      "type": "min",
+      "value": 1
+     },
+     {
+      "id": "c-6",
+      "field": "selections",
+      "scope": "parent",
+      "shared": true,
+      "type": "max",
+      "value": 1
+     }
+    ]
+   },
+   {
+    "name": "Void Warriors",
+    "id": "u-void",
+    "hidden": false,
+    "type": "unit",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     },
+     {
+      "name": "Battleline",
+      "id": "cl-k-bl",
+      "primary": false,
+      "targetId": "k-bl"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Void Warrior",
+      "id": "p-void",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "6\""
+       },
+       {
+        "name": "T",
+        "$text": "4"
+       },
+       {
+        "name": "Sv",
+        "$text": "3+"
+       },
+       {
+        "name": "W",
+        "$text": "2"
+       },
+       {
+        "name": "LD",
+        "$text": "6+"
+       },
+       {
+        "name": "OC",
+        "$text": "2"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     },
+     {
+      "name": "Shield Wall",
+      "id": "a-void",
+      "hidden": false,
+      "typeId": "pt-abil",
+      "typeName": "Abilities",
+      "characteristics": [
+       {
+        "name": "Description",
+        "$text": "Models in this unit can do things."
+       }
+      ]
+     }
+    ],
+    "infoLinks": [
+     {
+      "name": "Stealth",
+      "id": "il-void-stealth",
+      "hidden": false,
+      "targetId": "r-stealth",
+      "type": "rule"
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 80
+     }
+    ],
+    "modifiers": [
+     {
+      "field": "51b2-306e-1021-d207",
+      "type": "set",
+      "value": 160,
+      "conditions": [
+       {
+        "childId": "model",
+        "field": "selections",
+        "includeChildSelections": true,
+        "scope": "u-void",
+        "shared": true,
+        "type": "greaterThan",
+        "value": 5
+       }
+      ]
+     },
+     {
+      "field": "51b2-306e-1021-d207",
+      "type": "increment",
+      "value": 10,
+      "conditionGroups": [
+       {
+        "type": "and",
+        "localConditionGroups": [
+         {
+          "field": "selections",
+          "includeChildSelections": true,
+          "repeats": 1,
+          "scope": "parent",
+          "type": "atLeast",
+          "value": 2,
+          "conditions": [
+           {
+            "childId": "any",
+            "field": "selections",
+            "scope": "self",
+            "shared": true,
+            "type": "before",
+            "value": 1
+           },
+           {
+            "childId": "u-void",
+            "field": "selections",
+            "scope": "self",
+            "shared": true,
+            "type": "instanceOf",
+            "value": 1
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Void Sergeant",
+      "id": "m-void-sgt",
+      "hidden": false,
+      "type": "model",
+      "constraints": [
+       {
+        "id": "c-7",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-8",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "selectionEntries": [],
+      "entryLinks": [
+       {
+        "name": "Laser pistol",
+        "id": "l-sgt-pistol",
+        "hidden": false,
+        "targetId": "e-laser-pistol",
+        "type": "selectionEntry",
+        "constraints": []
+       }
+      ],
+      "selectionEntryGroups": [
+       {
+        "name": "Melee weapon",
+        "id": "g-sgt-melee",
+        "hidden": false,
+        "constraints": [
+         {
+          "id": "c-9",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "min",
+          "value": 1
+         },
+         {
+          "id": "c-10",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "selectionEntries": [
+         {
+          "name": "Blade",
+          "id": "e-blade",
+          "hidden": false,
+          "type": "upgrade",
+          "profiles": [
+           {
+            "name": "Blade",
+            "id": "p-blade",
+            "hidden": false,
+            "typeId": "pt-melee",
+            "typeName": "Melee Weapons",
+            "characteristics": [
+             {
+              "name": "Range",
+              "$text": "Melee"
+             },
+             {
+              "name": "A",
+              "$text": "3"
+             },
+             {
+              "name": "WS",
+              "$text": "3+"
+             },
+             {
+              "name": "S",
+              "$text": "5"
+             },
+             {
+              "name": "AP",
+              "$text": "-1"
+             },
+             {
+              "name": "D",
+              "$text": "1"
+             },
+             {
+              "name": "Keywords",
+              "$text": "Lethal Hits"
+             }
+            ]
+           }
+          ],
+          "constraints": []
+         },
+         {
+          "name": "Power axe",
+          "id": "e-axe",
+          "hidden": false,
+          "type": "upgrade",
+          "profiles": [
+           {
+            "name": "Power axe",
+            "id": "p-axe",
+            "hidden": false,
+            "typeId": "pt-melee",
+            "typeName": "Melee Weapons",
+            "characteristics": [
+             {
+              "name": "Range",
+              "$text": "Melee"
+             },
+             {
+              "name": "A",
+              "$text": "3"
+             },
+             {
+              "name": "WS",
+              "$text": "3+"
+             },
+             {
+              "name": "S",
+              "$text": "6"
+             },
+             {
+              "name": "AP",
+              "$text": "-2"
+             },
+             {
+              "name": "D",
+              "$text": "1"
+             },
+             {
+              "name": "Keywords",
+              "$text": null
+             }
+            ]
+           }
+          ],
+          "constraints": [],
+          "costs": [
+           {
+            "name": "pts",
+            "typeId": "51b2-306e-1021-d207",
+            "value": 5
+           }
+          ]
+         }
+        ],
+        "entryLinks": [],
+        "defaultSelectionEntryId": "e-blade"
+       }
+      ],
+      "profiles": []
+     }
+    ],
+    "selectionEntryGroups": [
+     {
+      "name": "Warriors",
+      "id": "g-warriors",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-11",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 4
+       },
+       {
+        "id": "c-12",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 9
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Void Warrior",
+        "id": "m-void-warrior",
+        "hidden": false,
+        "type": "model",
+        "constraints": [
+         {
+          "id": "c-13",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 9
+         }
+        ],
+        "selectionEntries": [],
+        "entryLinks": [
+         {
+          "name": "Laser rifle",
+          "id": "l-war-rifle",
+          "hidden": false,
+          "targetId": "e-laser-rifle",
+          "type": "selectionEntry",
+          "constraints": []
+         },
+         {
+          "name": "Close combat weapon",
+          "id": "l-war-ccw",
+          "hidden": false,
+          "targetId": "e-ccw",
+          "type": "selectionEntry",
+          "constraints": []
+         }
+        ],
+        "selectionEntryGroups": [],
+        "profiles": []
+       },
+       {
+        "name": "Void Warrior w/ heavy laser",
+        "id": "m-void-heavy",
+        "hidden": false,
+        "type": "model",
+        "constraints": [
+         {
+          "id": "c-14",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "selectionEntries": [
+         {
+          "name": "Heavy laser",
+          "id": "e-heavy",
+          "hidden": false,
+          "type": "upgrade",
+          "profiles": [
+           {
+            "name": "Heavy laser",
+            "id": "p-heavy",
+            "hidden": false,
+            "typeId": "pt-ranged",
+            "typeName": "Ranged Weapons",
+            "characteristics": [
+             {
+              "name": "Range",
+              "$text": "36\""
+             },
+             {
+              "name": "A",
+              "$text": "1"
+             },
+             {
+              "name": "BS",
+              "$text": "4+"
+             },
+             {
+              "name": "S",
+              "$text": "9"
+             },
+             {
+              "name": "AP",
+              "$text": "-3"
+             },
+             {
+              "name": "D",
+              "$text": "D6"
+             },
+             {
+              "name": "Keywords",
+              "$text": "Heavy, Anti-Vehicle 4+, Laser Burn"
+             }
+            ]
+           }
+          ],
+          "constraints": [
+           {
+            "id": "c-15",
+            "field": "selections",
+            "scope": "parent",
+            "shared": true,
+            "type": "min",
+            "value": 1
+           },
+           {
+            "id": "c-16",
+            "field": "selections",
+            "scope": "parent",
+            "shared": true,
+            "type": "max",
+            "value": 1
+           }
+          ]
+         }
+        ],
+        "entryLinks": [
+         {
+          "name": "Close combat weapon",
+          "id": "l-heavy-ccw",
+          "hidden": false,
+          "targetId": "e-ccw",
+          "type": "selectionEntry",
+          "constraints": []
+         }
+        ],
+        "selectionEntryGroups": [],
+        "profiles": []
+       }
+      ],
+      "entryLinks": [],
+      "defaultSelectionEntryId": "m-void-warrior"
+     }
+    ]
+   },
+   {
+    "name": "Star Captain",
+    "id": "u-captain",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     },
+     {
+      "name": "Character",
+      "id": "cl-k-char",
+      "primary": false,
+      "targetId": "k-char"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Star Captain",
+      "id": "p-captain",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "6\""
+       },
+       {
+        "name": "T",
+        "$text": "4"
+       },
+       {
+        "name": "Sv",
+        "$text": "2+"
+       },
+       {
+        "name": "W",
+        "$text": "5"
+       },
+       {
+        "name": "LD",
+        "$text": "6+"
+       },
+       {
+        "name": "OC",
+        "$text": "1"
+       },
+       {
+        "name": "InSv",
+        "$text": "4+"
+       }
+      ]
+     },
+     {
+      "name": "Leader",
+      "id": "a-captain-leader",
+      "hidden": false,
+      "typeId": "pt-abil",
+      "typeName": "Abilities",
+      "characteristics": [
+       {
+        "name": "Description",
+        "$text": "This model can be attached to the following units:\n■ **^^VOID WARRIORS^^**\n■ Missing Squad"
+       }
+      ]
+     },
+     {
+      "name": "Iron Will",
+      "id": "a-captain-fnp",
+      "hidden": false,
+      "typeId": "pt-abil",
+      "typeName": "Abilities",
+      "characteristics": [
+       {
+        "name": "Description",
+        "$text": "This model has the Feel No Pain 5+ ability."
+       }
+      ]
+     }
+    ],
+    "infoLinks": [
+     {
+      "name": "Leader",
+      "id": "il-captain-leader",
+      "hidden": false,
+      "targetId": "r-leader",
+      "type": "rule"
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 70
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Master blade",
+      "id": "e-master-blade",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Master blade",
+        "id": "p-master-blade",
+        "hidden": false,
+        "typeId": "pt-melee",
+        "typeName": "Melee Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "Melee"
+         },
+         {
+          "name": "A",
+          "$text": "5"
+         },
+         {
+          "name": "WS",
+          "$text": "2+"
+         },
+         {
+          "name": "S",
+          "$text": "6"
+         },
+         {
+          "name": "AP",
+          "$text": "-2"
+         },
+         {
+          "name": "D",
+          "$text": "2"
+         },
+         {
+          "name": "Keywords",
+          "$text": "Sustained Hits 1"
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-17",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-18",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     }
+    ],
+    "selectionEntryGroups": [
+     {
+      "name": "Pistol",
+      "id": "g-captain-pistol",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-19",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "selectionEntries": [],
+      "entryLinks": [
+       {
+        "name": "Plasma pistol",
+        "id": "l-captain-pistol",
+        "hidden": false,
+        "targetId": "e-plasma-pistol",
+        "type": "selectionEntry",
+        "constraints": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Star Walker [Legends]",
+    "id": "u-walker",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Vehicle",
+      "id": "cl-k-veh",
+      "primary": false,
+      "targetId": "k-veh"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Star Walker",
+      "id": "p-walker",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "8\""
+       },
+       {
+        "name": "T",
+        "$text": "9"
+       },
+       {
+        "name": "Sv",
+        "$text": "3+"
+       },
+       {
+        "name": "W",
+        "$text": "10"
+       },
+       {
+        "name": "LD",
+        "$text": "7+"
+       },
+       {
+        "name": "OC",
+        "$text": "3"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     }
+    ],
+    "infoLinks": [
+     {
+      "name": "Feel No Pain",
+      "id": "il-walker-fnp",
+      "hidden": false,
+      "targetId": "r-fnp",
+      "type": "rule",
+      "modifiers": [
+       {
+        "field": "name",
+        "type": "append",
+        "value": "6+"
+       }
+      ]
+     },
+     {
+      "name": "Deep Strike",
+      "id": "il-walker-ds",
+      "hidden": false,
+      "targetId": "r-ds",
+      "type": "rule"
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 120
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Walker flamer",
+      "id": "e-flamer",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Walker flamer",
+        "id": "p-flamer",
+        "hidden": false,
+        "typeId": "pt-ranged",
+        "typeName": "Ranged Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "12\""
+         },
+         {
+          "name": "A",
+          "$text": "D6"
+         },
+         {
+          "name": "BS",
+          "$text": "N/A"
+         },
+         {
+          "name": "S",
+          "$text": "5"
+         },
+         {
+          "name": "AP",
+          "$text": "-1"
+         },
+         {
+          "name": "D",
+          "$text": "1"
+         },
+         {
+          "name": "Keywords",
+          "$text": "Ignores Cover, Torrent"
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-20",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-21",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "name": "Vortex charge",
+      "id": "e-vortex",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Vortex charge",
+        "id": "p-vortex",
+        "hidden": false,
+        "typeId": "pt-ranged",
+        "typeName": "Ranged Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "6\""
+         },
+         {
+          "name": "A",
+          "$text": "1"
+         },
+         {
+          "name": "BS",
+          "$text": "2+"
+         },
+         {
+          "name": "S",
+          "$text": "*"
+         },
+         {
+          "name": "AP",
+          "$text": "*"
+         },
+         {
+          "name": "D",
+          "$text": "*"
+         },
+         {
+          "name": "Keywords",
+          "$text": null
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-22",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-23",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "name": "Armoured feet",
+      "id": "e-feet",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Armoured feet",
+        "id": "p-feet",
+        "hidden": false,
+        "typeId": "pt-melee",
+        "typeName": "Melee Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "Melee"
+         },
+         {
+          "name": "A",
+          "$text": "4"
+         },
+         {
+          "name": "WS",
+          "$text": "4+"
+         },
+         {
+          "name": "S",
+          "$text": "7"
+         },
+         {
+          "name": "AP",
+          "$text": "0"
+         },
+         {
+          "name": "D",
+          "$text": "1"
+         },
+         {
+          "name": "Keywords",
+          "$text": "-"
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-24",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-25",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Beast Pack",
+    "id": "u-beasts",
+    "hidden": false,
+    "type": "unit",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 60
+     }
+    ],
+    "modifiers": [
+     {
+      "field": "51b2-306e-1021-d207",
+      "type": "set",
+      "value": 999,
+      "conditions": [
+       {
+        "childId": "u-beasts",
+        "field": "selections",
+        "scope": "roster",
+        "shared": true,
+        "type": "someUnknownCheck",
+        "value": 1
+       }
+      ]
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Beast Master",
+      "id": "m-beastmaster",
+      "hidden": false,
+      "type": "model",
+      "constraints": [
+       {
+        "id": "c-26",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-27",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "selectionEntries": [],
+      "entryLinks": [
+       {
+        "name": "Close combat weapon",
+        "id": "l-bm-ccw",
+        "hidden": false,
+        "targetId": "e-ccw",
+        "type": "selectionEntry",
+        "constraints": []
+       }
+      ],
+      "selectionEntryGroups": [],
+      "profiles": [
+       {
+        "name": "Beast Master",
+        "id": "p-beastmaster",
+        "hidden": false,
+        "typeId": "pt-unit",
+        "typeName": "Unit",
+        "characteristics": [
+         {
+          "name": "M",
+          "$text": "6\""
+         },
+         {
+          "name": "T",
+          "$text": "3"
+         },
+         {
+          "name": "Sv",
+          "$text": "5+"
+         },
+         {
+          "name": "W",
+          "$text": "1"
+         },
+         {
+          "name": "LD",
+          "$text": "7+"
+         },
+         {
+          "name": "OC",
+          "$text": "1"
+         },
+         {
+          "name": "InSv",
+          "$text": ""
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "selectionEntryGroups": [
+     {
+      "name": "Beasts",
+      "id": "g-beasts",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-28",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 3
+       },
+       {
+        "id": "c-29",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 3
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Beast",
+        "id": "m-beast",
+        "hidden": false,
+        "type": "model",
+        "constraints": [],
+        "selectionEntries": [
+         {
+          "name": "Claws",
+          "id": "e-claws",
+          "hidden": false,
+          "type": "upgrade",
+          "profiles": [
+           {
+            "name": "Claws",
+            "id": "p-claws",
+            "hidden": false,
+            "typeId": "pt-melee",
+            "typeName": "Melee Weapons",
+            "characteristics": [
+             {
+              "name": "Range",
+              "$text": "Melee"
+             },
+             {
+              "name": "A",
+              "$text": "3"
+             },
+             {
+              "name": "WS",
+              "$text": "4+"
+             },
+             {
+              "name": "S",
+              "$text": "5"
+             },
+             {
+              "name": "AP",
+              "$text": "-1"
+             },
+             {
+              "name": "D",
+              "$text": "1"
+             },
+             {
+              "name": "Keywords",
+              "$text": null
+             }
+            ]
+           }
+          ],
+          "constraints": [
+           {
+            "id": "c-30",
+            "field": "selections",
+            "scope": "parent",
+            "shared": true,
+            "type": "min",
+            "value": 1
+           },
+           {
+            "id": "c-31",
+            "field": "selections",
+            "scope": "parent",
+            "shared": true,
+            "type": "max",
+            "value": 1
+           }
+          ]
+         }
+        ],
+        "entryLinks": [],
+        "selectionEntryGroups": [],
+        "profiles": [
+         {
+          "name": "Beast",
+          "id": "p-beast",
+          "hidden": false,
+          "typeId": "pt-unit",
+          "typeName": "Unit",
+          "characteristics": [
+           {
+            "name": "M",
+            "$text": "10\""
+           },
+           {
+            "name": "T",
+            "$text": "5"
+           },
+           {
+            "name": "Sv",
+            "$text": "6+"
+           },
+           {
+            "name": "W",
+            "$text": "2"
+           },
+           {
+            "name": "LD",
+            "$text": "8+"
+           },
+           {
+            "name": "OC",
+            "$text": "0"
+           },
+           {
+            "name": "InSv",
+            "$text": ""
+           }
+          ]
+         }
+        ],
+        "costs": [
+         {
+          "name": "pts",
+          "typeId": "51b2-306e-1021-d207",
+          "value": 0
+         }
+        ]
+       }
+      ],
+      "entryLinks": [],
+      "defaultSelectionEntryId": "m-beast"
+     }
+    ]
+   },
+   {
+    "name": "Gun Crew",
+    "id": "u-crew",
+    "hidden": false,
+    "type": "unit",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Gunner",
+      "id": "p-crew",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "5\""
+       },
+       {
+        "name": "T",
+        "$text": "3"
+       },
+       {
+        "name": "Sv",
+        "$text": "5+"
+       },
+       {
+        "name": "W",
+        "$text": "1"
+       },
+       {
+        "name": "LD",
+        "$text": "7+"
+       },
+       {
+        "name": "OC",
+        "$text": "1"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 40
+     }
+    ],
+    "modifiers": [
+     {
+      "field": "51b2-306e-1021-d207",
+      "type": "decrement",
+      "value": 5,
+      "conditions": [
+       {
+        "childId": "cat-allies",
+        "field": "selections",
+        "scope": "primary-catalogue",
+        "shared": true,
+        "type": "notInstanceOf",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "field": "51b2-306e-1021-d207",
+      "type": "increment",
+      "value": 100,
+      "conditions": [
+       {
+        "childId": "cat-allies",
+        "field": "selections",
+        "scope": "primary-catalogue",
+        "shared": true,
+        "type": "instanceOf",
+        "value": 1
+       }
+      ]
+     }
+    ],
+    "modifierGroups": [
+     {
+      "type": "and",
+      "modifiers": [
+       {
+        "field": "51b2-306e-1021-d207",
+        "type": "increment",
+        "value": 15,
+        "repeats": [
+         {
+          "childId": "m-gunner",
+          "field": "selections",
+          "includeChildSelections": true,
+          "repeats": 1,
+          "roundUp": false,
+          "scope": "u-crew",
+          "shared": true,
+          "value": 1
+         }
+        ]
+       },
+       {
+        "field": "51b2-306e-1021-d207",
+        "type": "set",
+        "value": 150,
+        "conditions": [
+         {
+          "childId": "g-crew",
+          "field": "selections",
+          "includeChildSelections": true,
+          "scope": "u-crew",
+          "shared": true,
+          "type": "atLeast",
+          "value": 4
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "selectionEntryGroups": [
+     {
+      "name": "Crew",
+      "id": "g-crew",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-32",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 2
+       },
+       {
+        "id": "c-33",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 4
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Gunner",
+        "id": "m-gunner",
+        "hidden": false,
+        "type": "model",
+        "constraints": [
+         {
+          "id": "c-34",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 4
+         }
+        ],
+        "selectionEntries": [
+         {
+          "name": "Crew gun",
+          "id": "e-crew-gun",
+          "hidden": false,
+          "type": "upgrade",
+          "profiles": [
+           {
+            "name": "Crew gun",
+            "id": "p-crew-gun",
+            "hidden": false,
+            "typeId": "pt-ranged",
+            "typeName": "Ranged Weapons",
+            "characteristics": [
+             {
+              "name": "Range",
+              "$text": "36\""
+             },
+             {
+              "name": "A",
+              "$text": "2"
+             },
+             {
+              "name": "BS",
+              "$text": "4+"
+             },
+             {
+              "name": "S",
+              "$text": "8"
+             },
+             {
+              "name": "AP",
+              "$text": "-2"
+             },
+             {
+              "name": "D",
+              "$text": "3"
+             },
+             {
+              "name": "Keywords",
+              "$text": null
+             }
+            ]
+           }
+          ],
+          "constraints": [
+           {
+            "id": "c-35",
+            "field": "selections",
+            "scope": "parent",
+            "shared": true,
+            "type": "min",
+            "value": 1
+           },
+           {
+            "id": "c-36",
+            "field": "selections",
+            "scope": "parent",
+            "shared": true,
+            "type": "max",
+            "value": 1
+           }
+          ]
+         }
+        ],
+        "entryLinks": [],
+        "selectionEntryGroups": [],
+        "profiles": []
+       }
+      ],
+      "entryLinks": [],
+      "defaultSelectionEntryId": "m-gunner"
+     }
+    ]
+   }
+  ],
+  "entryLinks": [
+   {
+    "name": "Void Warriors",
+    "id": "rl-void",
+    "hidden": false,
+    "targetId": "u-void",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Star Captain",
+    "id": "rl-captain",
+    "hidden": false,
+    "targetId": "u-captain",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Star Walker [Legends]",
+    "id": "rl-walker",
+    "hidden": false,
+    "targetId": "u-walker",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Beast Pack",
+    "id": "rl-beasts",
+    "hidden": false,
+    "targetId": "u-beasts",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Gun Crew",
+    "id": "rl-crew",
+    "hidden": false,
+    "targetId": "u-crew",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Ally Agent",
+    "id": "rl-agent",
+    "hidden": false,
+    "targetId": "u-agent",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Hidden Thing",
+    "id": "rl-hidden",
+    "hidden": true,
+    "targetId": "u-captain",
+    "type": "selectionEntry",
+    "constraints": []
+   }
+  ]
+ }
+}

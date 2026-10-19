@@ -1,0 +1,12 @@
+{
+ "catalogue": {
+  "name": "Imperium - Empty Stub",
+  "id": "cat-stub",
+  "battleScribeVersion": 2.03,
+  "revision": 1,
+  "gameSystemId": "gs-test",
+  "gameSystemRevision": 7,
+  "library": false,
+  "type": "catalogue"
+ }
+}

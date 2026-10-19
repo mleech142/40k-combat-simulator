@@ -1,0 +1,236 @@
+{
+ "catalogue": {
+  "name": "Xenos - Starfarers Library",
+  "id": "cat-star-lib",
+  "battleScribeVersion": 2.03,
+  "revision": 2,
+  "gameSystemId": "gs-test",
+  "gameSystemRevision": 7,
+  "library": true,
+  "type": "catalogue",
+  "sharedSelectionEntries": [
+   {
+    "name": "Scout Drone",
+    "id": "u-drone",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Vehicle",
+      "id": "cl-k-veh",
+      "primary": false,
+      "targetId": "k-veh"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Scout Drone",
+      "id": "p-drone",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "12\""
+       },
+       {
+        "name": "T",
+        "$text": "4"
+       },
+       {
+        "name": "Sv",
+        "$text": "4+"
+       },
+       {
+        "name": "W",
+        "$text": "3"
+       },
+       {
+        "name": "LD",
+        "$text": "8+"
+       },
+       {
+        "name": "OC",
+        "$text": "0"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     },
+     {
+      "name": "Flicker Field",
+      "id": "a-drone",
+      "hidden": false,
+      "typeId": "pt-abil",
+      "typeName": "Abilities",
+      "characteristics": [
+       {
+        "name": "Description",
+        "$text": "Each time an attack is allocated to this model, subtract 1 from the Damage characteristic of that attack."
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 30
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Drone gun",
+      "id": "e-drone-gun",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Drone gun",
+        "id": "p-drone-gun",
+        "hidden": false,
+        "typeId": "pt-ranged",
+        "typeName": "Ranged Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "18\""
+         },
+         {
+          "name": "A",
+          "$text": "3"
+         },
+         {
+          "name": "BS",
+          "$text": "4+"
+         },
+         {
+          "name": "S",
+          "$text": "4"
+         },
+         {
+          "name": "AP",
+          "$text": "0"
+         },
+         {
+          "name": "D",
+          "$text": "1"
+         },
+         {
+          "name": "Keywords",
+          "$text": "Assault"
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-37",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-38",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Field Bunker",
+    "id": "u-bunker",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Vehicle",
+      "id": "cl-k-veh",
+      "primary": false,
+      "targetId": "k-veh"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Field Bunker",
+      "id": "p-bunker",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "-"
+       },
+       {
+        "name": "T",
+        "$text": "10"
+       },
+       {
+        "name": "Sv",
+        "$text": "3+"
+       },
+       {
+        "name": "W",
+        "$text": "15"
+       },
+       {
+        "name": "LD",
+        "$text": "-"
+       },
+       {
+        "name": "OC",
+        "$text": "0"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 100
+     }
+    ]
+   }
+  ],
+  "entryLinks": [
+   {
+    "name": "Scout Drone",
+    "id": "rl-drone",
+    "hidden": false,
+    "targetId": "u-drone",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Field Bunker",
+    "id": "rl-bunker",
+    "hidden": false,
+    "targetId": "u-bunker",
+    "type": "selectionEntry",
+    "constraints": []
+   }
+  ]
+ }
+}

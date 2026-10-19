@@ -1,0 +1,155 @@
+{
+ "catalogue": {
+  "name": "Imperium - Allies",
+  "id": "cat-allies",
+  "battleScribeVersion": 2.03,
+  "revision": 1,
+  "gameSystemId": "gs-test",
+  "gameSystemRevision": 7,
+  "library": false,
+  "type": "catalogue",
+  "sharedSelectionEntries": [
+   {
+    "name": "Ally Agent",
+    "id": "u-agent",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Faction: Allies",
+      "id": "cl-k-faction-allies",
+      "primary": false,
+      "targetId": "k-faction-allies"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Ally Agent",
+      "id": "p-agent",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "6\""
+       },
+       {
+        "name": "T",
+        "$text": "3"
+       },
+       {
+        "name": "Sv",
+        "$text": "4+"
+       },
+       {
+        "name": "W",
+        "$text": "3"
+       },
+       {
+        "name": "LD",
+        "$text": "6+"
+       },
+       {
+        "name": "OC",
+        "$text": "1"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 50
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Laser pistol",
+      "id": "e-agent-pistol",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Laser pistol",
+        "id": "p-agent-pistol",
+        "hidden": false,
+        "typeId": "pt-ranged",
+        "typeName": "Ranged Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "12\""
+         },
+         {
+          "name": "A",
+          "$text": "1"
+         },
+         {
+          "name": "BS",
+          "$text": "3+"
+         },
+         {
+          "name": "S",
+          "$text": "4"
+         },
+         {
+          "name": "AP",
+          "$text": "-1"
+         },
+         {
+          "name": "D",
+          "$text": "1"
+         },
+         {
+          "name": "Keywords",
+          "$text": "Pistol"
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-39",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-40",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "entryLinks": [
+   {
+    "name": "Ally Agent",
+    "id": "rl-ally-agent",
+    "hidden": false,
+    "targetId": "u-agent",
+    "type": "selectionEntry",
+    "constraints": []
+   }
+  ]
+ }
+}
