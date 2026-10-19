@@ -307,3 +307,39 @@ def test_detachments_of_the_faction_but_not_of_allies(result):
 def test_army_rules_are_the_faction_catalogues_rules(result):
     assert [r['name'] for r in faction(result, 'Starfarers')['army_rules']] == ['Star Pact']
     assert faction(result, 'Allies')['army_rules'] == []
+
+
+# --- Rule text: tidied for display, plain for parsing ---------------------------------------
+
+def test_tidy_text_keeps_markup_but_not_odd_spacing():
+    from combat_sim.bsdata import tidy_text
+    assert tidy_text('A ^^**Character^^**  model can re‑roll.  \n') == 'A ^^**Character^^** model can re-roll.'
+
+
+def test_plain_text_drops_every_markup_style():
+    from combat_sim.bsdata import plain_text
+    text = ('While a ^^**Character^^** leads, **^^Infantry^^** and ^^**Mounted**^^ units gain [^^Lance^^]; '
+            '*footnote*, <ins>Or:</ins> PLAGUE MARINES†')
+    assert plain_text(text) == ('While a Character leads, Infantry and Mounted units gain [Lance]; '
+                                'footnote, Or: PLAGUE MARINES')
+
+
+def test_marked_up_and_oddly_spaced_text_is_still_parsed(tmp_path):
+    import shutil
+    folder = tmp_path / 'bsdata'
+    shutil.copytree(FIXTURES, folder)
+    path = folder / 'Xenos - Starfarers Library.json'
+    content = json.loads(path.read_text(encoding='utf-8'))
+    drone = next(e for e in content['catalogue']['sharedSelectionEntries'] if e['id'] == 'u-drone')
+    drone['profiles'][1]['characteristics'][0]['$text'] = (
+        'Each time an attack is allocated to ^^**this model^^**, subtract 1 from the **Damage** characteristic of that attack.')
+    path.write_text(json.dumps(content), encoding='utf-8')
+    star = folder / 'Xenos - Starfarers.json'
+    star.write_text(star.read_text(encoding='utf-8').replace('**^^VOID WARRIORS^^**', '^^**VOID\u00a0WARRIORS^^**'),
+                    encoding='utf-8')
+
+    result = import_folder(folder)
+    assert unit(result, 'Scout Drone')['modifiers'] == ['Damage Modifier -1']
+    assert unit(result, 'Star Captain')['can_lead'] == ['Void Warriors']
+    assert ' ' not in unit(result, 'Scout Drone')['abilities']
+    assert '^^**this model^^**' in unit(result, 'Scout Drone')['abilities']  # Markup kept for display

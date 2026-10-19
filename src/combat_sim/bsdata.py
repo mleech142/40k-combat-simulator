@@ -31,6 +31,9 @@ How BattleScribe data maps onto the app:
   "Weapon - Profile" variant naming.
 - **Defensive abilities** used by the maths: InSv from the profile, Feel No Pain and
   Stealth from core rule links, and a few unconditional ability texts (see DEFENSIVE_TEXT).
+- **Rule text** keeps BSData's markup for display (`**bold**`, `*italic*`, `^^keyword^^`, bullets;
+  see Core.formatRuleText) but with its whitespace tidied (tidy_text). Everything parsed from
+  it (Feel No Pain, Leader lists) reads the plain words (plain_text).
 - **Detachments** are the options of a faction's root "Detachment" entry, each with its rule
   text, taken from the faction's own catalogue and those it takes units from (so not the
   Agents of the Imperium's detachments in every Imperium army). **Army rules** are the rules
@@ -47,7 +50,7 @@ from pathlib import Path
 
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 2  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 3  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -592,7 +595,27 @@ def characteristics(profile):
 
 def ability_text(profile):
     chars = characteristics(profile)
-    return chars.get('Description') or next(iter(chars.values()), '')
+    return tidy_text(chars.get('Description') or next(iter(chars.values()), ''))
+
+
+# Characters BSData's text uses for layout that read as ordinary ones
+TIDY_CHARACTERS = str.maketrans({'\u00a0': ' ', '\u2011': '-', '\u2010': '-', '\u2013': '-', '\u2019': "'"})
+
+
+def tidy_text(text):
+    """BSData text with non-breaking spaces and hyphens made ordinary, repeated spaces collapsed
+    and trailing spaces removed; its markup is kept."""
+    lines = [re.sub(r' {2,}', ' ', line).rstrip() for line in (text or '').translate(TIDY_CHARACTERS).split('\n')]
+    return '\n'.join(lines).strip()
+
+
+# BSData's text markup: **bold**, *italic*, ^^keyword^^, <ins>changed</ins>, footnote daggers
+MARKUP = re.compile(r'\*+|\^\^|</?ins>|[†‡]')
+
+
+def plain_text(text):
+    """The words of BSData text without its markup, for parsing (bullets and line breaks kept)."""
+    return re.sub(r' {2,}', ' ', MARKUP.sub('', tidy_text(text)))
 
 
 def _int(text):
@@ -691,7 +714,7 @@ def build_unit(entry, faction_cat, report, known_keywords):
                 text = ability_text(profile)
                 ability_lines.append(f'{profile["name"]}: {text}')
                 for pattern, effect in DEFENSIVE_TEXT:
-                    m = pattern.match(re.sub(r'[*^]', '', text).strip())
+                    m = pattern.match(plain_text(text))
                     if m and effect == 'fnp':
                         fnp = min(fnp or 7, int(m.group(1)))
                     elif m and effect not in modifiers:
@@ -801,13 +824,13 @@ def _all_weapon_profiles(entry, report, seen=None):
 
 def _leader_targets(line):
     """Unit names from 'Leader: This model can be attached to the following unit(s): X, Y'."""
-    m = re.search(r'attached to the following units?:\s*(.+)', line, re.I | re.S)
+    m = re.search(r'attached to the following units?:\s*(.+)', plain_text(line), re.I | re.S)
     if not m:
         return []
     text = m.group(1).split('\n\n')[0]
     names = []
-    for part in re.split(r'[\n,■•]+', text):
-        part = re.sub(r'[*^†‡]', '', part).strip(' .')
+    for part in re.split(r'[\n,■•▪]+', text):
+        part = part.strip(' .')
         if part and not part.lower().startswith(('can ', 'this ', 'if ', 'note')):
             names.append(part)
     return names
@@ -966,7 +989,7 @@ def import_folder(folder, known_keywords=None):
 
 
 def _rule_text(rule):
-    return {'name': rule.get('name', ''), 'text': (rule.get('description') or '').strip()}
+    return {'name': rule.get('name', ''), 'text': tidy_text(rule.get('description'))}
 
 
 def detachments(cat, members, catalogues, report):

@@ -194,6 +194,82 @@
         return html;
     }
 
+    // -------------------------------------------------------------------------
+    // BSData rule text
+    // -------------------------------------------------------------------------
+
+    const LIST_ITEM = /^\s*[-▪■•]\s+/;
+
+    /**
+     * One line of BSData text as HTML: **bold**, ^^keyword^^ (in any mix with **, e.g.
+     * ^^**Character^^** or **^^Monster^^ or ^^Vehicle^^**), *italic* and <ins>. Markers are read
+     * in order, closing and reopening tags at each one, so the HTML is always well formed;
+     * anything left open closes at the end of the line.
+     */
+    function formatRuleLine(line) {
+        let bold = false, keyword = false, html = '';
+        const open = () => (bold ? '<strong>' : '') + (keyword ? '<span class="rule-keyword">' : '');
+        const close = () => (keyword ? '</span>' : '') + (bold ? '</strong>' : '');
+        for (const part of escapeHtml(line).split(/(\^\^\*\*|\*\*\^\^|\^\^|\*\*)/)) {
+            if (part === '^^**' || part === '**^^') {
+                html += close(); bold = !bold; keyword = !keyword; html += open();
+            } else if (part === '^^') {
+                html += close(); keyword = !keyword; html += open();
+            } else if (part === '**') {
+                html += close(); bold = !bold; html += open();
+            } else {
+                html += part
+                    .replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, '$1<em>$2</em>')
+                    .replace(/(^|\s)\*+(?=\s|$)|(^|\s)\*+(?=\S)(?![^*]*\*)|\*+$/g, '$1$2');  // Stray markers (BSData typos)
+            }
+        }
+        html += close();
+        return html
+            .replace(/&lt;ins&gt;(.*?)&lt;\/ins&gt;/g, '<ins>$1</ins>')
+            .replace(/<strong><\/strong>|<span class="rule-keyword"><\/span>/g, '');
+    }
+
+    /**
+     * BSData rule or ability text as safe HTML: paragraphs at blank lines, line breaks, bullet
+     * lists (lines starting "- ", "▪", "■" or "•"), "a | b" tables and the inline markup of
+     * formatRuleLine. The text is escaped first, so nothing in it can add HTML of its own.
+     * labels: bold a short "Name:" starting a paragraph (unit abilities are stored as "Name: text").
+     */
+    function formatRuleText(text, { labels = false } = {}) {
+        const blocks = String(text ?? '').replace(/\r/g, '').split(/\n{2,}/).filter(b => b.trim());
+        return blocks.map(block => {
+            const lines = block.split('\n').filter(l => l.trim());
+            if (lines.filter(l => l.includes('|')).length >= 2) {
+                const rows = lines.map(l => l.split('|').map(cell => formatRuleLine(cell.trim())));
+                const [head, ...body] = rows;
+                return '<table class="rule-table"><thead><tr>' + head.map(c => `<th>${c}</th>`).join('') +
+                    '</tr></thead><tbody>' + body.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') +
+                    '</tbody></table>';
+            }
+            let html = '', paragraph = [], items = [];
+            const flush = () => {
+                if (paragraph.length) html += `<p>${paragraph.join('<br>')}</p>`;
+                if (items.length) html += `<ul>${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+                paragraph = [];
+                items = [];
+            };
+            for (const line of lines) {
+                if (LIST_ITEM.test(line)) {
+                    if (paragraph.length) flush();
+                    items.push(formatRuleLine(line.replace(LIST_ITEM, '')));
+                } else {
+                    if (items.length) flush();
+                    const label = labels && !paragraph.length && !html && line.match(/^([^:.*^]{1,60}):\s+(.*)$/);
+                    paragraph.push(label
+                        ? `<strong class="rule-label">${escapeHtml(label[1])}:</strong> ${formatRuleLine(label[2])}`
+                        : formatRuleLine(line.trim()));
+                }
+            }
+            flush();
+            return html;
+        }).join('');
+    }
+
     /** Simulator: ticked weapons of the current phase. */
     function usedWeapons(weapons, weaponType) {
         return (weapons[weaponType] || []).filter(w => w.use);
@@ -411,7 +487,7 @@
     return {
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
-        simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml,
+        simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, formatRuleLine, formatRuleText,
         usedWeapons, weaponPayload, rulesForFilter, rulesSelection, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
         createPageState,

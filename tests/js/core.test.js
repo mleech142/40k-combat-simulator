@@ -143,6 +143,45 @@ test('detachmentOptionsHtml: faction-wide first, grouped by faction when mixed, 
     assert.match(mixed, /<optgroup label="Allies">/);
 });
 
+test('formatRuleLine: bold, keywords in every BSData order, italics, ins', () => {
+    const kw = word => `<strong><span class="rule-keyword">${word}</span></strong>`;
+    assert.equal(Core.formatRuleLine('While a ^^**Character^^** model leads'), `While a ${kw('Character')} model leads`);
+    assert.equal(Core.formatRuleLine('**^^Transport^^** and ^^**Mounted Daemon**^^ units'),
+        `${kw('Transport')} and ${kw('Mounted Daemon')} units`);
+    // A bold run holding two keywords: " or " stays bold but isn't a keyword
+    assert.equal(Core.formatRuleLine('**^^Monster^^ or ^^Vehicle^^**'),
+        `${kw('Monster')}<strong> or </strong>${kw('Vehicle')}`);
+    assert.equal(Core.formatRuleLine('a ^^Blue Horror^^ model'), 'a <span class="rule-keyword">Blue Horror</span> model');
+    assert.equal(Core.formatRuleLine('has **Stealth** and [^^Lance^^]'),
+        'has <strong>Stealth</strong> and [<span class="rule-keyword">Lance</span>]');
+    assert.equal(Core.formatRuleLine('*Can join even if led.*'), '<em>Can join even if led.</em>');
+    assert.equal(Core.formatRuleLine('<ins>Or:</ins> heal 3'), '<ins>Or:</ins> heal 3');
+    assert.equal(Core.formatRuleLine('roll 2*3 then **unclosed'), 'roll 2*3 then <strong>unclosed</strong>');
+    // BSData typos: lone markers are dropped (real text: "keyword.*" then "*** Designer's Note:** *This means")
+    assert.equal(Core.formatRuleLine('the Character keyword.*'), 'the Character keyword.');
+    assert.equal(Core.formatRuleLine("*** Designer's Note:** *This means"), '<strong> Designer&#39;s Note:</strong> This means');
+});
+
+test('formatRuleLine escapes everything else', () => {
+    assert.equal(Core.formatRuleLine('<script>x</script> **<b>**'), '&lt;script&gt;x&lt;/script&gt; <strong>&lt;b&gt;</strong>');
+    assert.equal(Core.formatRuleLine('<ins onclick="x">Or</ins>'), '&lt;ins onclick=&quot;x&quot;&gt;Or&lt;/ins&gt;');
+});
+
+test('formatRuleText: paragraphs, line breaks, bullet lists and tables', () => {
+    assert.equal(Core.formatRuleText('First line\nsecond line\n\nNext paragraph'),
+        '<p>First line<br>second line</p><p>Next paragraph</p>');
+    assert.equal(Core.formatRuleText('Select one:\n▪ +1 to hit\n■ **Stealth**\n- Or: heal'),
+        '<p>Select one:</p><ul><li>+1 to hit</li><li><strong>Stealth</strong></li><li>Or: heal</li></ul>');
+    assert.equal(Core.formatRuleText('**Size | Units**\nIncursion | 2\nStrike Force | 3'),
+        '<table class="rule-table"><thead><tr><th><strong>Size</strong></th><th>Units</th></tr></thead>' +
+        '<tbody><tr><td>Incursion</td><td>2</td></tr><tr><td>Strike Force</td><td>3</td></tr></tbody></table>');
+    assert.equal(Core.formatRuleText('Iron Will: This model has **Feel No Pain 5+**.\n\nDeep Strike', { labels: true }),
+        '<p><strong class="rule-label">Iron Will:</strong> This model has <strong>Feel No Pain 5+</strong>.</p><p>Deep Strike</p>');
+    assert.equal(Core.formatRuleText('Iron Will: as above'), '<p>Iron Will: as above</p>');  // Only when asked
+    assert.equal(Core.formatRuleText(''), '');
+    assert.equal(Core.formatRuleText(null), '');
+});
+
 test('usedWeapons and weaponPayload build the Simulator request', () => {
     const weapons = {
         ranged: [{ name: 'Boltgun', use: true, qty: 3, attacks: '2', skill: 3, strength: 4, ap: 1, damage: '1' },

@@ -343,6 +343,7 @@
             <div class="form-group">
                 <label>Abilities</label>
                 <textarea id="unit-abilities" rows="4"></textarea>
+                <div class="rule-text unit-abilities-formatted" id="unit-abilities-formatted" style="display:none"></div>
             </div>
             <div class="form-group">
                 <div class="weapon-picker-header">
@@ -666,7 +667,8 @@ async function loadFactionDetail(factionId) {
 
 /** BSData's own text for a faction (army rules and detachments): read-only, for writing rules from. */
 function bsdataReferenceHtml(reference) {
-    const rules = list => list.map(r => `<p><strong>${esc(r.name)}</strong>${r.text ? ': ' + esc(r.text) : ''}</p>`).join('');
+    const rules = list => list.map(r =>
+        `<div class="rule-text"><h6>${esc(r.name)}</h6>${Core.formatRuleText(r.text)}</div>`).join('');
     const army = reference.army_rules || [];
     const detachments = reference.detachments || [];
     if (!army.length && !detachments.length) return '';
@@ -674,7 +676,7 @@ function bsdataReferenceHtml(reference) {
         <details class="bsdata-reference">
             <summary>From BSData: ${army.length} army rule(s), ${detachments.length} detachment(s) — text only, for writing rules and stratagems above</summary>
             ${army.length ? `<h5>Army rules</h5>${rules(army)}` : ''}
-            ${detachments.map(d => `<h5>${esc(d.name)}</h5>${rules(d.rules) || '<p class="muted">No rule text</p>'}`).join('')}
+            ${detachments.map(d => `<h5>${esc(d.name)}</h5>${rules(d.rules) || '<p class="muted">No rule text in BSData</p>'}`).join('')}
         </details>`;
 }
 
@@ -1009,6 +1011,11 @@ function setUnitReadOnly(readOnly, unit = null) {
     document.getElementById('unit-loadout-hint').textContent = readOnly
         ? 'Default loadout (ticked, with how many models carry each) and the wargear options.'
         : 'Tick each weapon the unit carries; Qty = how many models carry it.';
+    // BSData abilities are shown formatted (bold, keywords, lists); custom ones stay editable text
+    const formatted = document.getElementById('unit-abilities-formatted');
+    document.getElementById('unit-abilities').style.display = readOnly ? 'none' : '';
+    formatted.style.display = readOnly ? '' : 'none';
+    formatted.innerHTML = readOnly && unit ? Core.formatRuleText(unit.abilities, { labels: true }) : '';
     const datasheet = document.getElementById('unit-datasheet-modifiers');
     const own = unit ? unit.datasheet_modifiers || [] : [];
     datasheet.style.display = readOnly ? '' : 'none';

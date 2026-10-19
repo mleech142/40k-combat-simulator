@@ -2920,8 +2920,11 @@ body {
 }
 
 .bsdata-reference h5 {
-    margin: 0.75rem 0 0.25rem;
-    color: var(--text-primary);
+    margin: 1rem 0 0.25rem;
+    font-size: 0.95rem;
+    color: var(--accent-hover);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.15rem;
 }
 
 .bsdata-reference p {
@@ -2954,4 +2957,60 @@ body {
 
 .bsdata-weapon-result:hover {
     border-color: var(--accent);
+}
+
+/* BSData rule text (Core.formatRuleText) */
+.rule-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.rule-text h6 {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    margin: 0.6rem 0 0.15rem;
+}
+
+.rule-text p {
+    margin-bottom: 0.4rem;
+    white-space: normal;
+}
+
+.rule-text ul {
+    margin: 0.2rem 0 0.5rem 1.25rem;
+}
+
+.rule-text strong {
+    color: var(--text-primary);
+}
+
+.rule-text ins {
+    text-decoration: underline;
+}
+
+.rule-keyword {
+    font-variant: small-caps;
+    letter-spacing: 0.03em;
+}
+
+.rule-table {
+    border-collapse: collapse;
+    margin: 0.4rem 0;
+}
+
+.rule-table th,
+.rule-table td {
+    border: 1px solid var(--border);
+    padding: 0.2rem 0.6rem;
+    text-align: left;
+}
+
+.unit-abilities-formatted {
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
 }
