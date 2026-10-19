@@ -77,10 +77,10 @@
         const capitals = result?.capitals || [];
         let html = '';
         if (unknown.length) {
-            html += `<span class="kw-hint-warn">⚠ Not recognised, so it won't change the results: ${unknown.map(escapeHtml).join(', ')}. Check the Data → Keywords tab.</span>`;
+            html += `<span class="kw-hint-warn"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Not recognised, so it won't change the results: ${unknown.map(escapeHtml).join(', ')}. Check the Data → Keywords tab.</span>`;
         }
         if (capitals.length) {
-            html += `<span class="kw-hint-info">ℹ Works, but the capitals differ: ${capitals.map(([entry, name]) => `${escapeHtml(entry)} → ${escapeHtml(name)}`).join(', ')}</span>`;
+            html += `<span class="kw-hint-info"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Works, but the capitals differ: ${capitals.map(([entry, name]) => `${escapeHtml(entry)} → ${escapeHtml(name)}`).join(', ')}</span>`;
         }
         return html;
     }
@@ -440,7 +440,7 @@
 
     function renderGaps(analysis) {
         if (!analysis.gaps.length) {
-            return '<p class="analysis-empty">✓ Your army can wipe every target in one turn.</p>';
+            return '<p class="analysis-empty"><i class="fa-solid fa-check" aria-hidden="true"></i> Your army can wipe every target in one turn.</p>';
         }
         return `<p class="analysis-intro">Targets your whole army can't wipe out in one turn, most survivors first.</p>
             <table class="breakdown-table analysis-table">

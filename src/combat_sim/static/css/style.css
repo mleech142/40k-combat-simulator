@@ -2454,13 +2454,15 @@ body {
 }
 
 .rules-panel > summary::before {
-    content: '▸';
+    content: '\f054';  /* Font Awesome chevron-right */
+    font: var(--fa-font-solid);
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.7rem;
+    width: 0.8rem;
 }
 
 .rules-panel[open] > summary::before {
-    content: '▾';
+    content: '\f078';  /* chevron-down */
 }
 
 .rules-panel-title {
@@ -3047,4 +3049,18 @@ body {
 
 .leader-buffs-table td:nth-child(3) {
     width: 55%;
+}
+
+/* Font Awesome icons next to text */
+.header-brand h1 .fa-solid,
+.nav-link .fa-solid,
+h2 .fa-solid,
+h3 .fa-solid,
+h4 .fa-solid,
+.btn .fa-solid {
+    margin-right: 0.35em;
+}
+
+.nav-link .fa-solid {
+    opacity: 0.8;
 }

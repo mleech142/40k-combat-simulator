@@ -5,7 +5,7 @@
 {% block content %}
 <div class="setup-page">
     <div class="page-header">
-        <h2>🛠️ Setup</h2>
+        <h2><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</h2>
     </div>
     <p class="data-note">Factions, units, weapons and points come from the community-maintained
         <a href="https://github.com/BSData/wh40k-11e" target="_blank" rel="noopener">BSData wh40k-11e</a> catalogues
@@ -19,7 +19,7 @@
         <p>Fetches the newest version of every catalogue from GitHub into <code id="download-folder"></code> and
             uses it. If the download fails, the current data stays as it is.</p>
         <div class="setup-row">
-            <button class="btn btn-primary" id="download-btn" onclick="downloadLatest()">⬇️ Download latest</button>
+            <button class="btn btn-primary" id="download-btn" onclick="downloadLatest()"><i class="fa-solid fa-download" aria-hidden="true"></i> Download latest</button>
         </div>
         <div class="setup-message" id="download-message"></div>
     </section>
@@ -44,7 +44,7 @@
         <h3>Re-import</h3>
         <p>Changed the files in the folder yourself? Import them again (the app also notices on its next start).</p>
         <div class="setup-row">
-            <button class="btn btn-secondary" id="reimport-btn" onclick="reimport()">🔄 Re-import</button>
+            <button class="btn btn-secondary" id="reimport-btn" onclick="reimport()"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Re-import</button>
         </div>
         <div class="setup-message" id="reimport-message"></div>
     </section>
@@ -92,7 +92,7 @@ function renderStatus(status) {
     const folder = `<code>${esc(status.folder || '')}</code>`;
     if (status.loaded) {
         el.className = 'bsdata-status bsdata-status-ok';
-        el.innerHTML = `✓ Using ${folder}: ${status.factions} factions, ${status.units} units` +
+        el.innerHTML = `<i class="fa-solid fa-circle-check" aria-hidden="true"></i> Using ${folder}: ${status.factions} factions, ${status.units} units` +
             (status.label ? ` <span class="muted">(${esc(status.label)})</span>` : '');
     } else if (status.error) {
         el.className = 'bsdata-status bsdata-status-error';

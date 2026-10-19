@@ -503,7 +503,7 @@
                     <span class="unit-points">${unitPointsLabel(atk)}</span>
                     ${leaderSelect(atk.leaders, atk.leader_id, `data-a="${a}"`, 'atk-leader')}
                 </td>`;
-            const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit">&times;</button>`;
+            const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
 
             if (visible.length === 0) {
                 const msg = atk.weapons.length === 0
@@ -526,7 +526,7 @@
                     </td>
                     ${i === 0 ? unitCell(visible.length) : ''}
                     <td class="roster-weapon">${escapeHtml(w.name)}${w.option ? ' <span class="option-tag" title="Wargear option: tick to include it">option</span>' : ''}${w.leader ? ` <span class="option-tag" title="${escapeHtml(w.leader_name)}'s weapon">leader</span>` : ''}</td>
-                    <td class="roster-type" title="${isRanged ? 'Shooting' : 'Melee'}">${isRanged ? '🎯' : '⚔️'}</td>
+                    <td class="roster-type" title="${isRanged ? 'Shooting' : 'Melee'}">${isRanged ? '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i>' : '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i>'}</td>
                     <td>${isRanged ? (w.range ? escapeHtml(w.range) + '"' : '-') : 'Melee'}</td>
                     <td>${escapeHtml(w.attacks)}</td>
                     <td>${w.skill ? escapeHtml(w.skill) + '+' : '-'}</td>
@@ -661,7 +661,7 @@
                            placeholder="e.g. Stealth" autocomplete="off" title="For this defender only; not saved to the datasheet">
                     <div class="kw-hint" id="def-extra-hint-${idx}"></div>
                 </td>
-                <td class="col-remove"><button class="btn-remove remove-defender" data-d="${idx}" title="Remove">&times;</button></td>
+                <td class="col-remove"><button class="btn-remove remove-defender" data-d="${idx}" title="Remove"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
             </tr>
         `).join('');
 
@@ -805,7 +805,7 @@
             const value = cell[metric] || 0;
             const displayVal = formatMetricValue(value, metric);
             const style = kind === 'total' ? '' : `style="background-color: ${getHeatColor(Math.min(value, maxVal), minVal, maxVal)}"`;
-            const wiped = kind === 'total' && cell.wiped ? '<span class="wiped-badge" title="Wiped in one turn">✓ wiped</span>' : '';
+            const wiped = kind === 'total' && cell.wiped ? '<span class="wiped-badge" title="Wiped in one turn"><i class="fa-solid fa-check" aria-hidden="true"></i> wiped</span>' : '';
             return `<td class="matrix-cell ${kind === 'total' ? 'matrix-total-cell' : ''}" ${style}
                         data-kind="${kind}" data-a="${a}" data-w="${w}" data-d="${d}"
                         title="${escapeHtml(rowLabel)} vs ${escapeHtml(defenders[d].label)}: ${displayVal}${cell.leader_killed != null

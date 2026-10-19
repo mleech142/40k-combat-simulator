@@ -6,6 +6,8 @@
     <meta name="app-boot-id" content="{{ boot_id }}">
     <title>{% block title %}40K Combat Simulator{% endblock %}</title>
     <script src="{{ url_for('static', filename='vendor/plotly-2.27.0.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-free-7.3.1/css/fontawesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-free-7.3.1/css/solid.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="{{ url_for('static', filename='js/core.js') }}"></script>
     {% block head %}{% endblock %}
@@ -13,14 +15,14 @@
 <body>
     <header class="header">
         <a href="/" class="header-brand">
-            <h1>⚔️ 40K Combat Simulator</h1>
+            <h1><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> 40K Combat Simulator</h1>
         </a>
         <nav class="header-nav">
-            <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">Simulator</a>
-            <a href="/analytics" class="nav-link {% if request.path == '/analytics' %}active{% endif %}">Analytics</a>
-            <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}">Scenarios</a>
-            <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}">Data</a>
-            <a href="/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}">Setup</a>
+            <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}"><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> Simulator</a>
+            <a href="/analytics" class="nav-link {% if request.path == '/analytics' %}active{% endif %}"><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Analytics</a>
+            <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}"><i class="fa-solid fa-bookmark" aria-hidden="true"></i> Scenarios</a>
+            <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}"><i class="fa-solid fa-database" aria-hidden="true"></i> Data</a>
+            <a href="/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</a>
             <span class="version">v{{ app_version }} · 11th Edition</span>
         </nav>
     </header>

@@ -4,10 +4,10 @@
 
 {% block content %}
 <div class="page-header">
-    <h2>📁 Data Management</h2>
+    <h2><i class="fa-solid fa-database" aria-hidden="true"></i> Data Management</h2>
     <div class="header-actions">
-        <button class="btn btn-secondary" onclick="exportData()">📤 Export JSON</button>
-        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">📥 Import JSON</button>
+        <button class="btn btn-secondary" onclick="exportData()"><i class="fa-solid fa-file-export" aria-hidden="true"></i> Export JSON</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import JSON</button>
         <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">
     </div>
 </div>
@@ -162,7 +162,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="faction-modal-title">Add Faction</h3>
-            <button class="modal-close" onclick="closeModal('faction-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('faction-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="faction-form" onsubmit="saveFaction(event)">
             <input type="hidden" id="faction-id">
@@ -183,7 +183,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="rule-modal-title">Add Faction Rule</h3>
-            <button class="modal-close" onclick="closeModal('rule-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('rule-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="rule-form" onsubmit="saveRule(event)">
             <input type="hidden" id="rule-id">
@@ -232,7 +232,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="stratagem-modal-title">Add Stratagem</h3>
-            <button class="modal-close" onclick="closeModal('stratagem-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('stratagem-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="stratagem-form" onsubmit="saveStratagem(event)">
             <input type="hidden" id="stratagem-id">
@@ -291,7 +291,7 @@
     <div class="modal-content modal-large">
         <div class="modal-header">
             <h3 id="unit-modal-title">Add Unit</h3>
-            <button class="modal-close" onclick="closeModal('unit-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('unit-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="unit-form" onsubmit="saveUnit(event)">
             <input type="hidden" id="unit-id">
@@ -365,11 +365,11 @@
                 <p class="weapon-picker-hint" id="unit-loadout-hint">Tick each weapon the unit carries; Qty = how many models carry it.</p>
                 <div class="weapon-picker">
                     <div class="weapon-picker-column">
-                        <h4>🎯 Shooting <span class="weapon-picker-count" id="unit-ranged-count"></span></h4>
+                        <h4><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Shooting <span class="weapon-picker-count" id="unit-ranged-count"></span></h4>
                         <div class="weapon-picker-list" id="unit-ranged-picker"></div>
                     </div>
                     <div class="weapon-picker-column">
-                        <h4>⚔️ Melee <span class="weapon-picker-count" id="unit-melee-count"></span></h4>
+                        <h4><i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Melee <span class="weapon-picker-count" id="unit-melee-count"></span></h4>
                         <div class="weapon-picker-list" id="unit-melee-picker"></div>
                     </div>
                 </div>
@@ -387,7 +387,7 @@
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="weapon-modal-title">Add Weapon</h3>
-            <button class="modal-close" onclick="closeModal('weapon-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('weapon-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <form id="weapon-form" onsubmit="saveWeapon(event)">
             <input type="hidden" id="weapon-id">
@@ -463,7 +463,7 @@
     <div class="modal-content modal-large">
         <div class="modal-header">
             <h3>Import Data - Review Changes</h3>
-            <button class="modal-close" onclick="closeModal('import-modal')">&times;</button>
+            <button class="modal-close" onclick="closeModal('import-modal')" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <div id="import-diff-content"></div>
         <div class="modal-actions">
@@ -583,7 +583,7 @@ async function loadFactions() {
     tbody.innerHTML = allFactions.map(f => `
         <tr class="faction-row">
             <td class="col-expand">
-                <button class="btn-expand" onclick="toggleFaction(${f.id})" title="Rules & stratagems">${expandedFactions.has(f.id) ? '▾' : '▸'}</button>
+                <button class="btn-expand" onclick="toggleFaction(${f.id})" title="Rules & stratagems">${expandedFactions.has(f.id) ? '<i class="fa-solid fa-chevron-down" aria-hidden="true"></i>' : '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i>'}</button>
             </td>
             <td><strong>${esc(f.name)}</strong> ${sourceBadge(f.source)}</td>
             <td>${f.unit_count}</td>
@@ -900,7 +900,7 @@ function renderUnitsTable(units) {
             <td>${dash(u.leadership, '+')}</td>
             <td>${pointsSummary(u.points_by_size)}</td>
             <td>${dash(u.default_models)}</td>
-            <td>🎯 ${u.ranged_weapon_count} · ⚔️ ${u.melee_weapon_count}</td>
+            <td><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> ${u.ranged_weapon_count} · <i class="fa-solid fa-hand-fist" aria-hidden="true"></i> ${u.melee_weapon_count}</td>
             <td>${u.editable ? `
                 <button class="btn-small" onclick="editUnit(${u.id})">Edit</button>
                 <button class="btn-small btn-danger" onclick="deleteUnit(${u.id})">Delete</button>` : `
@@ -928,7 +928,7 @@ function renderPointsRows(brackets) {
         <tr>
             <td><input type="number" class="points-models" min="1" value="${b.models ?? ''}" placeholder="-"></td>
             <td><input type="number" class="points-points" min="0" value="${b.points ?? ''}" placeholder="-"></td>
-            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size">&times;</button></td>
+            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
         </tr>`).join('');
 }
 
@@ -938,7 +938,7 @@ function addPointsRow() {
         <tr>
             <td><input type="number" class="points-models" min="1" placeholder="-"></td>
             <td><input type="number" class="points-points" min="0" placeholder="-"></td>
-            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size">&times;</button></td>
+            <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove()" title="Remove size"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
         </tr>`);
 }
 
@@ -962,7 +962,7 @@ async function loadTargetProfiles() {
     const generic = profiles.filter(t => t.kind === 'generic');
     const roles = profiles.filter(t => t.kind === 'role');
     document.querySelector('#generic-profiles-table tbody').innerHTML = generic.length
-        ? generic.map(t => `<tr><td><strong>${esc(t.name)}</strong></td>${statCells(t)}<td>${dash(t.weight)}</td><td>${t.use ? '✓' : '-'}</td></tr>`).join('')
+        ? generic.map(t => `<tr><td><strong>${esc(t.name)}</strong></td>${statCells(t)}<td>${dash(t.weight)}</td><td>${t.use ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '-'}</td></tr>`).join('')
         : '<tr><td colspan="10" class="empty-cell">None.</td></tr>';
     document.querySelector('#role-profiles-table tbody').innerHTML = roles.length
         ? roles.map(t => `<tr><td><strong>${esc(t.name)}</strong></td>${statCells(t)}</tr>`).join('')
@@ -983,7 +983,7 @@ function leaderBuffRowHtml(buff = {}) {
         <td><select class="buff-side">${option('Attacker', 'Attacker', buff.applies_to || 'Attacker')}${option('Target', 'Target', buff.applies_to)}</select></td>
         <td><select class="buff-phase">${option('Both', 'Both', buff.phase || 'Both')}${option('Shooting', 'Shooting', buff.phase)}${option('Fighting', 'Fighting', buff.phase)}</select></td>
         <td><input type="text" class="buff-modifier" value="${esc(buff.modifier || '')}" placeholder="e.g. Lethal Hits"></td>
-        <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove(); leaderBuffsTouched = true" title="Remove buff">&times;</button></td>
+        <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove(); leaderBuffsTouched = true" title="Remove buff"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
     </tr>`;
 }
 
@@ -1283,7 +1283,7 @@ function renderWeaponsTable(weapons) {
         <tr>
             <td><strong>${esc(w.name)}</strong></td>
             <td>${esc(w.faction)}</td>
-            <td>${w.type === 'ranged' ? '🎯 Ranged' : '⚔️ Melee'}</td>
+            <td>${w.type === 'ranged' ? '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Ranged' : '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Melee'}</td>
             <td>${w.type === 'ranged' ? dash(w.range, '"') : 'Melee'}</td>
             <td>${esc(w.attacks)}</td>
             <td>${dash(w.skill, '+')}</td>
@@ -1347,7 +1347,7 @@ async function searchBsdataWeapons() {
     if (document.getElementById('weapon-bsdata-search').value.trim() !== q) return;
     results.innerHTML = bsdataWeaponResults.length ? bsdataWeaponResults.map((w, i) => `
         <button type="button" class="bsdata-weapon-result" onclick="copyBsdataWeapon(${i})">
-            <span>${w.type === 'ranged' ? '🎯' : '⚔️'} ${esc(w.name)}</span>
+            <span>${w.type === 'ranged' ? '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i>' : '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i>'} ${esc(w.name)}</span>
             <span class="muted">A${esc(w.attacks)} ${w.type === 'ranged' ? 'BS' : 'WS'}${w.skill ? w.skill + '+' : '-'} S${w.strength} AP${w.ap ? '-' + w.ap : '0'} D${esc(w.damage)} · ${esc(w.faction)}</span>
         </button>`).join('') : '<div class="weapon-picker-empty">No BSData weapons match</div>';
 }
@@ -1562,7 +1562,8 @@ const KEYWORD_GROUPS = [
     ['Core', 'Unit abilities'],
     ['Stat', 'Stat modifiers'],
 ];
-const APPLIES_LABEL = {Ranged: '🎯 Ranged', Melee: '⚔️ Melee', Both: '🎯⚔️ Both', Unit: '🛡️ Unit'};
+const APPLIES_LABEL = {Ranged: '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Ranged', Melee: '<i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Melee',
+                       Both: '<i class="fa-solid fa-crosshairs" aria-hidden="true"></i><i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Both', Unit: '<i class="fa-solid fa-users" aria-hidden="true"></i> Unit'};
 
 async function loadKeywords() {
     allKeywords = await fetch('/api/data/keywords').then(r => r.json());
@@ -1604,7 +1605,7 @@ function renderKeywords() {
                 <header class="kw-card-header">
                     <h4>${esc(k.name)}</h4>
                     ${k.modelled
-                        ? '<span class="kw-badge kw-badge-calc" title="Changes the simulator results">✓ Calculated</span>'
+                        ? '<span class="kw-badge kw-badge-calc" title="Changes the simulator results"><i class="fa-solid fa-check" aria-hidden="true"></i> Calculated</span>'
                         : '<span class="kw-badge kw-badge-ref" title="Listed for reference; does not change the results">Reference</span>'}
                 </header>
                 <button class="kw-format" onclick="copyKeywordFormat(this)" title="Click to copy">${esc(k.format || k.name)}</button>

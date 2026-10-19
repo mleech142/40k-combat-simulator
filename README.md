@@ -133,7 +133,7 @@ The tests never touch `data/` — each starts the app on its own temporary data 
 ## Tech stack
 
 - **Backend**: Python, Flask, Flask-SQLAlchemy, SQLite, NumPy, waitress
-- **Frontend**: vanilla JavaScript, Plotly.js (charts; bundled in `static/vendor`, so the app works offline)
+- **Frontend**: vanilla JavaScript, Plotly.js (charts) and [Font Awesome Free](https://fontawesome.com) 7.3.1 icons (CC BY 4.0; font SIL OFL 1.1), both bundled in `static/vendor`, so the app works offline
 - **Packaging**: PyInstaller, GitHub Actions
 - **Data import**: openpyxl
 

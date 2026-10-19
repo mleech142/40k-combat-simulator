@@ -5,6 +5,7 @@ Running as the packaged exe: where data lives, first-run seeding, and the port f
 
 import importlib.util
 import json
+import re
 import socket
 import sys
 from pathlib import Path
@@ -105,3 +106,16 @@ def test_pick_port_falls_back_when_busy(run_module):
         taken = busy.getsockname()[1]
         port = run_module.pick_port(preferred=taken)
     assert port != taken and port > 0
+
+
+def test_every_icon_used_is_in_the_bundled_font_awesome():
+    """Pages use Font Awesome Free icons from static/vendor (no CDN); a typo or a Pro-only icon shows nothing."""
+    static = ROOT / 'src' / 'combat_sim' / 'static'
+    css = (static / 'vendor' / 'fontawesome-free-7.3.1' / 'css' / 'fontawesome.min.css').read_text(encoding='utf-8')
+    sources = list((ROOT / 'src' / 'combat_sim' / 'templates').glob('*.html')) + list((static / 'js').glob('*.js'))
+    used = {name for path in sources for name in re.findall(r'fa-solid fa-([a-z0-9-]+)', path.read_text(encoding='utf-8'))}
+    assert len(used) > 20
+    missing = sorted(name for name in used if f'.fa-{name}{{' not in css and f'.fa-{name},' not in css)
+    assert missing == []
+    assert (static / 'vendor' / 'fontawesome-free-7.3.1' / 'webfonts' / 'fa-solid-900.woff2').exists()
+    assert 'fontawesome-free-7.3.1/css/solid.min.css' in (ROOT / 'src' / 'combat_sim' / 'templates' / 'base.html').read_text(encoding='utf-8')

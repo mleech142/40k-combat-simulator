@@ -37,6 +37,7 @@ A single-process Flask app serving four server-rendered pages, each driven by va
 | `static/js/core.js` | Loaded first on **every** page (`window.Core`; `require()`-able in Node). Pure helpers with no DOM or network access: formatting, BSData rule text as safe HTML (`formatRuleText`), copy labels, unit-size scaling, the Simulator and Analytics request builders, rules filtering, the Army Analysis HTML, and page-state persistence. Unit-tested in `tests/js`. |
 | `static/js/app.js` | Loaded on every page. Shared: `PageState` (from `Core.createPageState`) and `KeywordHints` (as-you-type keyword warnings, checked by the server). The rest is the Simulator page (returns early elsewhere). |
 | `static/js/analytics.js` | The Analytics page (IIFE): DOM and state for the attacker/defender tables, generic profiles, rules panels, matrix, cell detail, army analysis tabs and saved comparisons; calculations and HTML building come from `Core`. |
+| `static/vendor/` | Bundled third-party files: Plotly.js and Font Awesome Free 7.3.1 (solid web font, its CSS and licence). Icons are `<i class="fa-solid fa-NAME" aria-hidden="true"></i>`; a packaging test checks every icon used exists in the bundle. |
 | `static/css/style.css` | All styles, one file, dark theme via CSS variables. |
 
 ## Data model: BSData and the app data JSON

@@ -26,7 +26,7 @@ Rules:
 
 ## Packaging and releases
 
-Users get a Windows exe built by PyInstaller (`combat_sim.spec`) and published by `.github/workflows/release.yml` when a `vX.Y.Z` tag matching `__version__` in `src/combat_sim/__init__.py` is pushed. In the exe, data lives in `%APPDATA%\40K Combat Simulator\` (`src/combat_sim/paths.py`); the shipped app data JSON only seeds it on first run, and a version 1 `40k_data.json` and database found there are moved to `archive-v1`. Anything new the pages load must be bundled locally (no CDNs) and anything new on disk must be added to the spec's `datas`. Steps: `docs/releasing.md`.
+Users get a Windows exe built by PyInstaller (`combat_sim.spec`) and published by `.github/workflows/release.yml` when a `vX.Y.Z` tag matching `__version__` in `src/combat_sim/__init__.py` is pushed. In the exe, data lives in `%APPDATA%\40K Combat Simulator\` (`src/combat_sim/paths.py`); the shipped app data JSON only seeds it on first run, and a version 1 `40k_data.json` and database found there are moved to `archive-v1`. Anything new the pages load must be bundled locally (no CDNs; icons are Font Awesome Free solid from `static/vendor/fontawesome-free-7.3.1`, written `<i class="fa-solid fa-NAME" aria-hidden="true"></i>`, and `tests/test_packaging.py` checks every one exists) and anything new on disk must be added to the spec's `datas`. Steps: `docs/releasing.md`.
 
 ## Excel Source
 
