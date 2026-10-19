@@ -5,13 +5,14 @@ Flask application for 40K Combat Simulator.
 import os
 import secrets
 import uuid
+from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from sqlalchemy.exc import IntegrityError
 from .models import (db, init_db, Faction, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
-                     SavedScenario, SavedComparison, unit_ranged_weapons, unit_melee_weapons)
+                     SavedScenario, SavedComparison, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
-from .paths import DATA_FILE, DATABASE_FILE, prepare_data_dir
-from .data_store import (DataFileError, read_data_file, check_data,
+from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, prepare_data_dir
+from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file)
 from .simulation import (
     simulate, simulate_analytical, simulate_monte_carlo_combined, keyword_name, check_keywords,
@@ -23,9 +24,10 @@ def create_app(config=None):
     """Application factory."""
     app = Flask(__name__)
 
-    # Configuration. The data JSON (factions, units, weapons, rules, stratagems) and the database
-    # default to the folder from paths.data_dir(): the repository's data/ from source, a per-user
-    # folder in the packaged exe.
+    # Configuration. The app data JSON (custom factions, rules, stratagems, references), the
+    # BSData folder and the database default to the folder from paths.data_dir(): the
+    # repository's data/ from source, a per-user folder in the packaged exe.
+    # The BSData folder and the import cache sit next to the app data JSON unless BSDATA_DIR says otherwise.
     data_json = os.environ.get('DATA_JSON')
     database_url = os.environ.get('DATABASE_URL')
     if not (data_json and database_url):
@@ -34,6 +36,8 @@ def create_app(config=None):
         database_url = database_url or 'sqlite:///' + (folder / DATABASE_FILE).as_posix()
     app.config['DATA_JSON'] = data_json
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['BSDATA_DIR'] = os.environ.get('BSDATA_DIR') or str(Path(data_json).parent / BSDATA_FOLDER)
+    app.config['BSDATA_CACHE'] = str(Path(data_json).parent / BSDATA_CACHE_FILE)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -48,17 +52,28 @@ def create_app(config=None):
     if config:
         app.config.update(config)
 
-    # Initialize database, then rebuild the reference tables from the data JSON
+    # Initialize database, then rebuild the reference tables from BSData and the app data JSON
     init_db(app)
     with app.app_context():
         data = read_data_file(app.config['DATA_JSON'])
-        app.config['DATA_SOURCE'] = data.get('source')
-        rebuild_reference_tables(data)
+        known = [k['name'] for k in data.get('keywords', [])] or None
+        result, status = load_bsdata(app.config['BSDATA_DIR'], app.config['BSDATA_CACHE'], known)
+        app.config['BSDATA_RESULT'] = result
+        app.config['BSDATA_STATUS'] = status
+        load_reference_data(app, data)
 
     # Register routes
     register_routes(app)
 
     return app
+
+
+def load_reference_data(app, data):
+    """Rebuild the reference tables from app data JSON `data` plus the loaded BSData import."""
+    merged, unmatched = merge_data(data, app.config.get('BSDATA_RESULT'))
+    app.config['DATA_SOURCE'] = data.get('source')
+    app.config['UNMATCHED_MODIFIERS'] = unmatched
+    rebuild_reference_tables(merged)
 
 
 def conditions_from_request(conditions_data):
@@ -155,7 +170,7 @@ def register_routes(app):
         faction_id = request.args.get('faction_id', type=int)
         search = request.args.get('search', '').strip()
 
-        query = Unit.query
+        query = legends_filter(Unit.query)
 
         if faction_id:
             query = query.filter(Unit.faction_id == faction_id)
@@ -163,8 +178,15 @@ def register_routes(app):
         if search:
             query = query.filter(Unit.name.ilike(f'%{search}%'))
 
-        units = query.order_by(Unit.name).limit(50).all()
+        query = query.order_by(Unit.name)
+        units = query.all() if faction_id else query.limit(50).all()  # Search results are capped
         return jsonify([u.to_dict() for u in units])
+
+    def legends_filter(query):
+        """Legends units only with ?legends=1."""
+        if request.args.get('legends') in ('1', 'true'):
+            return query
+        return query.filter(db.or_(Unit.legends.is_(None), Unit.legends.is_(False)))
 
     @app.route('/api/units/<int:unit_id>')
     def api_unit(unit_id):
@@ -178,6 +200,11 @@ def register_routes(app):
                 dict(w.to_dict(), qty=qty, default_use=used)
                 for (w, qty), used in zip(loadout, default_used([w.name for w, _ in loadout]))
             ]
+        # Wargear options not in the default loadout (BSData units)
+        for weapon_type, model in (('ranged', RangedWeapon), ('melee', MeleeWeapon)):
+            ids = getattr(unit, f'{weapon_type}_options') or []
+            weapons = {w.id: w for w in model.query.filter(model.id.in_(ids))} if ids else {}
+            data[f'{weapon_type}_options'] = [weapons[i].to_dict() for i in ids if i in weapons]
         # Points for every unit size the pages offer (index = model count), from Unit.points_for
         data['points_by_model_count'] = [None] + [unit.points_for(n) for n in range(1, MAX_UNIT_SIZE + 1)]
         return jsonify(data)
@@ -405,13 +432,47 @@ def register_routes(app):
     # =========================================================================
     # Data Management API
     #
-    # Every change is committed to the database and then written straight to the
-    # data JSON, which is the source of truth (see data_store.py).
+    # Every change is committed to the database and then written straight to the app
+    # data JSON (see data_store.py). BSData factions' units and weapons are read-only;
+    # their rules and stratagems, and modifiers added to their units, are app data.
     # =========================================================================
 
     def save_data():
         db.session.commit()
-        write_data_file(app.config['DATA_JSON'], export_data(app.config.get('DATA_SOURCE')))
+        write_data_file(app.config['DATA_JSON'],
+                        export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED_MODIFIERS', [])))
+
+    def read_only(message='BSData records are read-only.'):
+        return jsonify({'error': message}), 403
+
+    def next_custom_id(model):
+        """IDs for records made in the app stay below the BSData range."""
+        top = db.session.query(db.func.max(model.id)).filter(model.id < BSDATA_ID_BASE).scalar()
+        return (top or 0) + 1
+
+    def editable_faction(faction_id):
+        faction = db.session.get(Faction, int(faction_id)) if faction_id not in (None, '') else None
+        return faction is not None and faction.editable
+
+    @app.route('/api/data/status')
+    def api_data_status():
+        """The BSData folder and import: where, whether it loaded, revisions and report."""
+        status = app.config.get('BSDATA_STATUS') or {}
+        report = status.get('report') or []
+        counts = {}
+        for item in report:
+            counts[item['kind']] = counts.get(item['kind'], 0) + 1
+        return jsonify({
+            'folder': status.get('folder'),
+            'loaded': bool(status.get('loaded')),
+            'error': status.get('error'),
+            'from_cache': bool(status.get('from_cache')),
+            'source': status.get('source'),
+            'report_counts': counts,
+            'report': report if request.args.get('report') else None,
+            'factions': Faction.query.filter_by(source='bsdata').count(),
+            'units': Unit.query.join(Faction).filter(Faction.source == 'bsdata').count(),
+        })
 
     def int_or_none(value):
         if value in (None, '', '-'):
@@ -431,19 +492,18 @@ def register_routes(app):
 
     @app.route('/api/data/export')
     def api_data_export():
-        """The current data JSON."""
-        return jsonify(export_data(app.config.get('DATA_SOURCE')))
+        """The current app data JSON (BSData records are left out)."""
+        return jsonify(export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED_MODIFIERS', [])))
 
     @app.route('/api/data/import', methods=['POST'])
     def api_data_import():
-        """Replace all reference data with an uploaded data JSON."""
+        """Replace all app data with an uploaded app data JSON (BSData stays as loaded)."""
         data = request.get_json()
         try:
             check_data(data)
         except DataFileError as err:
             return jsonify({'error': str(err)}), 400
-        rebuild_reference_tables(data)
-        app.config['DATA_SOURCE'] = data.get('source')
+        load_reference_data(app, data)
         save_data()
         return jsonify({'message': 'Data imported'})
 
@@ -473,27 +533,32 @@ def register_routes(app):
     def api_data_factions():
         """Get all factions with counts."""
         factions = Faction.query.order_by(Faction.name).all()
+        unit_counts = dict(db.session.query(Unit.faction_id, db.func.count(Unit.id)).group_by(Unit.faction_id))
         return jsonify([{
             'id': f.id,
             'name': f.name,
-            'unit_count': f.units.count(),
+            'source': f.source,
+            'editable': f.editable,
+            'unit_count': unit_counts.get(f.id, 0),
             'rule_count': f.faction_rules.count(),
             'stratagem_count': f.stratagems.count(),
         } for f in factions])
 
     @app.route('/api/data/factions', methods=['POST'])
     def api_data_create_faction():
-        """Create a new faction."""
+        """Create a new (custom) faction."""
         data = request.get_json()
-        faction = Faction(name=data['name'].strip())
+        faction = Faction(id=next_custom_id(Faction), name=data['name'].strip(), source='custom')
         db.session.add(faction)
         save_data()
         return jsonify({'id': faction.id, 'name': faction.name})
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['PUT'])
     def api_data_update_faction(faction_id):
-        """Rename a faction."""
+        """Rename a custom faction."""
         faction = db.get_or_404(Faction, faction_id)
+        if not faction.editable:
+            return read_only()
         data = request.get_json()
         faction.name = data.get('name', faction.name).strip()
         save_data()
@@ -501,8 +566,10 @@ def register_routes(app):
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['DELETE'])
     def api_data_delete_faction(faction_id):
-        """Delete a faction with its units, weapons, rules and stratagems."""
+        """Delete a custom faction with its units, weapons, rules and stratagems."""
         faction = db.get_or_404(Faction, faction_id)
+        if not faction.editable:
+            return read_only()
         for unit in faction.units:
             unit.set_loadout('ranged', [])
             unit.set_loadout('melee', [])
@@ -601,7 +668,7 @@ def register_routes(app):
     def api_data_units():
         """Get all units with faction info and loadout counts."""
         faction_id = request.args.get('faction_id', type=int)
-        query = Unit.query.join(Faction)
+        query = legends_filter(Unit.query.join(Faction))
 
         if faction_id:
             query = query.filter(Unit.faction_id == faction_id)
@@ -654,9 +721,11 @@ def register_routes(app):
 
     @app.route('/api/data/units', methods=['POST'])
     def api_data_create_unit():
-        """Create a new unit."""
+        """Create a new unit in a custom faction."""
         data = request.get_json()
-        unit = Unit()
+        if not editable_faction(data.get('faction_id')):
+            return read_only('Units can only be added to custom factions.')
+        unit = Unit(id=next_custom_id(Unit))
         apply_unit_fields(unit, data)
         db.session.add(unit)
         db.session.flush()
@@ -666,9 +735,22 @@ def register_routes(app):
 
     @app.route('/api/data/units/<int:unit_id>', methods=['PUT'])
     def api_data_update_unit(unit_id):
-        """Update a unit and its loadout."""
+        """
+        Update a custom unit and its loadout. A BSData unit only takes 'added_modifiers', which
+        apply to that datasheet in every faction that has it.
+        """
         unit = db.get_or_404(Unit, unit_id)
         data = request.get_json()
+        if not unit.editable:
+            if set(data) - {'added_modifiers'}:
+                return read_only('BSData units are read-only apart from added modifiers.')
+            modifiers = text_list(data.get('added_modifiers'))
+            for same in Unit.query.filter_by(bsdata_id=unit.bsdata_id):
+                same.added_modifiers = modifiers
+            save_data()
+            return jsonify({'id': unit.id, 'message': 'Unit updated'})
+        if not editable_faction(data.get('faction_id', unit.faction_id)):
+            return read_only('Units can only be moved to custom factions.')
         apply_unit_fields(unit, data)
         db.session.flush()
         apply_unit_loadout(unit, data)
@@ -677,8 +759,10 @@ def register_routes(app):
 
     @app.route('/api/data/units/<int:unit_id>', methods=['DELETE'])
     def api_data_delete_unit(unit_id):
-        """Delete a unit. Its faction's weapons stay."""
+        """Delete a custom unit. Its faction's weapons stay."""
         unit = db.get_or_404(Unit, unit_id)
+        if not unit.editable:
+            return read_only()
         unit.set_loadout('ranged', [])
         unit.set_loadout('melee', [])
         db.session.delete(unit)
@@ -689,11 +773,11 @@ def register_routes(app):
 
     WEAPON_MODELS = {'ranged': RangedWeapon, 'melee': MeleeWeapon}
 
-    def weapon_dict(weapon):
+    def weapon_dict(weapon, unit_names=None):
         return dict(
             weapon.to_dict(),
             faction=weapon.faction.name if weapon.faction else None,
-            unit_names=sorted(u.name for u in weapon.units),
+            unit_names=sorted(u.name for u in weapon.units) if unit_names is None else sorted(unit_names),
         )
 
     @app.route('/api/data/weapons')
@@ -708,7 +792,15 @@ def register_routes(app):
             query = model.query
             if faction_id:
                 query = query.filter(model.faction_id == faction_id)
-            weapons.extend(weapon_dict(w) for w in query.order_by(model.name).all())
+            # Units carrying each weapon, in one query (a faction can have hundreds of weapons)
+            table = unit_ranged_weapons if type_name == 'ranged' else unit_melee_weapons
+            users = {}
+            rows = db.session.query(table.c.weapon_id, Unit.name).join(Unit, Unit.id == table.c.unit_id)
+            if faction_id:
+                rows = rows.filter(Unit.faction_id == faction_id)
+            for weapon_id, unit_name in rows:
+                users.setdefault(weapon_id, set()).add(unit_name)
+            weapons.extend(weapon_dict(w, users.get(w.id, ())) for w in query.order_by(model.name).all())
         weapons.sort(key=lambda w: ((w['faction'] or '').lower(), w['name'].lower()))
         return jsonify(weapons)
 
@@ -729,10 +821,12 @@ def register_routes(app):
 
     @app.route('/api/data/weapons', methods=['POST'])
     def api_data_create_weapon():
-        """Create a new weapon for a faction."""
+        """Create a new weapon for a custom faction."""
         data = request.get_json()
+        if not editable_faction(data.get('faction_id')):
+            return read_only('Weapons can only be added to custom factions.')
         weapon_type = 'ranged' if data.get('type') == 'ranged' else 'melee'
-        weapon = WEAPON_MODELS[weapon_type]()
+        weapon = WEAPON_MODELS[weapon_type](id=next_custom_id(WEAPON_MODELS[weapon_type]))
         apply_weapon_fields(weapon, weapon_type, data)
         db.session.add(weapon)
         save_data()
@@ -749,7 +843,10 @@ def register_routes(app):
         """Update a weapon. Moving it to another faction drops it from other factions' units."""
         weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
         weapon = db.get_or_404(WEAPON_MODELS[weapon_type], weapon_id)
-        apply_weapon_fields(weapon, weapon_type, request.get_json())
+        data = request.get_json()
+        if not weapon.faction.editable or not editable_faction(data.get('faction_id', weapon.faction_id)):
+            return read_only()
+        apply_weapon_fields(weapon, weapon_type, data)
         db.session.flush()
 
         table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
@@ -765,6 +862,8 @@ def register_routes(app):
         """Delete a weapon and remove it from every loadout."""
         weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
         weapon = db.get_or_404(WEAPON_MODELS[weapon_type], weapon_id)
+        if not weapon.faction.editable:
+            return read_only()
         table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
         db.session.execute(table.delete().where(table.c.weapon_id == weapon.id))
         db.session.delete(weapon)

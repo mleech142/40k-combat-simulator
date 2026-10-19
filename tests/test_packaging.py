@@ -48,6 +48,23 @@ def test_frozen_never_overwrites_the_users_data(frozen):
     assert json.loads((user / paths.DATA_FILE).read_text(encoding='utf-8')) == {'edited': True}
 
 
+def test_version_1_data_and_database_are_archived_once(frozen):
+    bundle, user = frozen
+    user.mkdir()
+    (user / paths.V1_DATA_FILE).write_text('{"v1": true}', encoding='utf-8')
+    (user / paths.DATABASE_FILE).write_bytes(b'old scenarios')
+    paths.prepare_data_dir()
+    archive = user / paths.V1_ARCHIVE_FOLDER
+    assert json.loads((archive / paths.V1_DATA_FILE).read_text(encoding='utf-8')) == {'v1': True}
+    assert (archive / paths.DATABASE_FILE).read_bytes() == b'old scenarios'
+    assert not (user / paths.V1_DATA_FILE).exists() and not (user / paths.DATABASE_FILE).exists()
+    assert json.loads((user / paths.DATA_FILE).read_text(encoding='utf-8')) == {'shipped': True}
+
+    (user / paths.DATABASE_FILE).write_bytes(b'new scenarios')  # Later starts leave the new database alone
+    paths.prepare_data_dir()
+    assert (user / paths.DATABASE_FILE).read_bytes() == b'new scenarios'
+
+
 EMPTY_DATA = {'schema_version': 1, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [],
               'melee_weapons': [], 'faction_rules': [], 'stratagems': [], 'keywords': [], 'target_profiles': []}
 

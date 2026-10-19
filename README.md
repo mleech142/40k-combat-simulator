@@ -43,7 +43,7 @@ The browser opens <http://127.0.0.1:5000> (or another free port if 5000 is taken
 - Windows: double-click `launcher.bat`
 - Linux/Mac: `chmod +x launcher.sh && ./launcher.sh`
 
-The launchers create a virtual environment, install the requirements, build `data/40k_data.json` from the workbook if it is missing, and start the app.
+The launchers create a virtual environment, install the requirements, warn if `data/bsdata` holds no BSData catalogues, and start the app.
 
 ## Using the app
 
@@ -68,22 +68,15 @@ Both pages remember their setup while you move between tabs; it is cleared when 
 
 | File | What it holds |
 | --- | --- |
-| `data/40k_data.json` | **The data** — factions, units, weapons, loadouts, rules, stratagems, keywords and target profiles. Committed and distributed; the app reads it on every start and writes every edit back to it. |
-| `data/combat_sim.db` | SQLite working copy (rebuilt from the JSON on start) plus your saved scenarios and comparisons. Not committed. |
-| `40KCombatSimulator_v2.xlsx` | The original spreadsheet the data was imported from. Frozen — edit data in the app. |
+| `data/bsdata/*.json` | **Unit data** — the BSData catalogues from [github.com/BSData/wh40k-11e](https://github.com/BSData/wh40k-11e): factions, units, weapons, loadouts and points. Download them yourself; they are never committed or shipped, and are read-only in the app. |
+| `data/app_data.json` | **The app's own data** — your custom factions, units and weapons, faction rules and stratagems, modifiers added to BSData units, keywords and target profiles. Committed and distributed; the app writes every edit back to it. |
+| `data/bsdata_cache.json` | The last BSData import, reused until the catalogue files change. Not committed. |
+| `data/combat_sim.db` | SQLite working copy (rebuilt on start) plus your saved scenarios and comparisons. Not committed. |
+| `40KCombatSimulator_v2.xlsx` | The original spreadsheet; now only the simulation engine's reference. Frozen. |
 
-Building or refreshing the JSON from the spreadsheet:
+The Data page shows whether the BSData folder loaded. BSData units keep their IDs when the catalogues are updated, so saved scenarios and comparisons keep pointing at the right units.
 
-```bash
-python scripts/migrate_excel.py                   # first build (refuses if data/40k_data.json already exists)
-python scripts/migrate_excel.py --force           # rebuild from Excel, discarding edits made in the app
-python scripts/migrate_excel.py --output x.json   # write elsewhere, e.g. to compare
-python scripts/migrate_excel.py --reference-only  # refresh only keywords and target profiles; keeps everything else
-```
-
-IDs stay stable across rebuilds, so saved scenarios and comparisons keep pointing at the right units. The script prints a report of likely typos and skipped rows.
-
-**Export JSON / Import JSON** on the Data page download or replace the whole data file (with a review screen before replacing).
+**Export JSON / Import JSON** on the Data page download or replace the app data file (with a review screen before replacing); BSData is not part of it.
 
 ## Tests
 
@@ -91,10 +84,10 @@ IDs stay stable across rebuilds, so saved scenarios and comparisons keep pointin
 pip install -r requirements-dev.txt
 python -m pytest tests                                         # 94 tests (Python + JavaScript)
 node --test "tests/js/*.test.js"                               # JavaScript only (Node 18+)
-python -m coverage run --source=src/combat_sim,scripts -m pytest tests && python -m coverage report
+python -m coverage run --source=src/combat_sim -m pytest tests && python -m coverage report
 ```
 
-The tests never touch `data/` — each starts the app on its own temporary data file. They include the spreadsheet's own cached results as parity checks and an analytical-vs-Monte-Carlo agreement check. The JavaScript tests cover the pure page helpers in `static/js/core.js`; they run inside the pytest run when Node.js is installed.
+The tests never touch `data/` — each starts the app on its own temporary data file, with a small made-up BSData set (`tests/fixtures/bsdata`) where needed. They include the spreadsheet's own cached results as parity checks and an analytical-vs-Monte-Carlo agreement check. The JavaScript tests cover the pure page helpers in `static/js/core.js`; they run inside the pytest run when Node.js is installed.
 
 ## Project structure
 
@@ -103,13 +96,14 @@ The tests never touch `data/` — each starts the app on its own temporary data 
 ├── src/combat_sim/
 │   ├── app.py            # Flask app factory and all routes (pages + JSON API)
 │   ├── models.py         # SQLAlchemy models; points-by-size logic
-│   ├── data_store.py     # Reads/validates/writes data/40k_data.json
+│   ├── bsdata.py         # Imports the BSData catalogues
+│   ├── data_store.py     # Merges BSData with data/app_data.json; reads/validates/writes the app data
 │   ├── simulation.py     # Combat engine: resolve() + analytical and Monte Carlo engines
 │   ├── paths.py          # Where data lives: repository data/ from source, %APPDATA% in the exe
 │   ├── templates/        # Jinja2 pages (Simulator, Matchups, Scenarios, Data)
 │   └── static/           # CSS and JavaScript (core.js + app.js are loaded on every page)
-├── data/                 # 40k_data.json (committed) and combat_sim.db (local)
-├── scripts/migrate_excel.py
+├── data/                 # app_data.json (committed); bsdata/, the import cache and combat_sim.db (local)
+├── archive/              # Version 1: the v1 workbook, 40k_data_v1.json and migrate_excel.py
 ├── tests/                # pytest suite (conftest.py provides a temporary-data app); tests/js: Node tests
 ├── docs/
 │   ├── architecture.md   # How the pieces fit, conventions, maintainability notes

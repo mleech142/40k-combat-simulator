@@ -25,7 +25,7 @@ The app is in `dist/40kCombatSimulator/` (about 66 MB). To try it without touchi
 
 ## How the build works
 
-- `combat_sim.spec` bundles `run.py`, the `combat_sim` package, its `templates/` and `static/` folders, and `data/40k_data.json`. Anything new the app reads from disk must be added to its `datas`.
+- `combat_sim.spec` bundles `run.py`, the `combat_sim` package, its `templates/` and `static/` folders, and `data/app_data.json` (never the BSData catalogues: users download those). Anything new the app reads from disk must be added to its `datas`.
 - Pages must not load anything from the internet (Plotly is in `static/vendor`), so the exe works offline.
 - The exe runs `run.py`: waitress on `127.0.0.1`, port 5000 or the next free port, browser opened automatically, console window shows the address and closing it stops the app.
 - `src/combat_sim/paths.py` keeps user data in `%APPDATA%\40K Combat Simulator\`. The shipped data JSON only seeds that folder on first run; a newer release's data does **not** replace a user's existing copy. Users can pick up new shipped data with **Data → Import JSON**, or by deleting their copy before starting the app.

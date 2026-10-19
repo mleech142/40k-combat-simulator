@@ -7,7 +7,7 @@ a = Analysis(
     datas=[
         ('src/combat_sim/templates', 'combat_sim/templates'),
         ('src/combat_sim/static', 'combat_sim/static'),
-        ('data/40k_data.json', 'data'),  # copied to the user's data folder on first run
+        ('data/app_data.json', 'data'),  # copied to the user's data folder on first run (BSData is never bundled)
     ],
     excludes=['openpyxl', 'tkinter', 'pytest', 'IPython', 'matplotlib'],
 )

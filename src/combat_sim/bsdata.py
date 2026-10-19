@@ -42,6 +42,8 @@ from pathlib import Path
 
 from .simulation import check_keywords
 
+IMPORTER_VERSION = 1  # Bump when the output changes, so cached imports are redone
+
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
 WEAPON_TYPES = {'Ranged Weapons': 'ranged', 'Melee Weapons': 'melee'}

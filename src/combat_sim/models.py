@@ -3,9 +3,14 @@ Database models for 40K Combat Simulator.
 
 Schema designed for Warhammer 40K 11th Edition rules.
 
-Reference data (factions, units, weapons, rules, stratagems) is loaded from the
-data JSON on every start; see data_store.py. Only saved scenarios and comparisons
-live solely in the database.
+Reference data (factions, units, weapons, rules, stratagems) is rebuilt on every start
+from the BSData import and the app's own data JSON; see data_store.py. Saved scenarios,
+comparisons and the BSData ID map live only in the database.
+
+Factions with `source` 'bsdata' come from the BSData catalogues: their units and weapons
+are read-only. 'custom' factions (and their units and weapons) are made in the app. BSData
+records get IDs from BSDATA_ID_BASE up, kept stable across imports by StableId; custom
+records keep their own, below it.
 """
 
 from flask_sqlalchemy import SQLAlchemy
@@ -15,6 +20,8 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
+BSDATA_ID_BASE = 1_000_000  # First ID given to BSData records; custom records stay below it
+
 
 class Faction(db.Model):
     """A Warhammer 40K faction (e.g., Death Guard, Space Marines)."""
@@ -22,6 +29,9 @@ class Faction(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
+    # 'custom' (made in the app), 'bsdata', or 'missing' (named by app data, not in the BSData folder)
+    source = db.Column(db.String(10), nullable=False, default='custom')
+    bsdata_id = db.Column(db.String(40), nullable=True)  # Catalogue ID
 
     # Relationships
     units = db.relationship('Unit', backref='faction', lazy='dynamic')
@@ -31,6 +41,11 @@ class Faction(db.Model):
     def __repr__(self):
         return f'<Faction {self.name}>'
 
+    @property
+    def editable(self):
+        """Its units and weapons can be edited (rules and stratagems always can)."""
+        return self.source == 'custom'
+
 
 # A unit's loadout: which of its faction's weapons it carries, and how many models carry each.
 unit_ranged_weapons = db.Table(
@@ -38,6 +53,7 @@ unit_ranged_weapons = db.Table(
     db.Column('unit_id', db.Integer, db.ForeignKey('units.id'), primary_key=True),
     db.Column('weapon_id', db.Integer, db.ForeignKey('ranged_weapons.id'), primary_key=True),
     db.Column('qty', db.Integer, nullable=False, default=1),
+    db.Column('position', db.Integer, nullable=False, default=0),  # Order on the datasheet
 )
 
 unit_melee_weapons = db.Table(
@@ -45,6 +61,7 @@ unit_melee_weapons = db.Table(
     db.Column('unit_id', db.Integer, db.ForeignKey('units.id'), primary_key=True),
     db.Column('weapon_id', db.Integer, db.ForeignKey('melee_weapons.id'), primary_key=True),
     db.Column('qty', db.Integer, nullable=False, default=1),
+    db.Column('position', db.Integer, nullable=False, default=0),  # Order on the datasheet
 )
 
 
@@ -75,8 +92,16 @@ class Unit(db.Model):
 
     keywords = db.Column(JSON, default=list)  # e.g. ["Infantry", "Chaos", "Nurgle"]
     modifiers = db.Column(JSON, default=list)  # Unit-level keywords used by the maths, e.g. ["Feel No Pain 5+"]
+    # Modifiers added in the app to a read-only BSData unit (saved as the app data's unit_modifiers)
+    added_modifiers = db.Column(JSON, default=list)
     can_lead = db.Column(JSON, default=list)  # Names of units this unit can lead
     abilities = db.Column(db.Text, nullable=True)  # Free text from the datasheet
+
+    bsdata_id = db.Column(db.String(40), nullable=True)  # Selection entry ID (BSData units only)
+    legends = db.Column(db.Boolean, default=False)
+    # Wargear options not in the default loadout: weapon IDs of the unit's faction
+    ranged_options = db.Column(JSON, default=list)
+    melee_options = db.Column(JSON, default=list)
 
     # Loadout (read through these; write qty via the link tables)
     ranged_weapons = db.relationship('RangedWeapon', secondary=unit_ranged_weapons, viewonly=True,
@@ -112,22 +137,32 @@ class Unit(db.Model):
         return math.floor(points + 0.5)  # round half up, as Excel and the browser do
 
     @property
+    def all_modifiers(self):
+        """Datasheet modifiers plus those added in the app."""
+        own = list(self.modifiers or [])
+        return own + [m for m in (self.added_modifiers or []) if m not in own]
+
+    @property
     def target_keywords(self):
         """Keywords checked by Anti-X abilities: datasheet keywords plus unit modifiers."""
-        return list(self.keywords or []) + list(self.modifiers or [])
+        return list(self.keywords or []) + self.all_modifiers
+
+    @property
+    def editable(self):
+        return self.faction.editable
 
     def loadout(self, weapon_type):
-        """[(weapon, qty)] for this unit's ranged or melee weapons, ordered by weapon name."""
+        """[(weapon, qty)] for this unit's ranged or melee weapons, in datasheet order."""
         table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
         model = RangedWeapon if weapon_type == 'ranged' else MeleeWeapon
         rows = db.session.query(model, table.c.qty) \
             .join(table, table.c.weapon_id == model.id) \
             .filter(table.c.unit_id == self.id) \
-            .order_by(model.name).all()
+            .order_by(table.c.position, model.name).all()
         return [(weapon, qty) for weapon, qty in rows]
 
     def set_loadout(self, weapon_type, entries):
-        """Replace the loadout of one weapon type with [{'weapon_id': .., 'qty': ..}]."""
+        """Replace the loadout of one weapon type with [{'weapon_id': .., 'qty': ..}], kept in that order."""
         table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
         db.session.execute(table.delete().where(table.c.unit_id == self.id))
         rows = {}
@@ -135,7 +170,8 @@ class Unit(db.Model):
             rows[int(entry['weapon_id'])] = max(1, int(entry.get('qty') or 1))
         if rows:
             db.session.execute(table.insert(), [
-                {'unit_id': self.id, 'weapon_id': wid, 'qty': qty} for wid, qty in rows.items()
+                {'unit_id': self.id, 'weapon_id': wid, 'qty': qty, 'position': i}
+                for i, (wid, qty) in enumerate(rows.items())
             ])
 
     def to_dict(self):
@@ -156,9 +192,15 @@ class Unit(db.Model):
             'default_models': self.default_models,
             'points_by_size': self.size_brackets(),
             'keywords': self.keywords or [],
-            'modifiers': self.modifiers or [],
+            'modifiers': self.all_modifiers,
+            'datasheet_modifiers': self.modifiers or [],
+            'added_modifiers': self.added_modifiers or [],
             'can_lead': self.can_lead or [],
             'abilities': self.abilities or '',
+            'source': self.faction.source,
+            'editable': self.editable,
+            'bsdata_id': self.bsdata_id,
+            'legends': bool(self.legends),
         }
 
 
@@ -182,6 +224,7 @@ class RangedWeapon(db.Model):
 
     # Abilities stored as JSON array of strings
     abilities = db.Column(JSON, default=list)
+    bsdata_id = db.Column(db.String(40), nullable=True)  # Profile ID (BSData weapons only)
 
     faction = db.relationship('Faction')
 
@@ -201,6 +244,7 @@ class RangedWeapon(db.Model):
             'damage': self.damage,
             'range': self.range_inches,
             'abilities': self.abilities or [],
+            'editable': self.faction.editable if self.faction else True,
         }
 
 
@@ -221,6 +265,7 @@ class MeleeWeapon(db.Model):
 
     # Abilities stored as JSON array of strings
     abilities = db.Column(JSON, default=list)
+    bsdata_id = db.Column(db.String(40), nullable=True)  # Profile ID (BSData weapons only)
 
     faction = db.relationship('Faction')
 
@@ -240,6 +285,7 @@ class MeleeWeapon(db.Model):
             'damage': self.damage,
             'range': None,
             'abilities': self.abilities or [],
+            'editable': self.faction.editable if self.faction else True,
         }
 
 
@@ -384,6 +430,19 @@ REFERENCE_TABLES = [
     FactionRule.__table__, Stratagem.__table__,
     Unit.__table__, Faction.__table__, Keyword.__table__, TargetProfile.__table__,
 ]
+
+
+class StableId(db.Model):
+    """
+    The database ID given to each BSData record, by key, so IDs (and so saved scenarios and
+    comparisons) survive re-imports. Keys: 'faction:<catalogue>', 'unit:<catalogue>/<entry>',
+    'ranged:<catalogue>/<profile>', 'melee:<catalogue>/<profile>'. Not a reference table.
+    """
+    __tablename__ = 'stable_ids'
+
+    key = db.Column(db.String(100), primary_key=True)
+    table = db.Column(db.String(20), nullable=False)
+    id = db.Column(db.Integer, nullable=False)
 
 
 class SavedScenario(db.Model):

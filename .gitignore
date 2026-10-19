@@ -37,6 +37,11 @@ env/
 *.db
 data/*.db
 
+# BSData catalogues (users download them; never committed or shipped), the cached import, v1 archive
+data/bsdata/
+data/bsdata_cache.json
+data/archive-v1/
+
 # Logs
 *.log
 
