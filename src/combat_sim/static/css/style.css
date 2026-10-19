@@ -1340,7 +1340,7 @@ body {
 }
 
 /* =========================================================================
-   Matchups Page - Matrix Comparison
+   Analytics Page - Matrix Comparison
    ========================================================================= */
 
 /* Single column: conditions, attackers, defenders, actions, results */
@@ -1977,7 +1977,7 @@ body {
     padding: 1.5rem;
 }
 
-/* Responsive Matchups */
+/* Responsive Analytics */
 @media (max-width: 900px) {
     .roster-header .btn-add-unit {
         margin-left: 0;
@@ -2429,7 +2429,7 @@ body {
 }
 
 /* =========================================================================
-   Rules & stratagems panels (Simulator and Matchups)
+   Rules & stratagems panels (Simulator and Analytics)
    ========================================================================= */
 
 .rules-panel {
@@ -2570,7 +2570,7 @@ body {
     text-align: center;
 }
 
-/* Matchups: attackers and defenders side by side */
+/* Analytics: attackers and defenders side by side */
 .matchup-rules {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2691,7 +2691,7 @@ body {
     color: var(--error);
 }
 
-/* Matchups: unit size, points, generic profiles */
+/* Analytics: unit size, points, generic profiles */
 .unit-size {
     display: flex;
     align-items: center;
@@ -2732,7 +2732,7 @@ body {
     opacity: 0.4;
 }
 
-/* Matchups: Army Analysis */
+/* Analytics: Army Analysis */
 .army-analysis {
     margin-top: 1rem;
 }
@@ -2823,7 +2823,7 @@ body {
     }
 }
 
-/* Extra modifiers (Simulator defender card, Matchups defender rows) */
+/* Extra modifiers (Simulator defender card, Analytics defender rows) */
 .text-input,
 .roster-text {
     width: 100%;

@@ -1,5 +1,5 @@
 /**
- * Matchups page JavaScript for matrix comparison functionality.
+ * Analytics page (formerly Matchups): the attacker x defender matrix and Army Analysis.
  *
  * Attackers are unit entries (the same unit may appear several times, labelled
  * "#2", "#3"...), each holding its weapons with an include tick and a model count.
@@ -80,7 +80,7 @@
     // Remember setup across tab changes (see PageState in app.js)
     // =========================
 
-    const PAGE_STATE_KEY = 'matchupsState';
+    const PAGE_STATE_KEY = 'analyticsState';
 
     function savePageState() {
         PageState.save(PAGE_STATE_KEY, {

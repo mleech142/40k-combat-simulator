@@ -221,7 +221,7 @@ def modifier_has_effect(text, modelled_names):
 def default_used(names):
     """
     Which weapons are used by default: all, except later profiles of a "Weapon - Profile" family
-    (alternative profiles of one gun). Same rule as the Simulator and Matchups pages.
+    (alternative profiles of one gun). Same rule as the Simulator and Analytics pages.
     """
     families, used = set(), []
     for name in names:
@@ -1191,15 +1191,20 @@ def register_routes(app):
         } for s in scenarios])
 
     # =========================================================================
-    # Matchups (Matrix Comparison) Routes
+    # Analytics (matrix comparison and Army Analysis) routes; the page was called Matchups
     # =========================================================================
 
     @app.route('/matchups')
     def matchups_page():
+        """The page's old address."""
+        return redirect('/analytics', code=301)
+
+    @app.route('/analytics')
+    def analytics_page():
         """Matrix comparison page for army analysis."""
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
-        return render_template('matchups.html', factions=factions_list)
+        return render_template('analytics.html', factions=factions_list)
 
     # Units without a points cost count as this many points per unit (placeholder until costs are entered)
     DEFAULT_UNIT_POINTS = 1

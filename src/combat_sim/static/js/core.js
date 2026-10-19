@@ -153,7 +153,7 @@
         return weapons;
     }
 
-    /** Matchups: one weapon of an attacker unit (options start excluded, at Qty 1). */
+    /** Analytics: one weapon of an attacker unit (options start excluded, at Qty 1). */
     function matchupWeaponEntry(w, option = false) {
         return {
             weapon_id: w.id,
@@ -173,7 +173,7 @@
         };
     }
 
-    /** Matchups: all of a unit's weapon entries, loadout first, then wargear options. */
+    /** Analytics: all of a unit's weapon entries, loadout first, then wargear options. */
     function matchupWeapons(unitData) {
         const loadout = [...(unitData.ranged_weapons || []), ...(unitData.melee_weapons || [])];
         const options = [...(unitData.ranged_options || []), ...(unitData.melee_options || [])];
@@ -214,7 +214,7 @@
         return result;
     }
 
-    /** Matchups: an attacker's weapon entries with its leader's loadout added (replacing a previous leader's). */
+    /** Analytics: an attacker's weapon entries with its leader's loadout added (replacing a previous leader's). */
     function withLeaderEntries(entries, leader) {
         const own = (entries || []).filter(e => !e.leader);
         if (!leader) return own;
@@ -343,7 +343,7 @@
         both: ['Shooting', 'Fighting', 'Both'],
     };
 
-    /** Rules usable with a weapon type or the Matchups filter ('ranged' | 'melee' | 'both'). */
+    /** Rules usable with a weapon type or the Analytics filter ('ranged' | 'melee' | 'both'). */
     function rulesForFilter(entries, filter) {
         const phases = PHASES_FOR_FILTER[filter] || PHASES_FOR_FILTER.both;
         return (entries || []).filter(e => phases.includes(e.phase));
@@ -360,11 +360,11 @@
     }
 
     // -------------------------------------------------------------------------
-    // Matchups request
+    // Analytics request
     // -------------------------------------------------------------------------
 
     /**
-     * The /api/matrix/simulate request for the Matchups page's state:
+     * The /api/matrix/simulate request for the Analytics page's state:
      * {attackers, defenders, conditions, weaponTypeFilter, defenderMode, includedProfiles,
      *  attackerTicked, defenderTicked}
      */

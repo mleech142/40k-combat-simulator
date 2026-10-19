@@ -430,7 +430,7 @@ class Keyword(db.Model):
 
 class TargetProfile(db.Model):
     """
-    A read-only benchmark target: a generic opponent profile (MEQ, TEQ...) for Matchups'
+    A read-only benchmark target: a generic opponent profile (MEQ, TEQ...) for Analytics'
     Generic mode, or a role-score benchmark (Anti-Horde, Anti-Tank...).
     """
     __tablename__ = 'target_profiles'

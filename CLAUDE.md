@@ -22,7 +22,7 @@ Rules:
 - Every Data-tab write commits and then rewrites the app data JSON (`save_data()` in `app.py`). Any new write route must call it.
 - Tests/harnesses must set `DATA_JSON` and `DATABASE_URL` (and `BSDATA_DIR`) to scratch copies, or edits will overwrite the real files. With `DATA_JSON` set, the BSData folder defaults to its folder, never the repo's.
 
-**Weapons belong to a faction** (`faction_id`). A unit's loadout is the `unit_ranged_weapons` / `unit_melee_weapons` link tables with a `qty` = models in the unit carrying that weapon and a `position` (datasheet order); read it with `Unit.loadout(type)`, write with `Unit.set_loadout(type, entries)` (the relationships are view-only). BSData units also list wargear options (`ranged_options` / `melee_options`), which the Simulator and Matchups show unticked under the loadout (`Core.simulatorWeapons` / `Core.matchupWeapons`). Matchup attackers carry the attacking `unit_id` alongside `weapon_id`.
+**Weapons belong to a faction** (`faction_id`). A unit's loadout is the `unit_ranged_weapons` / `unit_melee_weapons` link tables with a `qty` = models in the unit carrying that weapon and a `position` (datasheet order); read it with `Unit.loadout(type)`, write with `Unit.set_loadout(type, entries)` (the relationships are view-only). BSData units also list wargear options (`ranged_options` / `melee_options`), which the Simulator and Analytics show unticked under the loadout (`Core.simulatorWeapons` / `Core.matchupWeapons`). Matchup attackers carry the attacking `unit_id` alongside `weapon_id`.
 
 ## Packaging and releases
 
@@ -39,7 +39,7 @@ The v2 workbook `40KCombatSimulator_v2.xlsx` is frozen; it is now only the simul
 ## Routes
 
 - `/` - Single combat simulator
-- `/matchups` - Attacker units × defender units matrix + Army Analysis
+- `/analytics` - Attacker units × defender units matrix + Army Analysis
 - `/scenarios` - Saved scenarios
 - `/setup` - Choose, download or re-import the BSData folder; import notes. `/` redirects here until BSData loads or setup is skipped
 - `/data` - BSData import status; factions (with rules and stratagems), units and weapons (BSData read-only, custom editable); read-only Keywords and Target Profiles

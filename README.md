@@ -9,7 +9,7 @@ It replaces the `40KCombatSimulator_v2.xlsx` spreadsheet: its maths is reproduce
 ## Features
 
 - **Simulator** — one attacking unit against one target: tick any of the unit's weapons (with how many models carry each), swap in wargear options, attach a leader to either unit (its weapons join the attacker; its buffs apply to the unit it leads), set battle conditions, pick each side's detachment and tick faction rules and stratagems, and add one-off *extra modifiers* to the target. Shows per-weapon results, totals and (in Monte Carlo mode) a damage distribution with kill and wipe chances.
-- **Matchups** — your army against an opponent's real units or generic benchmark profiles (MEQ, TEQ, vehicles…): a heat-map grid per unit and for the whole army, unit sizes with correct points, army-wide rules and stratagems, and an **Army Analysis** panel (summary, gaps, role scores with a spider chart, Toughness/Save coverage, reverse durability).
+- **Analytics** — your army against an opponent's real units or generic benchmark profiles (MEQ, TEQ, vehicles…): a heat-map grid per unit and for the whole army, unit sizes with correct points, army-wide rules and stratagems, and an **Army Analysis** panel (summary, gaps, role scores with a spider chart, Toughness/Save coverage, reverse durability).
 - **Data** — browse every BSData faction, unit and weapon (read-only), with each faction's army and detachment rules as reference text. Write the faction rules and stratagems the maths uses (for the whole faction or one detachment), add modifiers to BSData units, and build your own units and weapons in custom factions (copying BSData weapons if you like). Read-only reference tabs list every rules keyword and the benchmark target profiles. Every confirmed change is saved straight to the app data file.
 - **Setup** — download the latest BSData catalogues, point the app at a folder of them, or re-import; see what the import couldn't read.
 - **Scenarios** — save Simulator setups, compare and re-run them.
@@ -60,7 +60,7 @@ The launchers create a virtual environment, install the requirements and start t
 3. Set conditions (half range, stationary, cover, charged, attacker damaged, re-rolls), choose each side's **detachment** and tick rules and stratagems, and optionally type **Extra modifiers** for the target (e.g. `Stealth, Feel No Pain 5+`).
 4. **Run Simulation**. Tick **Monte Carlo** for a dice-rolled distribution.
 
-### Matchups
+### Analytics
 
 1. **+ Add Unit** to the Attackers table (its loadout is added, plus its wargear options, excluded until you tick them; a unit can be added more than once). Set each unit's **Size** — points and weapon quantities follow. Pick a **leader** for a unit to add its weapons, points and buffs; defenders can have a leader too (its defensive buffs apply).
 2. Switch Defenders between **Real units** (with per-unit model counts and extra modifiers) and **Generic profiles**.
@@ -113,7 +113,7 @@ The tests never touch `data/` — each starts the app on its own temporary data 
 │   ├── data_store.py     # Merges BSData with data/app_data.json; reads/validates/writes the app data
 │   ├── simulation.py     # Combat engine: resolve() + analytical and Monte Carlo engines
 │   ├── paths.py          # Where data lives: repository data/ from source, %APPDATA% in the exe
-│   ├── templates/        # Jinja2 pages (Simulator, Matchups, Scenarios, Data)
+│   ├── templates/        # Jinja2 pages (Simulator, Analytics, Scenarios, Data)
 │   └── static/           # CSS and JavaScript (core.js + app.js are loaded on every page)
 ├── data/                 # app_data.json (committed); bsdata/, the import cache and combat_sim.db (local)
 ├── archive/              # Version 1: the v1 workbook, 40k_data_v1.json and migrate_excel.py
