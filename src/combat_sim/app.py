@@ -471,6 +471,7 @@ def register_routes(app):
         if defender_leader is not None:
             leader_base = leader_target(defender_leader, extra_modifiers)
             attached = {'leader': defender_leader.name, 'leader_models': leader_base.model_count,
+                        'leader_wounds': leader_base.wounds * leader_base.model_count,
                         'bodyguard_models': base_target.model_count}
             combined, per_weapon = simulate_attached_analytical(profiles, base_target, leader_base, conditions,
                                                                 bodyguard_targets=targets, leader_targets=leader_targets)
@@ -478,7 +479,8 @@ def register_routes(app):
                 row.update(attacks=r.attacks_made, hits=r.hits, auto_wounds=r.auto_wounds, wounds=r.wounds,
                            mortal_wounds=r.mortal_wounds, unsaved=r.unsaved, total_damage=r.average_damage,
                            models_killed=r.models_killed, overkill=r.overkill,
-                           bodyguards_killed=r.bodyguards_killed, leader_killed=r.leader_killed)
+                           bodyguards_killed=r.bodyguards_killed, leader_killed=r.leader_killed,
+                           leader_damage=r.leader_damage)
 
         if method == 'monte_carlo' and attached:
             result = simulate_monte_carlo_attached(profiles, base_target, leader_base, conditions, iterations,
@@ -491,6 +493,7 @@ def register_routes(app):
                 'wipe_probability': result.wipe_probability,
                 'bodyguards_killed': result.bodyguards_killed,
                 'leader_killed': result.leader_killed,
+                'leader_damage': result.leader_damage,
                 'leader_kill_probability': result.leader_kill_probability,
             }
             breakdown = {
@@ -528,7 +531,7 @@ def register_routes(app):
             }
             if attached:
                 summary.update(models_killed=combined.models_killed, bodyguards_killed=combined.bodyguards_killed,
-                               leader_killed=combined.leader_killed)
+                               leader_killed=combined.leader_killed, leader_damage=combined.leader_damage)
             breakdown = {
                 'attacks': round(sum(row['attacks'] for row in rows), 2),
                 'hits': round(sum(row['hits'] for row in rows), 2),
@@ -1370,7 +1373,8 @@ def register_routes(app):
                 bodyguard_targets=[d['profiles'][w['type']] for w in weapons],
                 leader_targets=[d['leader_profiles'][w['type']] for w in weapons])
             metrics = combine_cells([weapon_part(result)], d['unit'], d['total_models'], points)
-            metrics.update(bodyguards_killed=result.bodyguards_killed, leader_killed=result.leader_killed)
+            metrics.update(bodyguards_killed=result.bodyguards_killed, leader_killed=result.leader_killed,
+                           leader_damage=result.leader_damage, leader_wounds=d['leader'].wounds * (d['leader'].default_models or 1))
             return metrics
 
         matrix = []
@@ -1639,6 +1643,7 @@ def register_routes(app):
                 'wipe_probability': result.wipe_probability,
                 'bodyguards_killed': result.bodyguards_killed,
                 'leader_killed': result.leader_killed,
+                'leader_damage': result.leader_damage,
                 'leader_kill_probability': result.leader_kill_probability,
             },
             'breakdown': {

@@ -809,7 +809,7 @@
             return `<td class="matrix-cell ${kind === 'total' ? 'matrix-total-cell' : ''}" ${style}
                         data-kind="${kind}" data-a="${a}" data-w="${w}" data-d="${d}"
                         title="${escapeHtml(rowLabel)} vs ${escapeHtml(defenders[d].label)}: ${displayVal}${cell.leader_killed != null
-                            ? ` (models killed: ${cell.bodyguards_killed} bodyguards, ${cell.leader_killed} leader)` : ''}">
+                            ? ` (${cell.bodyguards_killed} bodyguards killed; expected damage to the leader ${cell.leader_damage} of ${cell.leader_wounds} wounds)` : ''}">
                         ${displayVal}${wiped}
                     </td>`;
         };
@@ -1010,7 +1010,7 @@
             document.getElementById('detail-wipe-prob').textContent = `${data.summary.wipe_probability}%`;
             document.getElementById('detail-attached').textContent = data.summary.leader_killed != null
                 ? `Attached unit: ${data.summary.bodyguards_killed} bodyguard models killed on average; ` +
-                  `the leader dies in ${data.summary.leader_kill_probability}% of runs`
+                  `the leader dies in ${data.summary.leader_kill_probability}% of runs (average damage to it ${data.summary.leader_damage})`
                 : '';
             document.getElementById('detail-attacks').textContent = data.breakdown.attacks.toFixed(2);
             document.getElementById('detail-hits').textContent = data.breakdown.hits.toFixed(2);

@@ -120,6 +120,7 @@ class SimulationResult:
     # Attached units only: the bodyguard models and the leader, separately (models_killed is both)
     bodyguards_killed: Optional[float] = None
     leader_killed: Optional[float] = None  # Expected leader models killed (analytical) or average (Monte Carlo)
+    leader_damage: Optional[float] = None  # Average damage dealt to the leader (after Feel No Pain)
     leader_kill_probability: Optional[float] = None  # Monte Carlo: % of trials the leader died
 
     # Analytical only: Excel's extra per-weapon columns
@@ -552,7 +553,9 @@ def simulate_attached_analytical(
     rest of its attacks (and every later weapon's) are resolved against the leader's profile.
     `bodyguard_targets` / `leader_targets` optionally give each stage as each weapon sees it
     (phase-specific target rules). Returns the combined result and one result per weapon, each
-    with bodyguards_killed and leader_killed (models_killed is both).
+    with bodyguards_killed, leader_damage and leader_killed (models_killed is both). Show
+    leader_damage rather than leader_killed: averages make "kills" overstate the leader's death
+    when the bodyguards are only just wiped (Monte Carlo gives the real chance).
     """
     bodyguard_targets = bodyguard_targets or [bodyguard] * len(attackers)
     leader_targets = leader_targets or [leader] * len(attackers)
@@ -573,7 +576,7 @@ def simulate_attached_analytical(
         part = {key: share * b[key] for key in SCALED}
         part['kills'] = bodyguard_kills
 
-        leader_kills = 0.0
+        leader_kills, leader_damage = 0.0, 0.0
         if share < 1.0 and b['attacks'] > 0:
             l = _analytical_core(attacker, on_leader, conditions)
             # The overflowing attacks, with the leader's odds per attack
@@ -581,9 +584,10 @@ def simulate_attached_analytical(
             for key in SCALED:
                 part[key] += scale * l[key]
             leader_kills = min(leaders_left, scale * l['kills'])
+            leader_damage = scale * l['damage']
             leaders_left -= leader_kills
             part['kills'] = bodyguard_kills + leader_kills
-        per_weapon.append(_attached_result(part, b['damage_per'], bodyguard_kills, leader_kills))
+        per_weapon.append(_attached_result(part, b['damage_per'], bodyguard_kills, leader_kills, leader_damage))
 
     total = {key: sum(getattr(w, FIELD_OF[key]) for w in per_weapon) for key in FIELD_OF}
     combined = SimulationResult(
@@ -598,6 +602,7 @@ def simulate_attached_analytical(
         method="analytical",
         bodyguards_killed=round(bodyguard.model_count - bodyguards_left, 2),
         leader_killed=round(leader.model_count - leaders_left, 2),
+        leader_damage=round(sum(w.leader_damage for w in per_weapon), 2),
     )
     return combined, per_weapon
 
@@ -607,7 +612,7 @@ FIELD_OF = {'damage': 'average_damage', 'kills': 'models_killed', 'overkill': 'o
             'hits': 'hits', 'wounds': 'wounds', 'damaging': 'failed_saves'}
 
 
-def _attached_result(part, damage_per, bodyguard_kills, leader_kills):
+def _attached_result(part, damage_per, bodyguard_kills, leader_kills, leader_damage):
     return SimulationResult(
         average_damage=round(part['damage'], 2),
         models_killed=round(bodyguard_kills + leader_kills, 2),
@@ -624,6 +629,7 @@ def _attached_result(part, damage_per, bodyguard_kills, leader_kills):
         damage_per_attack=round(damage_per, 2),
         bodyguards_killed=round(bodyguard_kills, 2),
         leader_killed=round(leader_kills, 2),
+        leader_damage=round(leader_damage, 2),
     )
 
 
@@ -824,12 +830,12 @@ def simulate_monte_carlo_attached(
     resolved = [(resolve(a, b, conditions), resolve(a, l, conditions))
                 for a, b, l in zip(attackers, bodyguard_targets, leader_targets)]
     totals = {'attacks': 0, 'hits': 0, 'wounds': 0, 'failed_saves': 0}
-    damage_results, bodyguard_results, leader_results = [], [], []
+    damage_results, bodyguard_results, leader_results, leader_damage_results = [], [], [], []
 
     for _ in range(iterations):
         alive = {'bodyguard': bodyguard.model_count, 'leader': leader.model_count}
         remaining = {'bodyguard': bodyguard.wounds, 'leader': leader.wounds}
-        dealt = 0
+        dealt, dealt_to_leader = 0, 0
         for attacker, on_bodyguard, on_leader, (r_bodyguard, r_leader) in zip(
                 attackers, bodyguard_targets, leader_targets, resolved):
             totals['attacks'] += (num_attacks := _roll_attack_count(attacker, on_bodyguard, r_bodyguard))
@@ -838,6 +844,8 @@ def simulate_monte_carlo_attached(
                 target, r = (on_bodyguard, r_bodyguard) if stage == 'bodyguard' else (on_leader, r_leader)
                 for dmg in _roll_attack(attacker, target, conditions, r, totals):
                     dealt += dmg
+                    if stage == 'leader':
+                        dealt_to_leader += dmg
                     if alive[stage] <= 0:
                         continue  # Everything is dead: damage is still counted, nothing more dies
                     remaining[stage] -= dmg
@@ -849,6 +857,7 @@ def simulate_monte_carlo_attached(
         damage_results.append(dealt)
         bodyguard_results.append(bodyguard.model_count - alive['bodyguard'])
         leader_results.append(leader.model_count - alive['leader'])
+        leader_damage_results.append(dealt_to_leader)
 
     damage_array = np.array(damage_results)
     bodyguard_array, leader_array = np.array(bodyguard_results), np.array(leader_results)
@@ -876,6 +885,7 @@ def simulate_monte_carlo_attached(
         wipe_probability=round(float(np.mean(kills_array >= total_models)) * 100, 1),
         bodyguards_killed=round(float(np.mean(bodyguard_array)), 2),
         leader_killed=round(float(np.mean(leader_array)), 2),
+        leader_damage=round(float(np.mean(leader_damage_results)), 2),
         leader_kill_probability=round(float(np.mean(leader_array >= leader.model_count)) * 100, 1),
     )
 

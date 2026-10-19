@@ -835,11 +835,13 @@ function displayResults(result) {
     const attachedEl = document.getElementById('res-attached');
     if (attachedEl) {
         const a = result.attached, s = result.summary;
-        attachedEl.textContent = a
-            ? `Attached unit: ${s.bodyguards_killed} of ${a.bodyguard_models} bodyguard models killed, then ` +
-              `${s.leader_killed} of ${a.leader_models} ${a.leader}` +
-              (s.leader_kill_probability != null ? ` (${a.leader} dies in ${s.leader_kill_probability}% of runs)` : '')
-            : '';
+        // Analytical: expected damage to the leader (averages overstate "kills" near the threshold);
+        // Monte Carlo: how often the leader actually dies
+        attachedEl.textContent = !a ? ''
+            : `Attached unit: ${s.bodyguards_killed} of ${a.bodyguard_models} bodyguard models killed; ` +
+              (s.leader_kill_probability != null
+                  ? `${a.leader} dies in ${s.leader_kill_probability}% of runs (average damage ${s.leader_damage} of ${a.leader_wounds} wounds)`
+                  : `expected damage to ${a.leader}: ${s.leader_damage} of ${a.leader_wounds} wounds`);
     }
 
     // Breakdown
@@ -873,7 +875,7 @@ function renderWeaponResults(rows) {
     ];
     // Attached unit: weapons in order, bodyguards then leader, so their kills add up (otherwise capped, as in Excel)
     const attached = rows.some(r => r.leader_killed != null);
-    if (attached) cols.push(['bodyguards_killed', 'Bodyguards'], ['leader_killed', 'Leader']);
+    if (attached) cols.push(['bodyguards_killed', 'Bodyguards killed'], ['leader_damage', 'Damage to leader']);
 
     el.innerHTML = `
         <h3>Per Weapon <span class="weapon-results-note">(average results)</span></h3>

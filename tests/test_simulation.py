@@ -367,6 +367,7 @@ def test_attached_overflow_goes_to_the_leader_with_its_own_profile():
     # 2 kills use 2/10 of the attacks; the other 9.6 attacks face the leader: 5/6 wound x 1/2 unsaved = 4 damage
     assert combined.bodyguards_killed == approx(2)
     assert combined.leader_killed == approx(1)  # 4 damage against 3 wounds (kills capped at the leader)
+    assert combined.leader_damage == approx(4)
     assert combined.average_damage == approx(2 + 4)
     assert combined.models_killed == approx(3)
     assert per_weapon[0].leader_killed == approx(1)
@@ -405,6 +406,7 @@ def test_attached_monte_carlo_agrees_with_analytical(name, weapons, bodyguard, l
     assert analytical.bodyguards_killed == bodyguard.model_count
     assert rolled.bodyguards_killed == pytest.approx(bodyguard.model_count, abs=0.1)
     assert analytical.leader_killed > 0 and rolled.leader_killed > 0  # Both send the overflow at the leader
+    assert rolled.leader_damage == pytest.approx(analytical.leader_damage, rel=0.15)  # Same measure in both
     assert rolled.models_killed == pytest.approx(rolled.bodyguards_killed + rolled.leader_killed, abs=0.01)
     assert rolled.leader_kill_probability == pytest.approx(rolled.leader_killed * 100, abs=1)  # Rounded separately
 
