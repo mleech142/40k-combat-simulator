@@ -2,42 +2,70 @@
 """
 40K Combat Simulator - Entry Point
 
-Run this script to start the application:
-    python run.py
+    python run.py            # serves the app with waitress and opens the browser
+    python run.py --debug    # Flask's development server with the debugger (never ship this)
 
-Then open http://localhost:5000 in your browser.
+The packaged exe (see combat_sim.spec) starts here too. The app only listens on this
+computer (127.0.0.1); closing the window stops it.
 """
 
+import argparse
 import os
+import socket
 import sys
 import webbrowser
 from threading import Timer
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Add src to path (from source; the packaged exe has the package bundled)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
-from combat_sim.app import create_app
+from combat_sim import __version__  # noqa: E402
+from combat_sim.app import create_app  # noqa: E402
 
-def open_browser():
-    """Open the browser after a short delay."""
-    webbrowser.open('http://localhost:5000')
+HOST = '127.0.0.1'
+PREFERRED_PORT = 5000
 
-if __name__ == '__main__':
-    # Ensure data directory exists
-    data_dir = os.path.join(os.path.dirname(__file__), 'data')
-    os.makedirs(data_dir, exist_ok=True)
+
+def pick_port(host=HOST, preferred=PREFERRED_PORT):
+    """The preferred port if it is free, otherwise any free port the system offers."""
+    for port in (preferred, 0):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, port))
+            except OSError:
+                continue
+            return sock.getsockname()[1]
+    raise RuntimeError('No free port available')
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='40K Combat Simulator')
+    parser.add_argument('--debug', action='store_true', help="Flask's development server with the debugger")
+    parser.add_argument('--port', type=int, default=PREFERRED_PORT, help='port to try first')
+    parser.add_argument('--no-browser', action='store_true', help="don't open the browser")
+    args = parser.parse_args(argv)
 
     app = create_app()
+    port = pick_port(preferred=args.port)
+    url = f'http://{HOST}:{port}'
 
-    print("\n" + "="*60)
-    print("40K Combat Simulator")
-    print("="*60)
-    print("\nStarting server...")
-    print("Open in browser: http://localhost:5000")
-    print("\nPress Ctrl+C to stop.\n")
+    print('\n' + '=' * 60)
+    print(f'40K Combat Simulator v{__version__}')
+    print('=' * 60)
+    print(f"\nData file: {app.config['DATA_JSON']}")
+    print(f'Open in browser: {url}')
+    print('\nClose this window (or press Ctrl+C) to stop.\n')
 
-    # Open browser after 1.5 seconds
-    Timer(1.5, open_browser).start()
+    if not args.no_browser:
+        Timer(1.0, webbrowser.open, args=(url,)).start()
 
-    # Run the app
-    app.run(debug=True, port=5000, use_reloader=False)
+    if args.debug:
+        app.run(host=HOST, port=port, debug=True, use_reloader=False)
+    else:
+        from waitress import serve
+        serve(app, host=HOST, port=port, threads=8)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

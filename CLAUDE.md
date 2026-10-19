@@ -1,6 +1,6 @@
 # 40K Combat Simulator
 
-Flask app in `src/combat_sim/`. Entry point: `python run.py` (port 5000).
+Flask app in `src/combat_sim/`. Entry point: `python run.py` (waitress on 127.0.0.1:5000, or a free port; `--debug` for Flask's debugger — never ship debug on).
 
 **Terminology:** always write "modifier", never "mod", in UI text and code identifiers (e.g. `extra_modifiers`, "Extra modifiers").
 
@@ -14,6 +14,10 @@ Flask app in `src/combat_sim/`. Entry point: `python run.py` (port 5000).
 - Tests/harnesses must set `DATA_JSON` (and `DATABASE_URL`) to scratch copies, or edits will overwrite the real data file.
 
 **Weapons belong to a faction** (`faction_id`). A unit's loadout is the `unit_ranged_weapons` / `unit_melee_weapons` link tables with a `qty` = models in the unit carrying that weapon; read it with `Unit.loadout(type)`, write with `Unit.set_loadout(type, entries)` (the relationships are view-only). Matchup attackers carry the attacking `unit_id` alongside `weapon_id`.
+
+## Packaging and releases
+
+Users get a Windows exe built by PyInstaller (`combat_sim.spec`) and published by `.github/workflows/release.yml` when a `vX.Y.Z` tag matching `__version__` in `src/combat_sim/__init__.py` is pushed. In the exe, data lives in `%APPDATA%\40K Combat Simulator\` (`src/combat_sim/paths.py`); the shipped JSON only seeds it on first run. Anything new the pages load must be bundled locally (no CDNs) and anything new on disk must be added to the spec's `datas`. Steps: `docs/releasing.md`.
 
 ## Excel Source
 

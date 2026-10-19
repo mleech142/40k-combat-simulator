@@ -28,7 +28,7 @@
     </div>
 </div>
 
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/plotly-2.27.0.min.js') }}"></script>
 <script>
 let scenarios = [];
 let selectedIds = new Set();

@@ -1,0 +1,45 @@
+# Builds the Windows release when a version tag is pushed:
+#   git tag v1.0.0 && git push origin v1.0.0
+# The tag must match __version__ in src/combat_sim/__init__.py. See docs/releasing.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write  # create the GitHub release
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Check the tag matches the app version
+        shell: pwsh
+        run: |
+          $version = python -c "import sys; sys.path.insert(0, 'src'); import combat_sim; print(combat_sim.__version__)"
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match __version__ $version" }
+
+      - name: Test
+        run: python -m pytest tests -q
+
+      - name: Build
+        run: pyinstaller --noconfirm --clean combat_sim.spec
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/40kCombatSimulator -DestinationPath "40kCombatSimulator-${{ github.ref_name }}-windows.zip"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" "40kCombatSimulator-${{ github.ref_name }}-windows.zip" --title "${{ github.ref_name }}" --generate-notes

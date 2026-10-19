@@ -14,21 +14,31 @@ It replaces the `40KCombatSimulator_v2.xlsx` spreadsheet: its maths is reproduce
 
 ## Installation
 
-### Prerequisites
+### Download (Windows, no Python needed)
+
+1. Download `40kCombatSimulator-vX.Y.Z-windows.zip` from the [Releases page](https://github.com/mleech142/40k-combat-simulator/releases).
+2. Unzip it anywhere and double-click `40kCombatSimulator.exe`. Windows may warn about an unknown publisher (the exe isn't code-signed): choose **More info → Run anyway**.
+3. Your browser opens the app. Close the console window to stop it.
+
+Your data (the data JSON with your edits, plus saved scenarios and comparisons) lives in `%APPDATA%\40K Combat Simulator\`, not in the unzipped folder, so you can replace the folder with a newer release without losing anything. On first run that folder is filled with the data shipped in the release; later releases never overwrite it.
+
+### From source
+
+#### Prerequisites
 
 - Python 3.10+
 - pip
 
-### Setup
+#### Setup
 
 ```bash
 pip install -r requirements.txt
-python run.py
+python run.py              # add --debug for Flask's debugger while developing (never in a release)
 ```
 
-Then open <http://localhost:5000> (the launcher opens it for you).
+The browser opens <http://127.0.0.1:5000> (or another free port if 5000 is taken; the console shows which). The app only listens on this computer. Run from source, the app reads and writes `data/` in the repository.
 
-### Quick start
+#### Quick start
 
 - Windows: double-click `launcher.bat`
 - Linux/Mac: `chmod +x launcher.sh && ./launcher.sh`
@@ -79,7 +89,7 @@ IDs stay stable across rebuilds, so saved scenarios and comparisons keep pointin
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests                                         # 88 tests (Python + JavaScript)
+python -m pytest tests                                         # 94 tests (Python + JavaScript)
 node --test "tests/js/*.test.js"                               # JavaScript only (Node 18+)
 python -m coverage run --source=src/combat_sim,scripts -m pytest tests && python -m coverage report
 ```
@@ -95,6 +105,7 @@ The tests never touch `data/` — each starts the app on its own temporary data 
 │   ├── models.py         # SQLAlchemy models; points-by-size logic
 │   ├── data_store.py     # Reads/validates/writes data/40k_data.json
 │   ├── simulation.py     # Combat engine: resolve() + analytical and Monte Carlo engines
+│   ├── paths.py          # Where data lives: repository data/ from source, %APPDATA% in the exe
 │   ├── templates/        # Jinja2 pages (Simulator, Matchups, Scenarios, Data)
 │   └── static/           # CSS and JavaScript (core.js + app.js are loaded on every page)
 ├── data/                 # 40k_data.json (committed) and combat_sim.db (local)
@@ -102,17 +113,21 @@ The tests never touch `data/` — each starts the app on its own temporary data 
 ├── tests/                # pytest suite (conftest.py provides a temporary-data app); tests/js: Node tests
 ├── docs/
 │   ├── architecture.md   # How the pieces fit, conventions, maintainability notes
-│   └── excel-parity.md   # Feature-by-feature comparison with the spreadsheet
+│   ├── excel-parity.md   # Feature-by-feature comparison with the spreadsheet
+│   └── releasing.md      # Building the exe and publishing a release
 ├── archive/              # Superseded v1 workbook
-├── run.py                # Entry point
+├── .github/workflows/    # release.yml: builds and publishes the Windows release on a version tag
+├── run.py                # Entry point (waitress server; --debug for development)
+├── combat_sim.spec       # PyInstaller build of the Windows exe
 ├── requirements.txt      # Runtime dependencies
-└── requirements-dev.txt  # Test tools
+└── requirements-dev.txt  # Test and build tools
 ```
 
 ## Tech stack
 
-- **Backend**: Python, Flask, Flask-SQLAlchemy, SQLite, NumPy
-- **Frontend**: vanilla JavaScript, Plotly.js (charts, loaded from a CDN)
+- **Backend**: Python, Flask, Flask-SQLAlchemy, SQLite, NumPy, waitress
+- **Frontend**: vanilla JavaScript, Plotly.js (charts; bundled in `static/vendor`, so the app works offline)
+- **Packaging**: PyInstaller, GitHub Actions
 - **Data import**: openpyxl
 
 ## License

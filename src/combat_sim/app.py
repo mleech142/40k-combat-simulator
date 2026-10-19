@@ -3,12 +3,15 @@ Flask application for 40K Combat Simulator.
 """
 
 import os
+import secrets
 import uuid
 from flask import Flask, render_template, request, jsonify
 from sqlalchemy.exc import IntegrityError
 from .models import (db, init_db, Faction, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
                      SavedScenario, SavedComparison, unit_ranged_weapons, unit_melee_weapons)
-from .data_store import (DEFAULT_DATA_PATH, DataFileError, read_data_file, check_data,
+from . import __version__
+from .paths import DATA_FILE, DATABASE_FILE, prepare_data_dir
+from .data_store import (DataFileError, read_data_file, check_data,
                          rebuild_reference_tables, export_data, write_data_file)
 from .simulation import (
     simulate, simulate_analytical, simulate_monte_carlo_combined, keyword_name, check_keywords,
@@ -20,12 +23,18 @@ def create_app(config=None):
     """Application factory."""
     app = Flask(__name__)
 
-    # Configuration
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production')
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-        'DATABASE_URL',
-        f'sqlite:///{os.path.join(os.path.dirname(__file__), "..", "..", "data", "combat_sim.db")}'
-    )
+    # Configuration. The data JSON (factions, units, weapons, rules, stratagems) and the database
+    # default to the folder from paths.data_dir(): the repository's data/ from source, a per-user
+    # folder in the packaged exe.
+    data_json = os.environ.get('DATA_JSON')
+    database_url = os.environ.get('DATABASE_URL')
+    if not (data_json and database_url):
+        folder = prepare_data_dir()
+        data_json = data_json or str(folder / DATA_FILE)
+        database_url = database_url or 'sqlite:///' + (folder / DATABASE_FILE).as_posix()
+    app.config['DATA_JSON'] = data_json
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # New on every start. Pages tag saved page state with it, so state survives
@@ -33,11 +42,8 @@ def create_app(config=None):
     app.config['BOOT_ID'] = uuid.uuid4().hex
 
     @app.context_processor
-    def inject_boot_id():
-        return {'boot_id': app.config['BOOT_ID']}
-
-    # The data JSON (factions, units, weapons, rules, stratagems)
-    app.config['DATA_JSON'] = os.environ.get('DATA_JSON', str(DEFAULT_DATA_PATH))
+    def inject_page_globals():
+        return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__}
 
     if config:
         app.config.update(config)

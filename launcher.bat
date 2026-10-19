@@ -34,9 +34,9 @@ echo Checking dependencies...
 pip install -q -r requirements.txt
 
 :: Build the data file from the Excel workbook if it doesn't exist yet
-if not exist "data k_data.json" (
+if not exist "data\40k_data.json" (
     echo.
-    echo Building data k_data.json from the Excel workbook...
+    echo Building data\40k_data.json from the Excel workbook...
     python scripts\migrate_excel.py
 )
 
