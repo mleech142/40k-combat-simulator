@@ -32,6 +32,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 
 from combat_sim.data_store import DEFAULT_DATA_PATH, SCHEMA_VERSION, read_data_file, write_data_file
+from combat_sim.simulation import check_keywords
 
 DEFAULT_WORKBOOK = ROOT / '40KCombatSimulator_v2.xlsx'
 
@@ -127,14 +128,6 @@ def check_headers(ws, *col_maps):
                 problems.append(f'{letter}{HEADER_ROW} is {actual!r}, expected {expected!r}')
     if problems:
         raise SystemExit(f'Sheet "{ws.title}" does not match the v2 layout:\n  ' + '\n  '.join(problems))
-
-
-def keyword_base(ability):
-    """'Anti-Infantry 2+' -> 'Anti', 'Sustained Hits 1' -> 'Sustained Hits', 'Hit Modifier +1' -> 'Hit Modifier'."""
-    ability = ability.strip()
-    if ability.lower().startswith('anti-'):
-        return ability[:4]
-    return re.sub(r'\s+[-+]?(\d+|D\d+)([-+]\d+)?\+?$', '', ability, flags=re.IGNORECASE).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -335,18 +328,13 @@ def read_faction(ws, faction, ids, known_keywords, report):
 
 def check_names(faction, units, ranged, melee, known_keywords, report):
     """Report likely typos: unknown weapon keywords and 'can lead' names that match no unit."""
-    lower_keywords = {k.lower(): k for k in known_keywords}
     for weapon in list(ranged.values()) + list(melee.values()):
-        for ability in weapon['abilities']:
-            base = keyword_base(ability)
-            if base in known_keywords:
-                continue
-            if base.lower() in lower_keywords:
-                report.add('Weapon keywords with different capitals (still recognised; consider fixing)',
-                           f'{faction["name"]} / {weapon["name"]}: "{ability}" (Keywords tab has "{lower_keywords[base.lower()]}")')
-            else:
-                report.add('Weapon keywords not on the Keywords tab',
-                           f'{faction["name"]} / {weapon["name"]}: "{ability}"')
+        result = check_keywords(', '.join(weapon['abilities']), known_keywords)
+        for entry, canonical in result['capitals']:
+            report.add('Weapon keywords with different capitals (still recognised; consider fixing)',
+                       f'{faction["name"]} / {weapon["name"]}: "{entry}" (Keywords tab has "{canonical}")')
+        for entry in result['unknown']:
+            report.add('Weapon keywords not on the Keywords tab', f'{faction["name"]} / {weapon["name"]}: "{entry}"')
 
     unit_names = {u['name'] for u in units}
     seen = {}

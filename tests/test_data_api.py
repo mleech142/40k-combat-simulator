@@ -182,3 +182,32 @@ def test_import_replaces_data_and_checks_version(setup):
     assert client.post('/api/data/import', json={'schema_version': 99}).status_code == 400
     assert client.post('/api/data/import', json={'units': []}).status_code == 400
     assert [f['name'] for f in saved()['factions']] == ['Orks']  # unchanged by rejected imports
+
+
+# --- Rules the pages get from the server (not duplicated in JavaScript) -----------------
+
+def test_unit_api_sends_default_ticks_and_points_table(setup):
+    client, _ = setup
+    client.post('/api/data/weapons', json={'type': 'ranged', 'faction_id': 1, 'name': 'Plasma Gun - Standard',
+                                           'attacks': '1', 'skill': '3', 'strength': 7, 'ap': 2, 'damage': '1'})
+    client.post('/api/data/weapons', json={'type': 'ranged', 'faction_id': 1, 'name': 'Plasma Gun - Supercharged',
+                                           'attacks': '1', 'skill': '3', 'strength': 8, 'ap': 3, 'damage': '2'})
+    weapons = {w['name']: w['id'] for w in client.get('/api/data/weapons?type=ranged').get_json()}
+    unit = client.post('/api/data/units', json=unit_payload(
+        ranged_weapons=[{'weapon_id': weapons[n], 'qty': 1} for n in ('Boltgun', 'Plasma Gun - Standard', 'Plasma Gun - Supercharged')],
+        points_by_size=[{'models': 5, 'points': 185}, {'models': 10, 'points': 370}])).get_json()
+
+    data = client.get(f"/api/units/{unit['id']}").get_json()
+    assert {w['name']: w['default_use'] for w in data['ranged_weapons']} == {
+        'Boltgun': True, 'Plasma Gun - Standard': True, 'Plasma Gun - Supercharged': False}
+    table = data['points_by_model_count']
+    assert table[0] is None and len(table) == 100
+    assert (table[5], table[10], table[7]) == (185, 370, 259)  # 185 + 2 x 37
+
+
+def test_keyword_check_endpoint(setup):
+    client, _ = setup
+    check = lambda text, mode='': client.post('/api/keywords/check', json={'text': text, 'mode': mode}).get_json()
+    assert check('Lethal Hits, Anti-Infantry 2+') == {'unknown': ['Anti-Infantry 2+'], 'capitals': []}  # only Lethal Hits known here
+    assert check('lethal hits') == {'unknown': [], 'capitals': [['lethal hits', 'Lethal Hits']]}
+    assert check('Infantry, Lethal Hitz 1', mode='unit') == {'unknown': ['Lethal Hitz 1'], 'capitals': []}

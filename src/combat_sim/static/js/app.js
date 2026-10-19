@@ -8,26 +8,10 @@
  * the server's boot ID (new on every start), so stale state from a previous run is ignored.
  * Shared by every page, since base.html loads this script everywhere.
  */
-const PageState = {
-    bootId: document.querySelector('meta[name="app-boot-id"]')?.content || '',
-
-    load(key) {
-        try {
-            const saved = JSON.parse(sessionStorage.getItem(key));
-            return saved && saved.bootId === this.bootId ? saved.data : null;
-        } catch (err) {
-            return null;
-        }
-    },
-
-    save(key, data) {
-        try {
-            sessionStorage.setItem(key, JSON.stringify({ bootId: this.bootId, data }));
-        } catch (err) {
-            // Storage unavailable or full: the page just won't be restored
-        }
-    },
-};
+const PageState = Core.createPageState(
+    (() => { try { return window.sessionStorage; } catch (err) { return null; } })(),
+    document.querySelector('meta[name="app-boot-id"]')?.content || ''
+);
 
 const SIMULATOR_STATE_KEY = 'simulatorState';
 
@@ -37,49 +21,30 @@ const SIMULATOR_STATE_KEY = 'simulatorState';
  * mode 'unit': plain words are fine (they are unit keywords used by Anti); only entries with values are checked.
  */
 const KeywordHints = {
-    names: null,
-    loading: null,
-
-    load() {
-        if (!this.loading) {
-            this.loading = fetch('/api/data/keywords')
-                .then(r => r.json())
-                .then(keywords => { this.names = new Map(keywords.map(k => [k.name.toLowerCase(), k.name])); })
-                .catch(() => { this.names = new Map(); });
-        }
-        return this.loading;
-    },
-
-    base(entry) {
-        const text = entry.trim();
-        if (text.toLowerCase().startsWith('anti-')) return 'anti';
-        return text.replace(/\s+[-+]?(\d+|D\d+)([-+]\d+)?\+?"?$/i, '').trim().toLowerCase();
-    },
-
+    /** Ask the server to check the box's keywords and show the result under it. */
     async check(input, hint, mode = '') {
-        await this.load();
-        if (!this.names || !this.names.size) { hint.innerHTML = ''; return; }
-        const unknown = [], capitals = [];
-        for (const entry of input.value.split(',').map(e => e.trim()).filter(Boolean)) {
-            if (entry.toLowerCase() === 'none') continue;
-            const base = this.base(entry);
-            const canonical = this.names.get(base);
-            if (canonical) {
-                if (base !== 'anti' && entry.slice(0, canonical.length) !== canonical) capitals.push(`${entry} → ${canonical}`);
-            } else if (mode !== 'unit' || /\d/.test(entry)) {
-                unknown.push(entry);
-            }
+        const text = input.value;
+        try {
+            const response = await fetch('/api/keywords/check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, mode }),
+            });
+            const result = await response.json();
+            if (input.value !== text) return;  // a newer check is on its way
+            hint.innerHTML = Core.keywordHintHtml(result);
+        } catch (err) {
+            hint.innerHTML = '';
         }
-        const esc = v => { const d = document.createElement('div'); d.textContent = v; return d.innerHTML; };
-        hint.innerHTML =
-            (unknown.length ? `<span class="kw-hint-warn">⚠ Not recognised, so it won't change the results: ${unknown.map(esc).join(', ')}. Check the Data → Keywords tab.</span>` : '') +
-            (capitals.length ? `<span class="kw-hint-info">ℹ Works, but the capitals differ: ${capitals.map(esc).join(', ')}</span>` : '');
     },
 
     attach(input, hint, mode = '') {
-        const run = () => this.check(input, hint, mode);
-        input.addEventListener('input', run);
-        if (input.value) run();
+        let timer;
+        input.addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => this.check(input, hint, mode), 200);
+        });
+        if (input.value) this.check(input, hint, mode);
     },
 };
 
@@ -271,8 +236,7 @@ async function loadRulesFor(side, factionId, ticked = null) {
 
 /** Entries usable in the current phase (from the attacker's Shooting/Melee choice). */
 function visibleRules(side) {
-    const phase = PHASE_FOR_WEAPON[state.attacker.weaponType] || 'Shooting';
-    return state.rules[side].available.filter(e => e.phase === 'Both' || e.phase === phase);
+    return Core.rulesForFilter(state.rules[side].available, state.attacker.weaponType);
 }
 
 function renderRulesPanel(side) {
@@ -318,12 +282,7 @@ function updateRulesSummary(side) {
 
 /** {rule_ids, stratagem_ids} for the request (the server applies only those matching side/phase). */
 function rulesSelection(side) {
-    const selection = { rule_ids: [], stratagem_ids: [] };
-    for (const key of state.rules[side].ticked) {
-        const [kind, id] = key.split(':');
-        (kind === 'rule' ? selection.rule_ids : selection.stratagem_ids).push(parseInt(id));
-    }
-    return selection;
+    return Core.rulesSelection(state.rules[side].ticked);
 }
 
 /**
@@ -470,29 +429,11 @@ function showUnitStats(side, unit) {
     document.getElementById(`${prefix}-fnp`).textContent = unit.feel_no_pain ? unit.feel_no_pain + '+' : '-';
 }
 
-function escapeHtml(value) {
-    const div = document.createElement('div');
-    div.textContent = value ?? '';
-    return div.innerHTML;
-}
+const escapeHtml = Core.escapeHtml;
 
 /**
  * Load weapons for selected unit and show them in the weapon list
  */
-/**
- * Weapons named "Weapon - Profile" are alternative profiles of one gun (e.g. Plasma Gun - Standard /
- * Supercharged). Tick every weapon, but only the first profile of each such family, so a gun isn't
- * counted twice by default.
- */
-function applyDefaultUse(weapons) {
-    const families = new Set();
-    for (const w of weapons) {
-        const family = w.name.includes(' - ') ? w.name.split(' - ')[0].trim().toLowerCase() : null;
-        w.use = !family || !families.has(family);
-        if (family) families.add(family);
-    }
-    return weapons;
-}
 
 /**
  * Load the unit's loadout. qty = models carrying the weapon (pre-filled from the loadout, editable
@@ -502,7 +443,8 @@ async function loadWeaponsForUnit(unitId) {
     const response = await fetch(`/api/units/${unitId}`);
     const unitData = await response.json();
 
-    const prepare = list => applyDefaultUse((list || []).map(w => ({ ...w, qty: w.qty || 1 })));
+    // default_use: the server's default ticks (only the first "Weapon - Profile" variant of a gun)
+    const prepare = list => (list || []).map(w => ({ ...w, qty: w.qty || 1, use: w.default_use ?? true }));
     state.attacker.weapons = {
         ranged: prepare(unitData.ranged_weapons),
         melee: prepare(unitData.melee_weapons),
@@ -534,21 +476,11 @@ function setWeaponType(type) {
 
 /** Ticked weapons of the current phase. */
 function usedWeapons() {
-    return (state.attacker.weapons[state.attacker.weaponType] || []).filter(w => w.use);
+    return Core.usedWeapons(state.attacker.weapons, state.attacker.weaponType);
 }
 
 function weaponPayload(w) {
-    return {
-        name: w.name,
-        type: w.type || state.attacker.weaponType,
-        attacks: w.attacks,
-        skill: w.skill,
-        strength: w.strength,
-        ap: w.ap,
-        damage: w.damage,
-        abilities: w.abilities || [],
-        models: w.qty || 1,
-    };
+    return Core.weaponPayload(w, state.attacker.weaponType);
 }
 
 /**

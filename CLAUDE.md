@@ -36,6 +36,8 @@ API routes in `app.py` under `register_routes()`. `static/js/app.js` is loaded o
 
 ## Testing
 
-`pip install -r requirements-dev.txt`, then `python -m pytest tests`. API tests use the `make_client(data)` fixture in `tests/conftest.py`, which runs the app on a temporary data JSON and database — use it for any new API test. The browser JavaScript has no automated tests.
+`pip install -r requirements-dev.txt`, then `python -m pytest tests` (also runs the Node tests in `tests/js` via `test_javascript.py`). API tests use the `make_client(data)` fixture in `tests/conftest.py`, which runs the app on a temporary data JSON and database — use it for any new API test.
 
-Module map, invariants, coverage and the maintainability backlog (including rules duplicated between Python and JavaScript that must change together): `docs/architecture.md`.
+**Game rules live only in Python.** Pages get them via the API (`default_use` and `points_by_model_count` on `/api/units/<id>`, `POST /api/keywords/check`); never re-implement them in JavaScript. Pure page logic belongs in `static/js/core.js` (loaded first on every page, `require()`-able in Node) with tests in `tests/js/core.test.js`.
+
+Module map, invariants, coverage and the maintainability backlog: `docs/architecture.md`.

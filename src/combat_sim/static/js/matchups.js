@@ -9,6 +9,9 @@
 (function() {
     'use strict';
 
+    // Pure helpers shared with the other pages and unit-tested in Node (static/js/core.js)
+    const { escapeHtml, truncate, formatMetricValue, getHeatColor, copyLabel, pointsLabel } = Core;
+
     const DEFAULT_DEFENDER_MODELS = 5;
 
     // State
@@ -266,9 +269,7 @@
 
     /** Entries usable with the current Shooting / Both / Melee filter. */
     function visibleRules(side) {
-        const allowed = { ranged: ['Shooting', 'Both'], melee: ['Fighting', 'Both'], both: ['Shooting', 'Fighting', 'Both'] };
-        const phases = allowed[state.weaponTypeFilter] || allowed.both;
-        return state.rules[side].available.filter(e => phases.includes(e.phase));
+        return Core.rulesForFilter(state.rules[side].available, state.weaponTypeFilter);
     }
 
     function renderRulesList(side) {
@@ -320,15 +321,6 @@
         summaryEl.classList.toggle('rules-summary-active', active.length > 0);
     }
 
-    function rulesSelection(side) {
-        const selection = { rule_ids: [], stratagem_ids: [] };
-        for (const key of state.rules[side].ticked) {
-            const [kind, id] = key.split(':');
-            (kind === 'rule' ? selection.rule_ids : selection.stratagem_ids).push(parseInt(id));
-        }
-        return selection;
-    }
-
     function ticksForSaving() {
         return { attacker: [...state.rules.attacker.ticked], defender: [...state.rules.defender.ticked] };
     }
@@ -344,29 +336,9 @@
     // Helpers
     // =========================
 
-    function escapeHtml(value) {
-        const div = document.createElement('div');
-        div.textContent = value ?? '';
-        return div.innerHTML;
-    }
 
-    /** Unit name with "#n" appended when the same unit appears earlier in the list. */
-    function copyLabel(list, index) {
-        const entry = list[index];
-        let copy = 0;
-        for (let i = 0; i <= index; i++) {
-            if (list[i].unit_id === entry.unit_id && list[i].unit_name === entry.unit_name) copy++;
-        }
-        return copy > 1 ? `${entry.unit_name} #${copy}` : entry.unit_name;
-    }
 
-    function defenderLabel(index) {
-        return `${copyLabel(state.defenders, index)} (x${state.defenders[index].model_count})`;
-    }
 
-    function weaponVisible(weapon) {
-        return state.weaponTypeFilter === 'both' || weapon.weapon_type === state.weaponTypeFilter;
-    }
 
     function toWeaponEntry(w) {
         return {
@@ -382,23 +354,10 @@
             abilities: w.abilities || [],
             models: w.qty || 1,  // Loadout quantity: models in the unit carrying this weapon
             base_qty: w.qty || 1,  // Loadout quantity at the datasheet unit size
-            include: true,
+            include: w.default_use ?? true,  // Server's default: only the first "Weapon - Profile" variant
         };
     }
 
-    /**
-     * Weapons named "Weapon - Profile" are alternative profiles of one gun: include only the first
-     * profile of each family by default, so it isn't counted twice (same rule as the Simulator).
-     */
-    function defaultIncluded(weapons) {
-        const families = new Set();
-        for (const w of weapons) {
-            const family = w.name.includes(' - ') ? w.name.split(' - ')[0].trim().toLowerCase() : null;
-            w.include = !family || !families.has(family);
-            if (family) families.add(family);
-        }
-        return weapons;
-    }
 
     function toDefenderEntry(unit, modelCount) {
         return {
@@ -406,7 +365,7 @@
             unit_name: unit.name,
             faction: unit.faction,
             faction_id: unit.faction_id,
-            points_by_size: unit.points_by_size || [],
+            points_table: unit.points_by_model_count || [],
             toughness: unit.toughness,
             save: unit.save,
             wounds: unit.wounds,
@@ -484,11 +443,8 @@
                     faction_id: unit.faction_id,
                     default_models: unit.default_models || null,
                     unit_size: unit.default_models || null,
-                    points_by_size: unit.points_by_size || [],
-                    weapons: [
-                        ...defaultIncluded((unit.ranged_weapons || []).map(toWeaponEntry)),
-                        ...defaultIncluded((unit.melee_weapons || []).map(toWeaponEntry)),
-                    ],
+                    points_table: unit.points_by_model_count || [],
+                    weapons: [...(unit.ranged_weapons || []), ...(unit.melee_weapons || [])].map(toWeaponEntry),
                 });
                 renderAttackerTable();
             } else {
@@ -519,7 +475,7 @@
 
         state.attackers.forEach((atk, a) => {
             const label = escapeHtml(copyLabel(state.attackers, a));
-            const visible = atk.weapons.map((w, idx) => ({ w, idx })).filter(({ w }) => weaponVisible(w));
+            const visible = atk.weapons.map((w, idx) => ({ w, idx })).filter(({ w }) => Core.weaponVisible(w, state.weaponTypeFilter));
             const unitCell = (rowspan) => `
                 <td class="roster-unit" rowspan="${rowspan}">
                     <span class="roster-unit-name">${label}</span>
@@ -529,7 +485,7 @@
                         Size <input type="number" class="roster-models unit-size-input" data-a="${a}"
                                     value="${atk.unit_size || atk.default_models}" min="1" max="99">
                     </label>` : ''}
-                    <span class="unit-points">${pointsLabel(atk.points_by_size, atk.unit_size || atk.default_models)}</span>
+                    <span class="unit-points">${pointsLabel(atk.points_table, atk.unit_size || atk.default_models)}</span>
                 </td>`;
             const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit">&times;</button>`;
 
@@ -575,7 +531,7 @@
     function onAttackerTableChange(e) {
         const el = e.target;
         if (el.classList.contains('unit-size-input')) {
-            setUnitSize(state.attackers[parseInt(el.dataset.a)], parseInt(el.value));
+            Core.scaleUnitSize(state.attackers[parseInt(el.dataset.a)], parseInt(el.value));
             renderAttackerTable();
             return;
         }
@@ -649,7 +605,7 @@
                 <td>${d.feel_no_pain ? d.feel_no_pain + '+' : '-'}</td>
                 <td><input type="number" class="roster-models def-models" data-d="${idx}"
                            value="${d.model_count}" min="1" max="99"></td>
-                <td class="roster-muted def-points">${pointsLabel(d.points_by_size, d.model_count)}</td>
+                <td class="roster-muted def-points">${pointsLabel(d.points_table, d.model_count)}</td>
                 <td class="roster-extra">
                     <input type="text" class="roster-text def-extra" data-d="${idx}" value="${escapeHtml(d.extra_modifiers || '')}"
                            placeholder="e.g. Stealth" autocomplete="off" title="For this defender only; not saved to the datasheet">
@@ -668,32 +624,8 @@
     // Unit size, points and generic profiles
     // =========================
 
-    /** Points for a unit size: the listed cost, else the nearest size below plus its per-model rate (as the server). */
-    function unitPoints(brackets, models) {
-        const sorted = (brackets || []).filter(b => b.models && b.points != null).sort((x, y) => x.models - y.models);
-        if (!sorted.length || !models) return null;
-        const below = sorted.filter(b => b.models <= models);
-        const base = below.length ? below[below.length - 1] : sorted[0];
-        const rate = base.points / base.models;
-        if (base.models === models) return base.points;
-        return Math.round(below.length ? base.points + (models - base.models) * rate : models * rate);
-    }
 
-    function pointsLabel(brackets, models) {
-        const points = unitPoints(brackets, models);
-        return points == null ? '' : `${points} pts`;
-    }
 
-    /** Change an attacker unit's size, scaling each weapon's model count from its loadout quantity. */
-    function setUnitSize(atk, size) {
-        size = Math.max(1, size || atk.default_models || 1);
-        atk.unit_size = size;
-        if (!atk.default_models) return;
-        for (const w of atk.weapons) {
-            const base = w.base_qty || w.models || 1;
-            w.models = Math.max(1, Math.round(base * size / atk.default_models));
-        }
-    }
 
     async function loadGenericProfiles() {
         try {
@@ -736,7 +668,7 @@
         d.model_count = Math.max(1, parseInt(el.value) || 1);
         el.value = d.model_count;
         const pointsCell = el.closest('tr').querySelector('.def-points');
-        if (pointsCell) pointsCell.textContent = pointsLabel(d.points_by_size, d.model_count);
+        if (pointsCell) pointsCell.textContent = pointsLabel(d.points_table, d.model_count);
     }
 
     function onDefenderTableClick(e) {
@@ -751,31 +683,16 @@
     // =========================
 
     function buildMatrixRequest() {
-        const attackers = state.attackers.map((atk, a) => ({
-            label: copyLabel(state.attackers, a),
-            unit_id: atk.unit_id,
-            weapons: atk.weapons
-                .filter(w => w.include && weaponVisible(w))
-                .map(w => ({ weapon_id: w.weapon_id, weapon_type: w.weapon_type, models: w.models, label: w.name,
-                             unit_id: atk.unit_id })),
-            unit_size: atk.unit_size || atk.default_models || null,
-        })).filter(atk => atk.weapons.length > 0);
-
-        const defenders = state.defenderMode === 'generic'
-            ? includedProfiles().map(t => ({ profile_id: t.id, model_count: t.models, label: t.name }))
-            : state.defenders.map((d, idx) => ({
-                unit_id: d.unit_id,
-                model_count: d.model_count,
-                label: defenderLabel(idx),
-                extra_modifiers: d.extra_modifiers || '',
-            }));
-
-        return {
-            attackers, defenders, conditions: { ...state.conditions },
-            weapon_filter: state.weaponTypeFilter,
-            attacker_rules: rulesSelection('attacker'),
-            defender_rules: rulesSelection('defender'),
-        };
+        return Core.buildMatrixRequest({
+            attackers: state.attackers,
+            defenders: state.defenders,
+            conditions: state.conditions,
+            weaponTypeFilter: state.weaponTypeFilter,
+            defenderMode: state.defenderMode,
+            includedProfiles: includedProfiles(),
+            attackerTicked: state.rules.attacker.ticked,
+            defenderTicked: state.rules.defender.ticked,
+        });
     }
 
     async function runMatrix() {
@@ -892,49 +809,8 @@
         });
     }
 
-    function getHeatColor(value, min, max) {
-        // Green (high) -> Yellow (mid) -> Red (low)
-        if (max === min) return 'rgba(255, 235, 59, 0.5)'; // Yellow if all same
 
-        const ratio = Math.max(0, (value - min) / (max - min));
 
-        // Interpolate: red (0) -> yellow (0.5) -> green (1)
-        let r, g, b;
-        if (ratio < 0.5) {
-            // Red to Yellow
-            const t = ratio * 2;
-            r = 239;
-            g = Math.round(68 + (235 - 68) * t);
-            b = 68;
-        } else {
-            // Yellow to Green
-            const t = (ratio - 0.5) * 2;
-            r = Math.round(255 - (255 - 76) * t);
-            g = Math.round(235 - (235 - 175) * t);
-            b = Math.round(59 + (80 - 59) * t);
-        }
-
-        return `rgba(${r}, ${g}, ${b}, 0.7)`;
-    }
-
-    function formatMetricValue(value, metric) {
-        switch (metric) {
-            case 'kill_probability':
-            case 'pct_destroyed':
-                return `${value}%`;
-            case 'pct_per_100':
-                return (value || 0).toFixed(2);
-            case 'damage_per_point':
-                return value.toFixed(3);
-            default:
-                return value.toFixed(2);
-        }
-    }
-
-    function truncate(str, maxLen) {
-        if (str.length <= maxLen) return str;
-        return str.substring(0, maxLen - 3) + '...';
-    }
 
     function renderSummary() {
         if (!state.results || !state.results.summary) {
@@ -983,77 +859,19 @@
 
         const content = document.getElementById('analysis-content');
         const render = {
-            summary: renderAnalysisSummary,
-            gaps: renderGaps,
-            roles: renderRoleScores,
-            coverage: renderCoverage,
-            reverse: renderReverse,
-        }[state.analysisTab] || renderAnalysisSummary;
+            summary: Core.renderAnalysisSummary,
+            gaps: Core.renderGaps,
+            roles: Core.renderRoleScores,
+            coverage: Core.renderCoverage,
+            reverse: Core.renderReverse,
+        }[state.analysisTab] || Core.renderAnalysisSummary;
         content.innerHTML = render(analysis);
         if (state.analysisTab === 'roles') drawRoleChart(analysis.roles);
     }
 
-    function statTile(value, label, note = '') {
-        return `<div class="analysis-stat">
-            <span class="analysis-value">${value}</span>
-            <span class="analysis-label">${label}</span>
-            ${note ? `<span class="analysis-note">${note}</span>` : ''}
-        </div>`;
-    }
 
-    function renderAnalysisSummary(analysis) {
-        const s = analysis.summary;
-        const weighted = s.weighted ? 'weighted by profile' : 'all targets equal';
-        let html = `<h3>My army</h3><div class="analysis-stats">
-            ${statTile(s.units, 'Units')}
-            ${statTile(s.points, 'Points')}
-            ${statTile(`${s.wiped} of ${s.targets}`, 'Enemy units wiped in one turn')}
-            ${statTile(`${s.avg_pct_destroyed}%`, 'Avg % of each target destroyed', weighted)}
-            ${statTile(s.pct_per_100 != null ? s.pct_per_100.toFixed(2) : '-', 'Avg % per 100 pts')}
-            ${statTile(s.best_unit ? escapeHtml(s.best_unit.label) : '-', 'Best unit (% per 100 pts)',
-                       s.best_unit ? `${s.best_unit.pct_per_100.toFixed(2)} % per 100 pts` : '')}
-        </div>`;
-        const r = analysis.reverse?.summary;
-        if (r) {
-            html += `<h3>Opponent</h3><div class="analysis-stats">
-                ${statTile(r.points ?? '-', 'Points')}
-                ${statTile(`${r.wiped} of ${r.units}`, 'My units they wipe in one turn')}
-                ${statTile(`${r.avg_pct_destroyed}%`, 'Avg % of my units destroyed')}
-                ${statTile(r.biggest_threat ? escapeHtml(r.biggest_threat) : '-', 'Biggest threat')}
-            </div>`;
-        }
-        return html;
-    }
 
-    function renderGaps(analysis) {
-        if (!analysis.gaps.length) {
-            return '<p class="analysis-empty">✓ Your army can wipe every target in one turn.</p>';
-        }
-        return `<p class="analysis-intro">Targets your whole army can't wipe out in one turn, most survivors first.</p>
-            <table class="breakdown-table analysis-table">
-                <thead><tr><th>Target</th><th>Models</th><th>Survivors</th><th>% destroyed</th></tr></thead>
-                <tbody>${analysis.gaps.map(g => `<tr>
-                    <td>${escapeHtml(g.label)}</td><td>${g.models}</td><td>${g.survivors}</td><td>${g.pct_destroyed}%</td>
-                </tr>`).join('')}</tbody>
-            </table>`;
-    }
 
-    function renderRoleScores(analysis) {
-        if (!analysis.roles.length) {
-            return '<p class="analysis-empty">No role benchmarks in the data file.</p>';
-        }
-        return `<p class="analysis-intro">% of each benchmark unit your whole army destroys in one turn (100% = wiped; above 100% is spare killing power).</p>
-            <div class="analysis-columns">
-                <table class="breakdown-table analysis-table">
-                    <thead><tr><th>Role</th><th>Models</th><th>Army kills</th><th>Score</th></tr></thead>
-                    <tbody>${analysis.roles.map(r => `<tr>
-                        <td>${escapeHtml(r.name)}</td><td>${r.models}</td><td>${r.kills}</td>
-                        <td class="${r.score >= 100 ? 'score-good' : ''}">${r.score}%</td>
-                    </tr>`).join('')}</tbody>
-                </table>
-                <div id="roles-chart" class="roles-chart"></div>
-            </div>`;
-    }
 
     function drawRoleChart(roles) {
         const el = document.getElementById('roles-chart');
@@ -1075,38 +893,7 @@
         }, { responsive: true, displayModeBar: false });
     }
 
-    function renderCoverage(analysis) {
-        const c = analysis.coverage;
-        const values = c.damage.flat();
-        const min = Math.min(...values), max = Math.max(...values);
-        return `<p class="analysis-intro">Expected damage from your whole army against each Toughness and Save
-            (no invulnerable save, Feel No Pain or keywords; damage not capped by wounds).</p>
-            <div class="matrix-scroll"><table class="matrix-table coverage-table">
-                <thead><tr><th class="matrix-corner">T ↓ Sv →</th>${c.saves.map(sv => `<th class="matrix-header-cell">${sv}+</th>`).join('')}</tr></thead>
-                <tbody>${c.toughness.map((t, i) => `<tr><th class="matrix-row-header">T${t}</th>
-                    ${c.damage[i].map(v => `<td class="matrix-cell coverage-cell" style="background-color: ${getHeatColor(v, min, max)}">${v.toFixed(1)}</td>`).join('')}
-                </tr>`).join('')}</tbody>
-            </table></div>`;
-    }
 
-    function renderReverse(analysis) {
-        const r = analysis.reverse;
-        if (!r) {
-            return '<p class="analysis-empty">Reverse durability needs real defender units: switch Defenders to <strong>Real units</strong> and run the matrix again.</p>';
-        }
-        if (!r.rows.length) return '<p class="analysis-empty">No attacker units to check.</p>';
-        return `<p class="analysis-intro">% of each of your units the opponent destroys in one turn (their default loadouts,
-            same conditions and phase filter, no opponent rules).</p>
-            <div class="matrix-scroll"><table class="matrix-table">
-                <thead><tr><th class="matrix-corner">My unit ↓ Enemy →</th>
-                    ${r.enemies.map(e => `<th class="matrix-header-cell" title="${escapeHtml(e)}">${escapeHtml(truncate(e, 20))}</th>`).join('')}
-                    <th class="matrix-header-cell">Total threat</th></tr></thead>
-                <tbody>${r.rows.map(row => `<tr><th class="matrix-row-header">${escapeHtml(truncate(row.label, 28))}</th>
-                    ${row.cells.map(v => `<td class="matrix-cell" style="background-color: ${getHeatColor(100 - v, 0, 100)}">${v}%</td>`).join('')}
-                    <td class="matrix-cell matrix-total-cell">${row.total}%</td>
-                </tr>`).join('')}</tbody>
-            </table></div>`;
-    }
 
     // =========================
     // Cell Detail Panel

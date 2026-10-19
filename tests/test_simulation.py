@@ -300,3 +300,27 @@ def test_models_killed_uses_attacks_per_kill():
     assert fnp.models_killed == approx(5 / 4.5)
     # Kills never exceed the unit size
     assert run(skill=None, strength=8, damage='3', wounds=1, target_models=2).models_killed == approx(2)
+
+
+# --- Keyword parsing (one implementation, used by the app and the migration script) ---
+
+from combat_sim.simulation import check_keywords, keyword_name
+
+
+def test_keyword_name():
+    assert keyword_name('Anti-Infantry 2+') == 'Anti'
+    assert keyword_name('Sustained Hits D3') == 'Sustained Hits'
+    assert keyword_name('Rapid Fire D6+1') == 'Rapid Fire'
+    assert keyword_name('Hit Modifier +1') == 'Hit Modifier'
+    assert keyword_name('Feel No Pain 5+') == 'Feel No Pain'
+    assert keyword_name(' Lethal Hits ') == 'Lethal Hits'
+
+
+def test_check_keywords():
+    known = ['Lethal Hits', 'Anti', 'Feel No Pain', 'Stealth']
+    assert check_keywords('Lethal Hits, anti-vehicle 4+, None, ', known) == {'unknown': [], 'capitals': []}
+    assert check_keywords('lethal hits, Lethal Hitz', known) == {
+        'unknown': ['Lethal Hitz'], 'capitals': [['lethal hits', 'Lethal Hits']]}
+    # Unit mode: plain words are unit keywords for Anti; only entries with values are checked
+    assert check_keywords('Infantry, Feel No Pain 5+, Toughnes Modifier +1', known, mode='unit') == {
+        'unknown': ['Toughnes Modifier +1'], 'capitals': []}

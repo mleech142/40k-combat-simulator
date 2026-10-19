@@ -3,7 +3,6 @@ Flask application for 40K Combat Simulator.
 """
 
 import os
-import re
 import uuid
 from flask import Flask, render_template, request, jsonify
 from sqlalchemy.exc import IntegrityError
@@ -12,7 +11,7 @@ from .models import (db, init_db, Faction, Unit, RangedWeapon, MeleeWeapon, Fact
 from .data_store import (DEFAULT_DATA_PATH, DataFileError, read_data_file, check_data,
                          rebuild_reference_tables, export_data, write_data_file)
 from .simulation import (
-    simulate, simulate_analytical, simulate_monte_carlo_combined,
+    simulate, simulate_analytical, simulate_monte_carlo_combined, keyword_name, check_keywords,
     AttackerProfile, DefenderProfile, BattleConditions
 )
 
@@ -101,20 +100,12 @@ def rule_modifiers(records, side, faction_id, weapon_type):
     return modifiers
 
 
-def keyword_base(entry):
-    """The keyword an entry refers to: 'Anti-Infantry 2+' -> 'anti', 'Sustained Hits D3' -> 'sustained hits'."""
-    text = entry.strip()
-    if text.lower().startswith('anti-'):
-        return 'anti'
-    return re.sub(r'\s+[-+]?(\d+|D\d+)([-+]\d+)?\+?"?$', '', text, flags=re.IGNORECASE).strip().lower()
-
-
 def modifier_has_effect(text, modelled_names):
     """True if any entry of a modifier text is a keyword the calculations use."""
     entries = [m for m in (text or '').split(',') if m.strip() and m.strip().lower() != 'none']
     if not modelled_names:
         return bool(entries)
-    return any(keyword_base(m) in modelled_names for m in entries)
+    return any(keyword_name(m).lower() in modelled_names for m in entries)
 
 
 def default_used(names):
@@ -138,6 +129,7 @@ def weighted_average(values, weights):
 
 
 COVERAGE_TOUGHNESS = [3, 4, 5, 6, 8, 9, 10, 12]
+MAX_UNIT_SIZE = 99  # Largest model count the pages' number boxes allow
 COVERAGE_SAVES = [2, 3, 4, 5, 6]
 
 
@@ -173,9 +165,15 @@ def register_routes(app):
         """Get a specific unit with its weapons."""
         unit = db.get_or_404(Unit, unit_id)
         data = unit.to_dict()
-        # qty = how many models in the unit carry the weapon
-        data['ranged_weapons'] = [dict(w.to_dict(), qty=qty) for w, qty in unit.loadout('ranged')]
-        data['melee_weapons'] = [dict(w.to_dict(), qty=qty) for w, qty in unit.loadout('melee')]
+        # qty = how many models in the unit carry the weapon; default_use = ticked by default
+        for weapon_type in ('ranged', 'melee'):
+            loadout = unit.loadout(weapon_type)
+            data[f'{weapon_type}_weapons'] = [
+                dict(w.to_dict(), qty=qty, default_use=used)
+                for (w, qty), used in zip(loadout, default_used([w.name for w, _ in loadout]))
+            ]
+        # Points for every unit size the pages offer (index = model count), from Unit.points_for
+        data['points_by_model_count'] = [None] + [unit.points_for(n) for n in range(1, MAX_UNIT_SIZE + 1)]
         return jsonify(data)
 
     @app.route('/api/rules/available')
@@ -448,6 +446,15 @@ def register_routes(app):
         """Generic opponent profiles and role benchmarks (read-only; from the workbook)."""
         profiles = TargetProfile.query.order_by(TargetProfile.kind, TargetProfile.id).all()
         return jsonify([t.to_dict() for t in profiles])
+
+    @app.route('/api/keywords/check', methods=['POST'])
+    def api_keywords_check():
+        """As-you-type keyword hints: {'text', 'mode'} -> {'unknown': [...], 'capitals': [[entry, name]]}."""
+        data = request.get_json() or {}
+        names = [k.name for k in Keyword.query]
+        if not names:
+            return jsonify({'unknown': [], 'capitals': []})  # no keyword reference loaded
+        return jsonify(check_keywords(data.get('text', ''), names, data.get('mode', '')))
 
     @app.route('/api/data/keywords')
     def api_data_keywords():

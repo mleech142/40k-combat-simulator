@@ -79,11 +79,12 @@ IDs stay stable across rebuilds, so saved scenarios and comparisons keep pointin
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests                                         # 83 tests
+python -m pytest tests                                         # 88 tests (Python + JavaScript)
+node --test "tests/js/*.test.js"                               # JavaScript only (Node 18+)
 python -m coverage run --source=src/combat_sim,scripts -m pytest tests && python -m coverage report
 ```
 
-The tests never touch `data/` — each starts the app on its own temporary data file. They include the spreadsheet's own cached results as parity checks and an analytical-vs-Monte-Carlo agreement check.
+The tests never touch `data/` — each starts the app on its own temporary data file. They include the spreadsheet's own cached results as parity checks and an analytical-vs-Monte-Carlo agreement check. The JavaScript tests cover the pure page helpers in `static/js/core.js`; they run inside the pytest run when Node.js is installed.
 
 ## Project structure
 
@@ -95,10 +96,10 @@ The tests never touch `data/` — each starts the app on its own temporary data 
 │   ├── data_store.py     # Reads/validates/writes data/40k_data.json
 │   ├── simulation.py     # Combat engine: resolve() + analytical and Monte Carlo engines
 │   ├── templates/        # Jinja2 pages (Simulator, Matchups, Scenarios, Data)
-│   └── static/           # CSS and JavaScript (app.js is loaded on every page)
+│   └── static/           # CSS and JavaScript (core.js + app.js are loaded on every page)
 ├── data/                 # 40k_data.json (committed) and combat_sim.db (local)
 ├── scripts/migrate_excel.py
-├── tests/                # pytest suite (conftest.py provides a temporary-data app)
+├── tests/                # pytest suite (conftest.py provides a temporary-data app); tests/js: Node tests
 ├── docs/
 │   ├── architecture.md   # How the pieces fit, conventions, maintainability notes
 │   └── excel-parity.md   # Feature-by-feature comparison with the spreadsheet

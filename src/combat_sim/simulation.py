@@ -20,6 +20,7 @@ X can be a number or dice (D3, D6+1); dice values are averaged in the analytical
 
 import math
 import random
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -224,6 +225,40 @@ def keyword_roll(abilities: list[str], key: str) -> int:
         return 0
     value = max(entries, key=_value_avg)
     return 1 if value == '' else roll_dice(value)
+
+
+def keyword_name(entry: str) -> str:
+    """
+    The keyword an entry refers to, as written: 'Anti-Infantry 2+' -> 'Anti',
+    'Sustained Hits D3' -> 'Sustained Hits', 'Hit Modifier +1' -> 'Hit Modifier'.
+    """
+    text = entry.strip()
+    if text.lower().startswith('anti-'):
+        return text[:4]
+    return re.sub(r'\s+[-+]?(\d+|D\d+)([-+]\d+)?\+?"?$', '', text, flags=re.IGNORECASE).strip()
+
+
+def check_keywords(text: str, known_names, mode: str = '') -> dict:
+    """
+    Check comma-separated keyword text against the known keyword names.
+
+    Returns {'unknown': [entries], 'capitals': [[entry, canonical name]]}. In mode 'unit',
+    plain words are fine (they are unit keywords used by Anti); only entries with values
+    are checked. Capitals never change the maths; they are reported as a tidy-up hint.
+    """
+    names = {name.lower(): name for name in known_names}
+    unknown, capitals = [], []
+    for entry in (part.strip() for part in (text or '').split(',')):
+        if not entry or entry.lower() == 'none':
+            continue
+        name = keyword_name(entry)
+        canonical = names.get(name.lower())
+        if canonical:
+            if name.lower() != 'anti' and not entry.startswith(canonical):
+                capitals.append([entry, canonical])
+        elif mode != 'unit' or re.search(r'\d', entry):
+            unknown.append(entry)
+    return {'unknown': unknown, 'capitals': capitals}
 
 
 def has_exact(abilities: list[str], key: str) -> bool:
