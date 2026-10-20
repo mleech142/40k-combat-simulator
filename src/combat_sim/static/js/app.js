@@ -991,6 +991,7 @@ async function saveScenario() {
         name: name,
         attacker: {
             unit_name: attackerUnit?.name,
+            unit_id: state.attacker.unit?.id ?? null,
             weapon_name: weapons.map(w => w.qty > 1 ? `${w.name} x${w.qty}` : w.name).join(', '),
             faction_id: state.attacker.unit?.faction_id ?? null,
             type: state.attacker.weaponType,
@@ -1060,9 +1061,14 @@ async function loadScenarioAttacker(config) {
 
     try {
         if (config.unit_name) {
-            const response = await fetch(`/api/units?search=${encodeURIComponent(config.unit_name)}`);
-            const units = await response.json();
-            const unit = units.find(u => u.name === config.unit_name);
+            // Within the saved faction when known (no search cap there); Legends included
+            const params = new URLSearchParams({ search: config.unit_name, legends: '1' });
+            if (config.faction_id != null) params.set('faction_id', config.faction_id);
+            let unit = Core.findSavedUnit(await (await fetch(`/api/units?${params}`)).json(), config);
+            if (!unit && params.has('faction_id')) {  // That faction is gone: any copy by name
+                params.delete('faction_id');
+                unit = Core.findSavedUnit(await (await fetch(`/api/units?${params}`)).json(), config);
+            }
             if (unit) {
                 state.attacker.unit = unit;
                 showUnitStats('attacker', unit);

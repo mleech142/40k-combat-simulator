@@ -257,6 +257,19 @@ test('detachmentKeys reads a list, one key as first saved, or nothing', () => {
     assert.deepEqual(Core.detachmentKeys(undefined), []);
 });
 
+test('findSavedUnit picks the saved copy of a name found in several factions', () => {
+    const units = [
+        { id: 1, name: 'Death Jester', faction_id: 10 },
+        { id: 2, name: 'Death Jester', faction_id: 20 },
+        { id: 3, name: 'Death Jesters', faction_id: 20 },
+    ];
+    assert.equal(Core.findSavedUnit(units, { unit_name: 'Death Jester', unit_id: 2, faction_id: 10 }).id, 2);
+    assert.equal(Core.findSavedUnit(units, { unit_name: 'Death Jester', faction_id: 20 }).id, 2);
+    assert.equal(Core.findSavedUnit(units, { unit_name: 'Death Jester', unit_id: 99, faction_id: 20 }).id, 2);
+    assert.equal(Core.findSavedUnit(units, { unit_name: 'Death Jester' }).id, 1);  // Older scenarios: first by name
+    assert.equal(Core.findSavedUnit(units, { unit_name: 'Solitaire' }), null);
+});
+
 test('detachmentPickerHtml ticks the chosen detachments and shows their DP', () => {
     const detachments = [{ key: 'g', name: 'Gladius', dp: 3, faction: 'SM' }, { key: 'p', name: 'Phobos', dp: 1, faction: 'SM' }];
     const html = Core.detachmentPickerHtml(detachments, ['p']);
