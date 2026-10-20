@@ -1,5 +1,5 @@
 /* 40K Combat Simulator - "Carbon & Blaze" dark theme
- * Palette: Carbon Black #23231a, Charcoal Brown #322f20, Olive Bark #6a5837, Olive #988f2a, Blaze Orange #fe5f00
+ * Palette: Carbon Black #23231a, Charcoal Brown #322f20, Olive Bark #6a5837, Olive #988f2a, Blaze Orange #e8722f (softened from #fe5f00)
  * (chosen from the colour theme prototype; see the prototype/colour-themes branch). Charts read these tokens too
  * (themeColor in app.js), so change colours here only.
  */
@@ -8,11 +8,11 @@
     --bg-primary: #23231a;         /* Carbon Black: page */
     --bg-secondary: #322f20;       /* Charcoal Brown: cards */
     --bg-tertiary: #1a1a13;        /* darker than Carbon Black: header, inputs, table heads */
-    --accent: #fe5f00;             /* Blaze Orange */
-    --accent-hover: #ff7d2e;
+    --accent: #e8722f;             /* Blaze Orange, softened */
+    --accent-hover: #f08c50;
     --accent-dim: #6a5837;         /* Olive Bark */
     --on-accent: #1a1a13;          /* text on accent-coloured buttons and chips */
-    --accent-tint: rgba(254, 95, 0, 0.14);  /* faint accent wash: selected rows, focused inputs */
+    --accent-tint: rgba(232, 114, 47, 0.14);  /* faint accent wash: selected rows, focused inputs */
     --text-primary: #efe9d8;
     --text-secondary: #bdb48f;
     --text-muted: #8c8262;
