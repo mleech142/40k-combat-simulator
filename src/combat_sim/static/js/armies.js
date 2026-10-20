@@ -13,12 +13,14 @@
     const DEFAULT_LIMIT = 2000;
 
     const state = {
-        // {id (null until saved), name, faction_id, detachment_keys, points_limit, units: [{uid, unit_id, models, attached_to}]}
+        // {id (null until saved), name, faction_id, detachment_keys, points_limit, warlord (a uid),
+        //  units: [{uid, unit_id, models, attached_to, enhancement}]}
         army: newArmy(),
         priced: null,  // /api/armies/price answer for state.army
         dirty: false,  // Changed since it was last saved
         factionUnits: [],  // /api/units for the army's faction (picker)
         detachments: [],
+        wargear: null,  // The popup: {uid, unit_id, models, choices, result} while it is open
     };
     const $ = id => document.getElementById(id);
     let priceRequest = 0;
@@ -26,7 +28,7 @@
     document.addEventListener('DOMContentLoaded', init);
 
     function newArmy(factionId = null) {
-        return { id: null, name: '', faction_id: factionId, detachment_keys: [], points_limit: DEFAULT_LIMIT, units: [] };
+        return { id: null, name: '', faction_id: factionId, detachment_keys: [], points_limit: DEFAULT_LIMIT, warlord: null, units: [] };
     }
 
     function newUid() {
@@ -51,6 +53,10 @@
         $('defenders-btn').addEventListener('click', () => analyse('defender'));
         $('text-btn').addEventListener('click', showText);
         $('copy-text-btn').addEventListener('click', copyText);
+        $('wargear-sections').addEventListener('change', onWargearChange);
+        $('wargear-size').addEventListener('change', e => { state.wargear.models = parseInt(e.target.value); loadWargear(); });
+        $('wargear-apply').addEventListener('click', () => closeWargear(true));
+        $('wargear-reset').addEventListener('click', () => closeWargear(false, true));
         document.querySelectorAll('[data-close]').forEach(btn =>
             btn.addEventListener('click', () => $(btn.dataset.close).classList.remove('show')));
         window.addEventListener('pagehide', () => PageState.save(PAGE_STATE_KEY, { army: state.army, dirty: state.dirty }));
@@ -148,7 +154,9 @@
             if (!resp.ok) throw new Error(priced.error);
             state.priced = priced;
             // The server fills in sizes and drops attachments to removed units
-            state.army.units = priced.units.map(u => ({ uid: u.uid, unit_id: u.unit_id, models: u.models, attached_to: u.attached_to }));
+            state.army.units = priced.units.map(u => ({ uid: u.uid, unit_id: u.unit_id, models: u.models, attached_to: u.attached_to,
+                                                         enhancement: u.enhancement, wargear: u.wargear }));
+            state.army.warlord = priced.warlord;
         } catch (err) {
             console.error('Error pricing army:', err);
         }
@@ -178,8 +186,11 @@
         const units = priced?.units || [];
         const labelled = units.map(u => ({ unit_id: u.unit_id, unit_name: u.name }));
         const labels = new Map(units.map((u, i) => [u.uid, copyLabel(labelled, i)]));
-        $('army-units').innerHTML = units.length ? units.map((u, i) => unitRow(u, labels)).join('') :
-            `<tr><td colspan="5" class="empty-cell">${state.army.faction_id ? 'No units yet: add them from the list on the right.' : 'Choose a faction to start.'}</td></tr>`;
+        const enhancements = priced ? `${priced.enhancement_count} / ${priced.enhancement_limit} enhancements` : '';
+        $('army-enhancement-count').textContent = priced && (priced.enhancement_count || units.some(u => u.enhancement_options.length)) ? enhancements : '';
+        $('army-enhancement-count').classList.toggle('over', !!priced && priced.enhancement_count > priced.enhancement_limit);
+        $('army-units').innerHTML = units.length ? units.map(u => unitRow(u, labels)).join('') :
+            `<tr><td colspan="7" class="empty-cell">${state.army.faction_id ? 'No units yet: add them from the list on the right.' : 'Choose a faction to start.'}</td></tr>`;
         renderSavedState();
     }
 
@@ -188,20 +199,37 @@
             ? `<select class="filter-select army-size" data-uid="${escapeHtml(u.uid)}" title="Models in the unit">${u.sizes.map((s, i) =>
                 `<option value="${s}" ${s === u.models ? 'selected' : ''}>${s}${u.size_points[i] != null ? ` (${u.size_points[i]} pts)` : ''}</option>`).join('')}</select>`
             : `${u.models || ''}`;
-        let leader = '';
-        if (u.is_leader) {
-            leader = `<select class="filter-select army-attach" data-uid="${escapeHtml(u.uid)}" title="The unit this leader joins">
+        let joins = '';
+        if (u.is_leader || u.is_support) {
+            const role = uid => (u.join_roles[uid] === 'supports' ? 'Supports ' : 'Leads ') + labels.get(uid);
+            joins = `<select class="filter-select army-attach" data-uid="${escapeHtml(u.uid)}" title="The unit this one joins">
                 <option value="">On its own</option>
-                ${u.can_join.map(uid => `<option value="${escapeHtml(uid)}" ${uid === u.attached_to ? 'selected' : ''}>Leads ${escapeHtml(labels.get(uid))}</option>`).join('')}
+                ${u.can_join.map(uid => `<option value="${escapeHtml(uid)}" ${uid === u.attached_to ? 'selected' : ''}>${escapeHtml(role(uid))}</option>`).join('')}
             </select>`;
-        } else if (u.led_by.length) {
-            leader = `<span class="muted">Led by ${u.led_by.map(uid => escapeHtml(labels.get(uid))).join(', ')}</span>`;
         }
+        const joinedBy = [...u.led_by.map(uid => `Led by ${labels.get(uid)}`), ...u.supported_by.map(uid => `Supported by ${labels.get(uid)}`)];
+        if (joinedBy.length) joins += `<span class="muted army-joined-by">${joinedBy.map(escapeHtml).join('; ')}</span>`;
+        const enhancement = u.enhancement_options.length || u.enhancement
+            ? `<select class="filter-select army-enhancement" data-uid="${escapeHtml(u.uid)}" title="Enhancement">
+                <option value="">None</option>
+                ${u.enhancement_options.map(o => `<option value="${escapeHtml(o.key)}" ${o.key === u.enhancement ? 'selected' : ''}>${escapeHtml(o.name)} (${o.points} pts${o.upgrade ? ', Upgrade' : ''})</option>`).join('')}
+            </select>`
+            : '';
+        const warlord = u.is_character
+            ? `<input type="radio" name="army-warlord" class="army-warlord" data-uid="${escapeHtml(u.uid)}" title="Warlord" ${state.army.warlord === u.uid ? 'checked' : ''}>`
+            : '';
+        const wargear = u.has_wargear
+            ? `<button class="btn-small army-wargear-btn" data-uid="${escapeHtml(u.uid)}" title="Choose this unit's wargear">Wargear</button>
+               ${u.wargear_summary ? `<span class="army-wargear-summary">${escapeHtml(u.wargear_summary)}</span>` : ''}`
+            : '';
         return `<tr class="${u.problems.length ? 'army-unit-problem' : ''} ${u.attached_to ? 'army-unit-attached' : ''}">
-            <td>${escapeHtml(labels.get(u.uid))}${u.problems.length ? ` <span class="army-unit-warning" title="${escapeHtml(u.problems.join(' '))}">!</span>` : ''}</td>
+            <td class="col-check">${warlord}</td>
+            <td>${escapeHtml(labels.get(u.uid))}${state.army.warlord === u.uid ? ' <span class="army-warlord-tag">Warlord</span>' : ''}${u.problems.length ? ` <span class="army-unit-warning" title="${escapeHtml(u.problems.join(' '))}">!</span>` : ''}
+                <div class="army-wargear">${wargear}</div></td>
             <td>${sizes}</td>
-            <td>${u.points ?? '-'}</td>
-            <td>${leader}</td>
+            <td title="${u.enhancement_points ? `Unit ${u.unit_points} + enhancement ${u.enhancement_points}` : ''}">${u.points ?? '-'}</td>
+            <td>${joins}</td>
+            <td>${enhancement}</td>
             <td class="col-remove">
                 <button class="btn-small army-copy-unit" data-uid="${escapeHtml(u.uid)}" title="Add another">+1</button>
                 <button class="btn-remove army-remove-unit" data-uid="${escapeHtml(u.uid)}" title="Remove"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
@@ -228,16 +256,24 @@
         if (!unit) return;
         if (e.target.classList.contains('army-size')) unit.models = parseInt(e.target.value);
         if (e.target.classList.contains('army-attach')) unit.attached_to = e.target.value || null;
+        if (e.target.classList.contains('army-enhancement')) unit.enhancement = e.target.value || null;
+        if (e.target.classList.contains('army-warlord')) state.army.warlord = unit.uid;
         changed();
     }
 
     function onUnitsClick(e) {
+        const wargearBtn = e.target.closest('.army-wargear-btn');
+        if (wargearBtn) {
+            openWargear(wargearBtn.dataset.uid);
+            return;
+        }
         const copyBtn = e.target.closest('.army-copy-unit');
         const removeBtn = e.target.closest('.army-remove-unit');
         if (copyBtn) {
             const unit = findUnit(copyBtn.dataset.uid);
             const at = state.army.units.indexOf(unit);
-            state.army.units.splice(at + 1, 0, { uid: newUid(), unit_id: unit.unit_id, models: unit.models, attached_to: null });
+            state.army.units.splice(at + 1, 0, { uid: newUid(), unit_id: unit.unit_id, models: unit.models, attached_to: null,
+                                                 enhancement: null, wargear: unit.wargear ? { ...unit.wargear } : null });
         } else if (removeBtn) {
             state.army.units = state.army.units.filter(u => u.uid !== removeBtn.dataset.uid);
         } else {
@@ -247,8 +283,112 @@
     }
 
     function addUnit(unitId) {
-        state.army.units.push({ uid: newUid(), unit_id: unitId, models: null, attached_to: null });  // Server picks the size
+        state.army.units.push({ uid: newUid(), unit_id: unitId, models: null, attached_to: null, enhancement: null });  // Server picks the size
         changed();
+    }
+
+    // =========================
+    // Wargear popup: BSData's choices for one unit, checked and priced by the server as they change
+    // =========================
+
+    async function openWargear(uid) {
+        const unit = findUnit(uid);
+        if (!unit) return;
+        state.wargear = { uid, unit_id: unit.unit_id, models: unit.models, choices: unit.wargear ? { ...unit.wargear } : null, result: null };
+        $('wargear-sections').innerHTML = '<p class="empty-message">Loading…</p>';
+        $('wargear-modal').classList.add('show');
+        await loadWargear();
+    }
+
+    async function loadWargear() {
+        const edit = state.wargear;
+        if (!edit) return;
+        try {
+            const resp = await fetch('/api/armies/wargear', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ unit_id: edit.unit_id, faction_id: state.army.faction_id, models: edit.models, wargear: edit.choices }),
+            });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.error);
+            if (state.wargear !== edit) return;  // Closed meanwhile
+            edit.result = result;
+            edit.choices = result.wargear;
+            edit.models = result.models;
+            renderWargear();
+        } catch (err) {
+            $('wargear-sections').innerHTML = `<p class="empty-message">${escapeHtml(err.message || 'The wargear could not be loaded.')}</p>`;
+        }
+    }
+
+    function renderWargear() {
+        const { result, models } = state.wargear;
+        $('wargear-title').textContent = `Wargear: ${result.name}`;
+        $('wargear-size').innerHTML = result.sizes.map(s => `<option value="${s}" ${s === models ? 'selected' : ''}>${s}</option>`).join('');
+        $('wargear-size').disabled = result.sizes.length < 2;
+        $('wargear-points').textContent = `${result.points} pts`;
+        $('wargear-problems').innerHTML = result.problems.map(p => `<li>${escapeHtml(p)}</li>`).join('');
+        $('wargear-sections').innerHTML = result.form.length
+            ? result.form.map(wargearSection).join('')
+            : '<p class="empty-message">Nothing to choose at this size.</p>';
+        $('wargear-loadout').innerHTML = result.loadout.length
+            ? `<strong>Loadout:</strong> ${result.loadout.map(w => escapeHtml(w.qty > 1 ? `${w.qty}× ${w.name}` : w.name)).join(', ')}` : '';
+    }
+
+    /** One choice in the popup: radio buttons (pick one), number boxes (how many of each) or a tick box. */
+    function wargearSection(section) {
+        const range = section.kind === 'counts'
+            ? ` <span class="wargear-range">${section.total} chosen (${section.min ?? 0}–${section.max ?? 'any'})</span>` : '';
+        let body;
+        if (section.kind === 'one') {
+            const none = !(section.min > 0)
+                ? `<label class="wargear-option"><input type="radio" name="wg-${section.k}" data-section="${section.k}" value="" ${section.total ? '' : 'checked'}> None</label>`
+                : '';
+            body = none + section.members.map(m => `<label class="wargear-option">
+                <input type="radio" name="wg-${section.k}" data-section="${section.k}" value="${m.k}" ${m.count ? 'checked' : ''}>
+                ${escapeHtml(m.name)}${m.default ? ' <span class="muted">(default)</span>' : ''}</label>`).join('');
+        } else if (section.kind === 'optional') {
+            const m = section.members[0];
+            body = (m.max ?? 1) > 1
+                ? `<label class="wargear-option"><input type="number" class="filter-input wargear-count" data-k="${m.k}" min="0" max="${m.max}" value="${m.count}"> ${escapeHtml(m.name)}</label>`
+                : `<label class="wargear-option"><input type="checkbox" data-k="${m.k}" ${m.count ? 'checked' : ''}> ${escapeHtml(m.name)}</label>`;
+        } else {
+            body = section.members.map(m => `<label class="wargear-option">
+                <input type="number" class="filter-input wargear-count" data-k="${m.k}" min="0" max="${m.max ?? section.max ?? 99}" value="${m.count}">
+                ${escapeHtml(m.name)}${m.max != null ? ` <span class="muted">(max ${m.max})</span>` : ''}</label>`).join('');
+        }
+        return `<fieldset class="wargear-section"><legend>${escapeHtml(section.title)}${range}</legend>${body}</fieldset>`;
+    }
+
+    function onWargearChange(e) {
+        const edit = state.wargear;
+        if (!edit?.result) return;
+        const el = e.target;
+        const choices = { ...edit.choices };
+        if (el.type === 'radio') {
+            const section = edit.result.form.find(s => String(s.k) === el.dataset.section);
+            section.members.forEach(m => { choices[m.k] = 0; });
+            if (el.value) choices[el.value] = 1;
+        } else if (el.type === 'checkbox') {
+            choices[el.dataset.k] = el.checked ? 1 : 0;
+        } else if (el.dataset.k) {
+            const max = parseInt(el.max);
+            choices[el.dataset.k] = Math.max(0, Math.min(parseInt(el.value) || 0, isNaN(max) ? 99 : max));
+        }
+        edit.choices = choices;
+        loadWargear();
+    }
+
+    /** Close the popup: Apply keeps the choices and size; Defaults goes back to the datasheet's wargear. */
+    function closeWargear(apply = false, reset = false) {
+        const edit = state.wargear;
+        const unit = edit && findUnit(edit.uid);
+        if (unit && (apply || reset)) {
+            unit.wargear = reset ? null : edit.choices;
+            unit.models = edit.models;
+            changed();
+        }
+        state.wargear = null;
+        $('wargear-modal').classList.remove('show');
     }
 
     // =========================
@@ -336,8 +476,9 @@
     function armyFields(saved) {
         return {
             id: saved.id, name: saved.name, faction_id: saved.faction_id, detachment_keys: saved.detachment_keys || [],
-            points_limit: saved.points_limit,
-            units: (saved.units || []).map(u => ({ uid: u.uid, unit_id: u.unit_id, models: u.models, attached_to: u.attached_to })),
+            points_limit: saved.points_limit, warlord: saved.warlord || null,
+            units: (saved.units || []).map(u => ({ uid: u.uid, unit_id: u.unit_id, models: u.models, attached_to: u.attached_to,
+                                                    enhancement: u.enhancement || null, wargear: u.wargear || null })),
         };
     }
 

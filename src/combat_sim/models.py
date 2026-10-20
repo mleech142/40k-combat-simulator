@@ -122,6 +122,9 @@ class Unit(db.Model):
     # Modifiers added in the app to a read-only BSData unit (saved as the app data's unit_modifiers)
     added_modifiers = db.Column(JSON, default=list)
     can_lead = db.Column(JSON, default=list)  # Names of units this unit can lead
+    can_support = db.Column(JSON, default=list)  # Names of units this unit can join as a Support unit
+    max_in_army = db.Column(db.Integer, nullable=True)  # BSData's limit on copies in an army (None = not given)
+    wargear = db.Column(JSON, nullable=True)  # BSData units: the option tree (bsdata.freeze; None = nothing to choose)
     # What this unit grants the unit it leads, as rows like faction rules:
     # [{"applies_to": "Attacker"|"Target", "phase": "Shooting"|"Fighting"|"Both", "modifier": "Lethal Hits"}]
     leader_buffs = db.Column(JSON, default=list)  # BSData: parsed from its Leader text; custom: edited
@@ -237,6 +240,9 @@ class Unit(db.Model):
             'datasheet_modifiers': self.modifiers or [],
             'added_modifiers': self.added_modifiers or [],
             'can_lead': self.can_lead or [],
+            'can_support': self.can_support or [],
+            'max_in_army': self.max_in_army,
+            'has_wargear': self.wargear is not None,
             'leader_buffs': self.effective_leader_buffs,
             'datasheet_leader_buffs': self.leader_buffs or [],
             'leader_buffs_edited': self.leader_buffs_override is not None,
@@ -507,10 +513,38 @@ class TargetProfile(db.Model):
 
 
 # Tables rebuilt from the data JSON on every start (everything except saved scenarios/comparisons)
+class Enhancement(db.Model):
+    """
+    A BSData enhancement of a faction (read-only; see bsdata.enhancements): its points, text, the
+    effects the maths models (`buffs`, each for the bearer or its unit) and the conditions BSData
+    hides it under (`hidden_when`, evaluated by armies.enhancement_hidden). One defined in a unit's
+    own entry (`unit_bsdata_id`) is an Upgrade for that unit.
+    """
+    __tablename__ = 'enhancements'
+
+    id = db.Column(db.Integer, primary_key=True)
+    faction_id = db.Column(db.Integer, db.ForeignKey('factions.id'), nullable=False)
+    bsdata_id = db.Column(db.String(40), nullable=False)
+    name = db.Column(db.String(150), nullable=False)
+    points = db.Column(db.Integer, nullable=False, default=0)
+    text = db.Column(db.Text, nullable=True)
+    buffs = db.Column(JSON, default=list)  # [{"applies_to", "phase", "modifier", "scope": "bearer"|"unit"}]
+    detachment_keys = db.Column(JSON, default=list)
+    hidden_when = db.Column(JSON, default=list)
+    unit_bsdata_id = db.Column(db.String(40), nullable=True)
+
+    faction = db.relationship('Faction')
+
+    def to_dict(self):
+        return {'id': self.id, 'key': self.bsdata_id, 'name': self.name, 'faction_id': self.faction_id,
+                'points': self.points, 'text': self.text or '', 'buffs': self.buffs or [],
+                'detachment_keys': self.detachment_keys or [], 'upgrade': bool(self.unit_bsdata_id)}
+
+
 REFERENCE_TABLES = [
     unit_ranged_weapons, unit_melee_weapons,
     RangedWeapon.__table__, MeleeWeapon.__table__,
-    FactionRule.__table__, Stratagem.__table__,
+    FactionRule.__table__, Stratagem.__table__, Enhancement.__table__,
     Unit.__table__, Detachment.__table__, Faction.__table__, Keyword.__table__, TargetProfile.__table__,
 ]
 
@@ -560,7 +594,8 @@ class SavedArmy(db.Model):
     detachment_key = db.Column(db.String(40), nullable=True)  # First saved form: one detachment (read only)
     detachment_keys = db.Column(JSON, nullable=True)  # BSData detachment IDs
     points_limit = db.Column(db.Integer, nullable=True)  # None = no limit
-    # [{"uid", "unit_id", "models", "attached_to" (uid of the unit a leader leads, or null)}]
+    warlord = db.Column(db.String(40), nullable=True)  # The uid of the Warlord's entry
+    # [{"uid", "unit_id", "models", "attached_to" (uid of the unit it joins, or null), "enhancement" (BSData ID)}]
     units = db.Column(JSON, nullable=False, default=list)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -568,7 +603,7 @@ class SavedArmy(db.Model):
     def to_dict(self):
         keys = self.detachment_keys if self.detachment_keys is not None else ([self.detachment_key] if self.detachment_key else [])
         return {'id': self.id, 'name': self.name, 'faction_id': self.faction_id, 'detachment_keys': keys,
-                'points_limit': self.points_limit, 'units': self.units or [],
+                'points_limit': self.points_limit, 'warlord': self.warlord, 'units': self.units or [],
                 'updated_at': (self.updated_at or self.created_at).isoformat() if (self.updated_at or self.created_at) else None}
 
 

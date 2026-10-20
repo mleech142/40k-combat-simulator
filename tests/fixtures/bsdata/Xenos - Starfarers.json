@@ -335,6 +335,16 @@
       "targetId": "k-bl"
      }
     ],
+    "constraints": [
+     {
+      "id": "c-void-max",
+      "field": "selections",
+      "scope": "force",
+      "shared": true,
+      "type": "max",
+      "value": 6
+     }
+    ],
     "profiles": [
      {
       "name": "Void Warrior",
@@ -951,7 +961,7 @@
       ],
       "constraints": [
        {
-        "id": "c-17",
+        "id": "c-21",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -959,7 +969,7 @@
         "value": 1
        },
        {
-        "id": "c-18",
+        "id": "c-22",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -976,7 +986,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-19",
+        "id": "c-23",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1133,7 +1143,7 @@
       ],
       "constraints": [
        {
-        "id": "c-20",
+        "id": "c-24",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1141,7 +1151,7 @@
         "value": 1
        },
        {
-        "id": "c-21",
+        "id": "c-25",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1196,7 +1206,7 @@
       ],
       "constraints": [
        {
-        "id": "c-22",
+        "id": "c-26",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1204,7 +1214,7 @@
         "value": 1
        },
        {
-        "id": "c-23",
+        "id": "c-27",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1259,7 +1269,7 @@
       ],
       "constraints": [
        {
-        "id": "c-24",
+        "id": "c-28",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1267,7 +1277,7 @@
         "value": 1
        },
        {
-        "id": "c-25",
+        "id": "c-29",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1329,7 +1339,7 @@
       "type": "model",
       "constraints": [
        {
-        "id": "c-26",
+        "id": "c-30",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1337,7 +1347,7 @@
         "value": 1
        },
        {
-        "id": "c-27",
+        "id": "c-31",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1405,7 +1415,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-28",
+        "id": "c-32",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1413,7 +1423,7 @@
         "value": 3
        },
        {
-        "id": "c-29",
+        "id": "c-33",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1475,7 +1485,7 @@
           ],
           "constraints": [
            {
-            "id": "c-30",
+            "id": "c-34",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1483,7 +1493,7 @@
             "value": 1
            },
            {
-            "id": "c-31",
+            "id": "c-35",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1565,6 +1575,16 @@
       "id": "cl-k-inf",
       "primary": false,
       "targetId": "k-inf"
+     }
+    ],
+    "constraints": [
+     {
+      "id": "c-crew-max",
+      "field": "selections",
+      "scope": "force",
+      "shared": true,
+      "type": "max",
+      "value": 3
      }
     ],
     "profiles": [
@@ -1687,12 +1707,108 @@
     ],
     "selectionEntryGroups": [
      {
+      "name": "Enhancements",
+      "id": "g-crew-enh",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-36",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Targeting Sights",
+        "id": "enh-sights",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [
+         {
+          "name": "Targeting Sights",
+          "id": "a-enh-sights",
+          "hidden": false,
+          "typeId": "pt-abil",
+          "typeName": "Abilities",
+          "characteristics": [
+           {
+            "name": "Description",
+            "$text": "This unit's ranged attacks have [IGNORES COVER]."
+           }
+          ]
+         }
+        ],
+        "constraints": [
+         {
+          "id": "c-enh-sights",
+          "field": "selections",
+          "scope": "force",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "costs": [
+         {
+          "name": "pts",
+          "typeId": "51b2-306e-1021-d207",
+          "value": 10
+         },
+         {
+          "name": "Enhancements",
+          "typeId": "f759-1bc4-cb3a-f0d2",
+          "value": 1
+         }
+        ],
+        "modifiers": [
+         {
+          "field": "hidden",
+          "type": "set",
+          "value": true,
+          "conditionGroups": [
+           {
+            "type": "or",
+            "conditionGroups": [
+             {
+              "type": "and",
+              "conditions": [
+               {
+                "childId": "cac3-71d1-ea4b-795d",
+                "field": "forces",
+                "scope": "roster",
+                "shared": true,
+                "type": "lessThan",
+                "value": 1
+               },
+               {
+                "childId": "d-vanguard",
+                "field": "selections",
+                "scope": "roster",
+                "shared": true,
+                "type": "lessThan",
+                "value": 1
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "entryLinks": []
+     },
+     {
       "name": "Crew",
       "id": "g-crew",
       "hidden": false,
       "constraints": [
        {
-        "id": "c-32",
+        "id": "c-37",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1700,7 +1816,7 @@
         "value": 2
        },
        {
-        "id": "c-33",
+        "id": "c-38",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1716,7 +1832,7 @@
         "type": "model",
         "constraints": [
          {
-          "id": "c-34",
+          "id": "c-39",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -1771,7 +1887,7 @@
           ],
           "constraints": [
            {
-            "id": "c-35",
+            "id": "c-40",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1779,7 +1895,7 @@
             "value": 1
            },
            {
-            "id": "c-36",
+            "id": "c-41",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1811,7 +1927,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-37",
+        "id": "c-42",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1819,7 +1935,7 @@
         "value": 1
        },
        {
-        "id": "c-38",
+        "id": "c-43",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1836,7 +1952,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-39",
+          "id": "c-44",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -1881,7 +1997,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-40",
+          "id": "c-45",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -1932,7 +2048,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-41",
+          "id": "c-46",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -1983,7 +2099,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-42",
+          "id": "c-47",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -2028,6 +2144,608 @@
        }
       ],
       "entryLinks": []
+     }
+    ]
+   },
+   {
+    "name": "Star Lord",
+    "id": "u-lord",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Character",
+      "id": "cl-k-char",
+      "primary": false,
+      "targetId": "k-char"
+     },
+     {
+      "name": "Epic Hero",
+      "id": "cl-k-epic",
+      "primary": false,
+      "targetId": "k-epic"
+     }
+    ],
+    "constraints": [
+     {
+      "id": "c-lord-max",
+      "field": "selections",
+      "scope": "force",
+      "shared": true,
+      "type": "max",
+      "value": 1
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Star Lord",
+      "id": "p-lord",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "6\""
+       },
+       {
+        "name": "T",
+        "$text": "5"
+       },
+       {
+        "name": "Sv",
+        "$text": "2+"
+       },
+       {
+        "name": "W",
+        "$text": "6"
+       },
+       {
+        "name": "LD",
+        "$text": "5+"
+       },
+       {
+        "name": "OC",
+        "$text": "2"
+       },
+       {
+        "name": "InSv",
+        "$text": "4+"
+       }
+      ]
+     },
+     {
+      "name": "Leader",
+      "id": "a-lord-leader",
+      "hidden": false,
+      "typeId": "pt-abil",
+      "typeName": "Abilities",
+      "characteristics": [
+       {
+        "name": "Description",
+        "$text": "This model can be attached to the following units:\n■ **^^VOID WARRIORS^^**"
+       }
+      ]
+     }
+    ],
+    "infoLinks": [
+     {
+      "name": "Leader",
+      "id": "il-lord-leader",
+      "hidden": false,
+      "targetId": "r-leader",
+      "type": "rule"
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 120
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Star sword",
+      "id": "e-lord-sword",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Star sword",
+        "id": "p-lord-sword",
+        "hidden": false,
+        "typeId": "pt-melee",
+        "typeName": "Melee Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "Melee"
+         },
+         {
+          "name": "A",
+          "$text": "6"
+         },
+         {
+          "name": "WS",
+          "$text": "2+"
+         },
+         {
+          "name": "S",
+          "$text": "7"
+         },
+         {
+          "name": "AP",
+          "$text": "-3"
+         },
+         {
+          "name": "D",
+          "$text": "2"
+         },
+         {
+          "name": "Keywords",
+          "$text": null
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-17",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-18",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Field Medic",
+    "id": "u-medic",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     },
+     {
+      "name": "Support",
+      "id": "cl-k-support",
+      "primary": false,
+      "targetId": "k-support"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Field Medic",
+      "id": "p-medic",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "6\""
+       },
+       {
+        "name": "T",
+        "$text": "4"
+       },
+       {
+        "name": "Sv",
+        "$text": "4+"
+       },
+       {
+        "name": "W",
+        "$text": "3"
+       },
+       {
+        "name": "LD",
+        "$text": "6+"
+       },
+       {
+        "name": "OC",
+        "$text": "1"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     },
+     {
+      "name": "Support",
+      "id": "a-medic-support",
+      "hidden": false,
+      "typeId": "pt-abil",
+      "typeName": "Abilities",
+      "characteristics": [
+       {
+        "name": "Description",
+        "$text": "This model can be attached to the following units:\n■ **^^VOID WARRIORS^^**\n■ **^^GUN CREW^^**"
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 40
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Medic pistol",
+      "id": "e-medic-pistol",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Medic pistol",
+        "id": "p-medic-pistol",
+        "hidden": false,
+        "typeId": "pt-ranged",
+        "typeName": "Ranged Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "12\""
+         },
+         {
+          "name": "A",
+          "$text": "1"
+         },
+         {
+          "name": "BS",
+          "$text": "4+"
+         },
+         {
+          "name": "S",
+          "$text": "3"
+         },
+         {
+          "name": "AP",
+          "$text": "0"
+         },
+         {
+          "name": "D",
+          "$text": "1"
+         },
+         {
+          "name": "Keywords",
+          "$text": "Pistol"
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-19",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-20",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "sharedSelectionEntryGroups": [
+   {
+    "name": "Enhancements",
+    "id": "g-star-enh",
+    "hidden": false,
+    "constraints": [],
+    "selectionEntries": [
+     {
+      "name": "Void Blade",
+      "id": "enh-void-blade",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Void Blade",
+        "id": "a-enh-void-blade",
+        "hidden": false,
+        "typeId": "pt-abil",
+        "typeName": "Abilities",
+        "characteristics": [
+         {
+          "name": "Description",
+          "$text": "This model's melee attacks have [LETHAL HITS]."
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-enh-void-blade",
+        "field": "selections",
+        "scope": "force",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "costs": [
+       {
+        "name": "pts",
+        "typeId": "51b2-306e-1021-d207",
+        "value": 20
+       },
+       {
+        "name": "Enhancements",
+        "typeId": "f759-1bc4-cb3a-f0d2",
+        "value": 1
+       }
+      ],
+      "modifiers": [
+       {
+        "field": "hidden",
+        "type": "set",
+        "value": true,
+        "conditionGroups": [
+         {
+          "type": "or",
+          "conditionGroups": [
+           {
+            "type": "and",
+            "conditions": [
+             {
+              "childId": "cac3-71d1-ea4b-795d",
+              "field": "forces",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             },
+             {
+              "childId": "d-vanguard",
+              "field": "selections",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "name": "Bastion Ward",
+      "id": "enh-bastion-ward",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Bastion Ward",
+        "id": "a-enh-bastion-ward",
+        "hidden": false,
+        "typeId": "pt-abil",
+        "typeName": "Abilities",
+        "characteristics": [
+         {
+          "name": "Description",
+          "$text": "While the bearer is leading a unit, models in that unit have a 4+ invulnerable save."
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-enh-bastion-ward",
+        "field": "selections",
+        "scope": "force",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "costs": [
+       {
+        "name": "pts",
+        "typeId": "51b2-306e-1021-d207",
+        "value": 15
+       },
+       {
+        "name": "Enhancements",
+        "typeId": "f759-1bc4-cb3a-f0d2",
+        "value": 1
+       }
+      ],
+      "modifiers": [
+       {
+        "field": "hidden",
+        "type": "set",
+        "value": true,
+        "conditionGroups": [
+         {
+          "type": "or",
+          "conditionGroups": [
+           {
+            "type": "and",
+            "conditions": [
+             {
+              "childId": "cac3-71d1-ea4b-795d",
+              "field": "forces",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             },
+             {
+              "childId": "d-bastion",
+              "field": "selections",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             }
+            ]
+           },
+           {
+            "type": "and",
+            "conditions": [
+             {
+              "childId": "k-inf",
+              "field": "selections",
+              "scope": "ancestor",
+              "shared": true,
+              "type": "notInstanceOf",
+              "value": 1
+             },
+             {
+              "childId": "u-lord",
+              "field": "selections",
+              "scope": "ancestor",
+              "shared": true,
+              "type": "notInstanceOf",
+              "value": 1
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "name": "Armada Relic",
+      "id": "enh-armada-relic",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Armada Relic",
+        "id": "a-enh-armada-relic",
+        "hidden": false,
+        "typeId": "pt-abil",
+        "typeName": "Abilities",
+        "characteristics": [
+         {
+          "name": "Description",
+          "$text": "Once per battle, the bearer can do something clever."
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-enh-armada-relic",
+        "field": "selections",
+        "scope": "force",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "costs": [
+       {
+        "name": "pts",
+        "typeId": "51b2-306e-1021-d207",
+        "value": 30
+       },
+       {
+        "name": "Enhancements",
+        "typeId": "f759-1bc4-cb3a-f0d2",
+        "value": 1
+       }
+      ],
+      "modifiers": [
+       {
+        "field": "hidden",
+        "type": "set",
+        "value": true,
+        "conditionGroups": [
+         {
+          "type": "or",
+          "conditionGroups": [
+           {
+            "type": "and",
+            "conditions": [
+             {
+              "childId": "cac3-71d1-ea4b-795d",
+              "field": "forces",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             },
+             {
+              "childId": "d-armada",
+              "field": "selections",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "entryLinks": [],
+    "modifiers": [
+     {
+      "field": "hidden",
+      "type": "set",
+      "value": true,
+      "conditions": [
+       {
+        "childId": "k-char",
+        "field": "selections",
+        "scope": "ancestor",
+        "shared": true,
+        "type": "notInstanceOf",
+        "value": 1
+       }
+      ]
      }
     ]
    }
@@ -2086,6 +2804,22 @@
     "id": "rl-crew",
     "hidden": false,
     "targetId": "u-crew",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Star Lord",
+    "id": "rl-lord",
+    "hidden": false,
+    "targetId": "u-lord",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Field Medic",
+    "id": "rl-medic",
+    "hidden": false,
+    "targetId": "u-medic",
     "type": "selectionEntry",
     "constraints": []
    },

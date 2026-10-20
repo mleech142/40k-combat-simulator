@@ -13,6 +13,7 @@ GS = 'gs-test'
 PTS = '51b2-306e-1021-d207'
 UNIT_T, RANGED_T, MELEE_T, ABIL_T = 'pt-unit', 'pt-ranged', 'pt-melee', 'pt-abil'
 DP = '82ae-1066-5107-6ae0'  # The game system's "Detachment Points" cost type
+ENH = 'f759-1bc4-cb3a-f0d2'  # The game system's "Enhancements" cost type
 
 
 def cat_link(cid, name):
@@ -107,13 +108,15 @@ def write(name, content):
 write('Test System', {'gameSystem': {
     'name': 'Test System', 'id': GS, 'battleScribeVersion': 2.03, 'revision': 7, 'type': 'gameSystem',
     'costTypes': [{'name': 'pts', 'id': PTS, 'defaultCostLimit': -1},
-                  {'name': 'Detachment Points', 'id': DP, 'defaultCostLimit': -1}],
+                  {'name': 'Detachment Points', 'id': DP, 'defaultCostLimit': -1},
+                  {'name': 'Enhancements', 'id': ENH, 'defaultCostLimit': -1}],
     'profileTypes': [{'name': n, 'id': i} for n, i in
                      [('Unit', UNIT_T), ('Ranged Weapons', RANGED_T), ('Melee Weapons', MELEE_T), ('Abilities', ABIL_T)]],
     'sharedRules': [{'name': n, 'id': i, 'description': n} for n, i in
                     [('Feel No Pain', 'r-fnp'), ('Stealth', 'r-stealth'), ('Leader', 'r-leader'), ('Deep Strike', 'r-ds')]],
     'categoryEntries': [{'name': n, 'id': i} for n, i in
-                        [('Infantry', 'k-inf'), ('Vehicle', 'k-veh'), ('Character', 'k-char'), ('Battleline', 'k-bl')]],
+                        [('Infantry', 'k-inf'), ('Vehicle', 'k-veh'), ('Character', 'k-char'), ('Battleline', 'k-bl'),
+                         ('Epic Hero', 'k-epic'), ('Support', 'k-support')]],
 }})
 
 # --- Starfarers: the faction under test ----------------------------------------
@@ -132,6 +135,7 @@ void_warriors = {
     'name': 'Void Warriors', 'id': 'u-void', 'hidden': False, 'type': 'unit',
     'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-inf', 'Infantry'),
                       cat_link('k-bl', 'Battleline')],
+    'constraints': [{'id': 'c-void-max', 'field': 'selections', 'scope': 'force', 'shared': True, 'type': 'max', 'value': 6}],
     'profiles': [unit_profile('p-void', 'Void Warrior', '6"', '4', '3+', '2', '6+', '2'),
                  ability('a-void', 'Shield Wall', 'Models in this unit can do things.')],
     'infoLinks': [rule_link('il-void-stealth', 'Stealth', 'r-stealth')],
@@ -168,6 +172,64 @@ void_warriors = {
                   links=[link('l-heavy-ccw', 'Close combat weapon', 'e-ccw')]),
         ]),
     ],
+}
+
+def hidden_unless_detachment(detachment_id):
+    """BSData's "hidden unless the army has this detachment" (and isn't a Crusade force)."""
+    return {'type': 'and', 'conditions': [
+        {'childId': 'cac3-71d1-ea4b-795d', 'field': 'forces', 'scope': 'roster', 'shared': True, 'type': 'lessThan', 'value': 1},
+        {'childId': detachment_id, 'field': 'selections', 'scope': 'roster', 'shared': True, 'type': 'lessThan', 'value': 1}]}
+
+
+def enhancement(eid, name, points, text, *condition_groups):
+    """An enhancement: 1 "Enhancements", its points, its text, hidden when any condition group holds."""
+    return upgrade(eid, name, constraints=[{'id': f'c-{eid}', 'field': 'selections', 'scope': 'force', 'shared': True,
+                                            'type': 'max', 'value': 1}],
+                   costs_extra=[{'name': 'pts', 'typeId': PTS, 'value': points}, {'name': 'Enhancements', 'typeId': ENH, 'value': 1}],
+                   profiles=[ability(f'a-{eid}', name, text)],
+                   modifiers=[{'field': 'hidden', 'type': 'set', 'value': True,
+                               'conditionGroups': [{'type': 'or', 'conditionGroups': list(condition_groups)}]}])
+
+
+def bearer_not(*category_ids):
+    """Hidden unless the bearer is one of these (BSData: hidden if it is none of them)."""
+    return {'type': 'and', 'conditions': [{'childId': c, 'field': 'selections', 'scope': 'ancestor', 'shared': True,
+                                           'type': 'notInstanceOf', 'value': 1} for c in category_ids]}
+
+
+# Enhancements of the faction: a group only Characters see, one per detachment
+star_enhancements = group('g-star-enh', 'Enhancements', children=[
+    enhancement('enh-void-blade', 'Void Blade', 20, "This model's melee attacks have [LETHAL HITS].",
+                hidden_unless_detachment('d-vanguard')),
+    enhancement('enh-bastion-ward', 'Bastion Ward', 15, 'While the bearer is leading a unit, models in that unit have a '
+                '4+ invulnerable save.', hidden_unless_detachment('d-bastion'), bearer_not('k-inf', 'u-lord')),
+    enhancement('enh-armada-relic', 'Armada Relic', 30, 'Once per battle, the bearer can do something clever.',
+                hidden_unless_detachment('d-armada')),
+]) | {'modifiers': [{'field': 'hidden', 'type': 'set', 'value': True, 'conditions': [
+    {'childId': 'k-char', 'field': 'selections', 'scope': 'ancestor', 'shared': True, 'type': 'notInstanceOf', 'value': 1}]}]}
+
+star_lord = {
+    'name': 'Star Lord', 'id': 'u-lord', 'hidden': False, 'type': 'model',
+    'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-char', 'Character'),
+                      cat_link('k-epic', 'Epic Hero')],
+    'constraints': [{'id': 'c-lord-max', 'field': 'selections', 'scope': 'force', 'shared': True, 'type': 'max', 'value': 1}],
+    'profiles': [unit_profile('p-lord', 'Star Lord', '6"', '5', '2+', '6', '5+', '2', '4+'),
+                 ability('a-lord-leader', 'Leader', 'This model can be attached to the following units:\n■ **^^VOID WARRIORS^^**')],
+    'infoLinks': [rule_link('il-lord-leader', 'Leader', 'r-leader')],
+    'costs': pts(120),
+    'selectionEntries': [upgrade('e-lord-sword', 'Star sword', constraints=cons(1, 1), profiles=[
+        weapon('p-lord-sword', 'Star sword', 'melee', 'Melee', '6', '2+', '7', '-3', '2', None)])],
+}
+
+field_medic = {
+    'name': 'Field Medic', 'id': 'u-medic', 'hidden': False, 'type': 'model',
+    'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-inf', 'Infantry'),
+                      cat_link('k-support', 'Support')],
+    'profiles': [unit_profile('p-medic', 'Field Medic', '6"', '4', '4+', '3', '6+', '1'),
+                 ability('a-medic-support', 'Support', 'This model can be attached to the following units:\n■ **^^VOID WARRIORS^^**\n■ **^^GUN CREW^^**')],
+    'costs': pts(40),
+    'selectionEntries': [upgrade('e-medic-pistol', 'Medic pistol', constraints=cons(1, 1), profiles=[
+        weapon('p-medic-pistol', 'Medic pistol', 'ranged', '12"', '1', '4+', '3', '0', '1', 'Pistol')])],
 }
 
 star_captain = {
@@ -231,6 +293,7 @@ beast_pack = {
 gun_crew = {
     'name': 'Gun Crew', 'id': 'u-crew', 'hidden': False, 'type': 'unit',
     'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-inf', 'Infantry')],
+    'constraints': [{'id': 'c-crew-max', 'field': 'selections', 'scope': 'force', 'shared': True, 'type': 'max', 'value': 3}],
     'profiles': [unit_profile('p-crew', 'Gunner', '5"', '3', '5+', '1', '7+', '1')],
     'costs': pts(40),
     'modifiers': [
@@ -250,7 +313,11 @@ gun_crew = {
             {'childId': 'g-crew', 'field': 'selections', 'includeChildSelections': True, 'scope': 'u-crew',
              'shared': True, 'type': 'atLeast', 'value': 4}]},
     ]}],
-    'selectionEntryGroups': [group('g-crew', 'Crew', constraints=cons(2, 4), default='m-gunner', children=[
+    # An Upgrade for this unit only, with the Void Vanguard detachment
+    'selectionEntryGroups': [group('g-crew-enh', 'Enhancements', constraints=cons(None, 1), children=[
+        enhancement('enh-sights', 'Targeting Sights', 10, "This unit's ranged attacks have [IGNORES COVER].",
+                    hidden_unless_detachment('d-vanguard'))]),
+                             group('g-crew', 'Crew', constraints=cons(2, 4), default='m-gunner', children=[
         model('m-gunner', 'Gunner', constraints=cons(None, 4), children=[
             upgrade('e-crew-gun', 'Crew gun', constraints=cons(1, 1), profiles=[
                 weapon('p-crew-gun', 'Crew gun', 'ranged', '36"', '2', '4+', '8', '-2', '3', None)])])])],
@@ -292,7 +359,8 @@ write('Xenos - Starfarers', {'catalogue': {
     'sharedRules': [{'name': 'Star Pact', 'id': 'r-star-pact', 'hidden': False,
                      'description': 'Each time a unit from this army is selected to shoot, it can re-roll one Hit roll.'}],
     'sharedSelectionEntries': [laser_pistol, laser_rifle, plasma_pistol, ccw, void_warriors, star_captain, star_walker, beast_pack,
-                               gun_crew, star_detachments],
+                               gun_crew, star_detachments, star_lord, field_medic],
+    'sharedSelectionEntryGroups': [star_enhancements],
     'entryLinks': [
         link('rl-star-det', 'Detachment', 'e-star-det'),
         link('rl-ally-det', 'Detachment', 'e-allies-det'),  # Another army's detachments: left out
@@ -301,6 +369,8 @@ write('Xenos - Starfarers', {'catalogue': {
         link('rl-walker', 'Star Walker [Legends]', 'u-walker'),
         link('rl-beasts', 'Beast Pack', 'u-beasts'),
         link('rl-crew', 'Gun Crew', 'u-crew'),
+        link('rl-lord', 'Star Lord', 'u-lord'),
+        link('rl-medic', 'Field Medic', 'u-medic'),
         link('rl-agent', 'Ally Agent', 'u-agent'),  # An ally from another army: left out
         link('rl-hidden', 'Hidden Thing', 'u-captain') | {'hidden': True},
     ],

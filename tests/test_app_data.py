@@ -93,7 +93,7 @@ def test_unit_list_within_a_faction_is_not_capped(app_client):
     client, _ = app_client
     star = factions(client)['Starfarers']['id']
     listed = client.get(f'/api/units?faction_id={star}').get_json()
-    assert len(listed) == 6  # Every non-Legends Starfarers unit (the search cap is for searches only)
+    assert len(listed) == 8  # Every non-Legends Starfarers unit (the search cap is for searches only)
 
 
 def test_status_reports_the_import(app_client):
@@ -400,8 +400,9 @@ def test_unit_lists_the_leaders_that_can_join_it(app_client):
     client, _ = app_client
     void, captain = leader_setup(client)
     detail = client.get(f'/api/units/{void["id"]}').get_json()
-    assert detail['leaders'] == [{'id': captain['id'], 'name': 'Star Captain', 'points': 70,
-                                  'leader_buffs': captain['leader_buffs']}]
+    assert detail['leaders'][0] == {'id': captain['id'], 'name': 'Star Captain', 'points': 70,
+                                    'leader_buffs': captain['leader_buffs']}
+    assert [l['name'] for l in detail['leaders']] == ['Star Captain', 'Star Lord']
     assert client.get(f'/api/units/{captain["id"]}').get_json()['leaders'] == []
 
 

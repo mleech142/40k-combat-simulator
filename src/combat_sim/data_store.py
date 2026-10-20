@@ -46,7 +46,7 @@ import os
 from pathlib import Path
 
 from . import bsdata, wahapedia as wahapedia_import
-from .models import (db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword,
+from .models import (db, Faction, Detachment, Enhancement, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword,
                      TargetProfile,
                      StableId, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons, REFERENCE_TABLES)
 
@@ -56,6 +56,7 @@ SCHEMA_VERSION = 2
 SECTIONS = [
     ('factions', Faction),
     ('detachments', Detachment),  # BSData only; never saved in the data JSON
+    ('enhancements', Enhancement),  # BSData only; never saved in the data JSON
     ('units', Unit),
     ('ranged_weapons', RangedWeapon),
     ('melee_weapons', MeleeWeapon),
@@ -186,7 +187,8 @@ def merge_data(app_data, imported, wahapedia=None, report=None):
     for faction in data['factions']:
         faction['source'] = 'custom'
 
-    data['detachments'] = []  # Only BSData has detachments
+    data['detachments'] = []  # Only BSData has detachments and enhancements
+    data['enhancements'] = []
     by_key = {}  # faction_key -> faction record
     if imported is not None:
         profiles = _add_bsdata(data, imported.data, by_key)
@@ -313,6 +315,8 @@ def _add_bsdata(data, imported, by_key):
     keys += [(f'unit:{cat_of[u["faction_id"]]}/{u["bsdata_id"]}', 'units') for u in imported['units']]
     keys += [(f'detachment:{cat_of[d["faction_id"]]}/{d["bsdata_id"]}', 'detachments')
              for d in imported.get('detachments', [])]
+    keys += [(f'enhancement:{cat_of[e["faction_id"]]}/{e["bsdata_id"]}', 'enhancements')
+             for e in imported.get('enhancements', [])]
     for kind, section in WEAPON_SECTIONS.items():
         keys += [(f'{kind}:{cat_of[w["faction_id"]]}/{w["bsdata_id"]}', section) for w in imported[section]]
     ids = stable_ids(keys)
@@ -331,6 +335,9 @@ def _add_bsdata(data, imported, by_key):
     for d in imported.get('detachments', []):
         data['detachments'].append(dict(d, id=ids[f'detachment:{cat_of[d["faction_id"]]}/{d["bsdata_id"]}'],
                                         faction_id=faction_ids[d['faction_id']]))
+    for e in imported.get('enhancements', []):
+        data['enhancements'].append(dict(e, id=ids[f'enhancement:{cat_of[e["faction_id"]]}/{e["bsdata_id"]}'],
+                                         faction_id=faction_ids[e['faction_id']]))
 
     weapon_ids, profiles = {}, {}
     for kind, section in WEAPON_SECTIONS.items():
@@ -348,8 +355,19 @@ def _add_bsdata(data, imported, by_key):
             record[f'{kind}_weapons'] = [dict(e, weapon_id=weapon_ids[(kind, e['weapon_id'])])
                                          for e in u.get(f'{kind}_weapons', [])]
             record[f'{kind}_options'] = [weapon_ids[(kind, i)] for i in u.get(f'{kind}_options', [])]
+        if u.get('wargear'):
+            record['wargear'] = _remap_tree_weapons(u['wargear'], weapon_ids)
         data['units'].append(record)
     return profiles
+
+
+def _remap_tree_weapons(tree, weapon_ids):
+    """A copy of a unit's option tree with its weapons' import IDs replaced by database IDs."""
+    node = dict(tree)
+    if 'weapons' in tree:
+        node['weapons'] = [[kind, weapon_ids[(kind, i)]] for kind, i in tree['weapons'] if (kind, i) in weapon_ids]
+    node['children'] = [_remap_tree_weapons(c, weapon_ids) for c in tree.get('children', [])]
+    return node
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +412,7 @@ def export_data(source=None, unmatched=None):
     for name, model in SECTIONS:
         columns = [c.name for c in model.__table__.columns]
         records = []
-        if model is Detachment:
+        if model in (Detachment, Enhancement):
             continue  # BSData only
         for obj in model.query.order_by(model.id).all():
             if model is Faction:
@@ -454,7 +472,8 @@ def export_data(source=None, unmatched=None):
 WAHAPEDIA_COLUMNS = ('source', 'wahapedia_id', 'text', 'parse', 'edited', 'superseded')
 
 # Unit columns only BSData units use, left out of custom units in the data JSON
-BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'added_modifiers', 'leader_buffs_override'}
+BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'added_modifiers', 'leader_buffs_override',
+                  'wargear', 'max_in_army'}
 
 
 def write_json(path, data, indent=2):

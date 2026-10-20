@@ -37,6 +37,10 @@ How BattleScribe data maps onto the app:
 - **Leader buffs**: the "While this model is leading a unit, ..." text of a leader, turned into
   rows like faction rules ({'applies_to', 'phase', 'modifier'}) where it says something the
   maths models (parse_leader_buffs); the rest is reported as not modelled.
+- **Army building**: a unit's `max_in_army` is its own "max N in the army" constraint (the rule
+  of three, six for Battleline, one for Epic Heroes); `can_support` lists the units its Support
+  ability names, as `can_lead` does for Leader. **Enhancements** are the entries costing
+  "Enhancements" in the faction's catalogues (see enhancements()).
 - **Detachments** are the options of a faction's root "Detachment" entry, each with its rule
   text, taken from the faction's own catalogue and those it takes units from (so not the
   Agents of the Imperium's detachments in every Imperium army). **Army rules** are the rules
@@ -51,10 +55,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .rules_text import tidy_text, plain_text, parse_leader_buffs  # noqa: F401 (also used by importers of bsdata)
+from .rules_text import tidy_text, plain_text, parse_leader_buffs, parse_enhancement  # noqa: F401 (also used by importers of bsdata)
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 6  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 8  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -369,6 +373,108 @@ def grow(sel, report):
             if limit is not None and node.count < limit:
                 node.count += 1
                 return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Wargear: a unit's option tree, kept for wargear.py to rebuild selections from
+# ---------------------------------------------------------------------------
+
+# Groups left out of the option tree: Crusade-only, and enhancements (armies.py handles those)
+SKIPPED_GROUPS = re.compile(r'^(crusade|weapon modifications|battle scars|battle honours|enhancements?)$', re.I)
+MAX_TREE_DEPTH = 8
+
+
+# Keys of constraints, modifiers and conditions the selection code reads (the rest is left out)
+KEPT_KEYS = {'id', 'field', 'scope', 'type', 'value', 'childId', 'includeChildSelections', 'percentValue', 'roundUp',
+             'repeats', 'conditions', 'conditionGroups', 'localConditionGroups'}
+
+
+def _slim(value):
+    """BSData constraints/modifiers/conditions with only the keys the selection code reads."""
+    if isinstance(value, list):
+        return [_slim(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _slim(v) for k, v in value.items() if k in KEPT_KEYS and v is not None and v is not False and v != []}
+    return value
+
+
+def freeze(entry, report, depth=0, counter=None, keep=False):
+    """
+    A unit's option tree as plain data (wargear.py rebuilds selections from it): each node keeps
+    what the selection, constraint and points code reads (its IDs, type, constraints, modifiers,
+    pts cost, categories, default), its weapon profiles' keys (`weapons`, (kind, stat key), turned
+    into weapon IDs by import_folder) and its children, links resolved. `k` numbers the nodes.
+    """
+    counter = counter if counter is not None else [0]
+    counter[0] += 1
+    constraint_ids = {c.get('id') for c in entry.merged('constraints')}
+    pts_types = {c.get('typeId') for c in entry.node.get('costs', []) if c.get('name') == PTS} | {PTS_TYPE_ID}
+    kept = [m for m in entry.merged('modifiers') + _group_modifiers(entry)
+            if m.get('field') in pts_types or m.get('field') == 'error' or m.get('field') in constraint_ids]
+    node = {
+        'k': counter[0],
+        'id': entry.id,
+        'ids': sorted(entry.ids - {entry.id}),
+        'name': entry.name,
+        'type': entry.kind,
+        'constraints': _slim([c for c in entry.merged('constraints') if c.get('field') == 'selections']),
+        'modifiers': _slim(kept),
+        'costs': [{'name': PTS, 'typeId': c.get('typeId'), 'value': c.get('value') or 0}
+                  for c in entry.node.get('costs', []) if c.get('name') == PTS],
+        'categoryLinks': [{'targetId': c.get('targetId')} for c in entry.merged('categoryLinks')],
+        'defaultSelectionEntryId': entry.node.get('defaultSelectionEntryId'),
+        'weapons': [[WEAPON_TYPES[p['typeName']], list(_stat_key(weapon_record(p, WEAPON_TYPES[p['typeName']])))]
+                    for p in profiles(entry, report) if p.get('typeName') in WEAPON_TYPES],
+        'children': [],
+    }
+    if depth < MAX_TREE_DEPTH:
+        for child in entry.children(report):
+            if child.kind == 'group' and SKIPPED_GROUPS.match(child.name.strip()):
+                continue
+            if any(c.get('typeId') == ENHANCEMENTS_TYPE_ID and c.get('value') for c in child.node.get('costs', [])):
+                continue
+            frozen = freeze(child, report, depth + 1, counter)
+            if frozen is not None:
+                node['children'].append(frozen)
+        if entry.kind == 'group' and node['children']:
+            # A kept group keeps all its options: one that doesn't matter alone is still a choice
+            kept_ids = {c['id'] for c in node['children']}
+            node['children'] = [next((c for c in node['children'] if c['id'] == child.id), None)
+                                or freeze(child, report, depth + 1, counter, keep=True)
+                                for child in entry.children(report)
+                                if not (child.kind == 'group' and SKIPPED_GROUPS.match(child.name.strip()))
+                                and not any(c.get('typeId') == ENHANCEMENTS_TYPE_ID and c.get('value')
+                                            for c in child.node.get('costs', []))
+                                and (child.id in kept_ids or child.kind != 'group')]
+    # Only what matters to the maths or the points: models, weapons, pts costs (Crusade upgrades and the like go)
+    matters = (node['type'] in ('unit', 'model') or node['weapons'] or node['children']
+               or any(c['value'] for c in node['costs']) or any(m.get('field') in pts_types for m in node['modifiers']))
+    if depth and not matters and not keep:
+        return None
+    return {key: value for key, value in node.items() if value not in (None, []) or key in ('children', 'k')}
+
+
+def _key_weapons(tree, weapon_ids):
+    """Replace a frozen tree's weapon keys by weapon IDs ([kind, id]); keys without a weapon are dropped."""
+    tree['weapons'] = [[kind, weapon_ids[(kind, tuple(key))]['id']] for kind, key in tree.get('weapons', [])
+                       if (kind, tuple(key)) in weapon_ids]
+    if not tree['weapons']:
+        del tree['weapons']
+    for child in tree.get('children', []):
+        _key_weapons(child, weapon_ids)
+
+
+def has_choices(tree):
+    """True if a frozen tree has anything to choose: a group with more than one member, or an optional entry."""
+    for child in tree.get('children', []):
+        if child.get('type', 'group') == 'group' and len(child.get('children', [])) > 1:
+            return True
+        lows = [c['value'] for c in child.get('constraints', []) if c.get('type') == 'min' and c.get('scope') == 'parent']
+        if child.get('type', 'group') != 'group' and not any(lows) and child.get('weapons'):
+            return True
+        if has_choices(child):
+            return True
     return False
 
 
@@ -714,10 +820,14 @@ def build_unit(entry, faction_cat, report, known_keywords):
         if rule == 'Stealth' and 'Stealth' not in modifiers:
             modifiers.append('Stealth')
 
-    can_lead = []
+    can_lead, can_support = [], []
     for line in ability_lines:
         if line.startswith('Leader:'):
             can_lead.extend(_leader_targets(line))
+        elif line.startswith('Support:'):
+            can_support.extend(_leader_targets(line))
+    limits = [c['value'] for c in entry.merged('constraints')
+              if c.get('type') == 'max' and c.get('field') == 'selections' and c.get('scope') in ('force', 'roster')]
 
     leader_buffs = []
     if can_lead:
@@ -793,8 +903,11 @@ def build_unit(entry, faction_cat, report, known_keywords):
         'keywords': [n for n in entry.category_names() if not n.startswith('Faction:')],
         'modifiers': modifiers,
         'can_lead': can_lead,
+        'can_support': can_support,
+        'max_in_army': int(min(limits)) if limits else None,
         'leader_buffs': leader_buffs,
         'abilities': '\n\n'.join(ability_lines + [r for r in rules if r != 'Leader']),
+        'wargear': freeze(entry, report),
         '_loadout': {kind: [(key, qty) for key, qty in loadout[kind].items() if key in weapons] for kind in loadout},
         '_options': {kind: [key for key in options[kind] if key in weapons] for kind in options},
     }
@@ -943,8 +1056,9 @@ def import_folder(folder, known_keywords=None):
     """
     game_system, catalogues = read_folder(folder)
     report = Report()
-    data = {'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [], 'detachments': []}
+    data = {'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [], 'detachments': [], 'enhancements': []}
 
+    imported = []  # (faction ID, catalogue, member entries) for the enhancements, once every detachment is known
     for faction_id, (cat, members) in enumerate(faction_members(catalogues, report), start=1):
         name = faction_name(cat)
         data['factions'].append({'id': faction_id, 'bsdata_id': cat.id, 'name': name,
@@ -952,6 +1066,7 @@ def import_folder(folder, known_keywords=None):
                                                 if not r.get('hidden')]})
         for detachment in detachments(cat, members, catalogues, report):
             data['detachments'].append(dict(detachment, id=len(data['detachments']) + 1, faction_id=faction_id))
+        imported.append((faction_id, cat, members))
         weapon_ids = {}  # (kind, stat key) -> weapon record id within this faction
         for entry in sorted(members, key=lambda e: e.name.lower()):
             built = build_unit(entry, cat, report, known_keywords)
@@ -968,12 +1083,22 @@ def import_folder(folder, known_keywords=None):
                 elif record['bsdata_id'] < weapon_ids[key]['bsdata_id']:
                     weapon_ids[key]['bsdata_id'] = record['bsdata_id']  # Lowest ID: stable whatever the order
             loadout, options = unit.pop('_loadout'), unit.pop('_options')
+            _key_weapons(unit['wargear'], weapon_ids)
+            if not has_choices(unit['wargear']):
+                unit['wargear'] = None  # Nothing to choose: no tree to keep
             unit.update(id=len(data['units']) + 1, faction_id=faction_id)
             for kind in ('ranged', 'melee'):
                 unit[f'{kind}_weapons'] = [{'weapon_id': weapon_ids[key]['id'], 'qty': qty} for key, qty in loadout[kind]]
                 unit[f'{kind}_options'] = [weapon_ids[key]['id'] for key in options[kind]]
             data['units'].append(unit)
         _check_leaders(data, faction_id, name, report)
+
+    detachment_ids = {d['bsdata_id'] for d in data['detachments']}
+    names = {i: element.get('name') for c in [game_system, *catalogues.values()] for i, element in c.index.items()
+             if element.get('name')}
+    for faction_id, cat, members in imported:
+        for enhancement in enhancements(cat, members, detachment_ids, names):
+            data['enhancements'].append(dict(enhancement, id=len(data['enhancements']) + 1, faction_id=faction_id))
 
     source = {
         'game_system': {'name': game_system.name, 'revision': game_system.root.get('revision')},
@@ -984,6 +1109,89 @@ def import_folder(folder, known_keywords=None):
 
 def _rule_text(rule):
     return {'name': rule.get('name', ''), 'text': tidy_text(rule.get('description'))}
+
+
+ENHANCEMENTS_TYPE_ID = 'f759-1bc4-cb3a-f0d2'  # The game system's "Enhancements" cost type (1 per enhancement)
+
+
+def _condition_tree(node, names):
+    """
+    A node's "hidden" modifiers as a tree to evaluate later (armies.enhancement_hidden): a list of
+    modifiers (hidden if any holds), each {'op': 'and', 'items': [...]} of its conditions and
+    groups; a group is {'op': 'and'|'or', 'items': [...]}, a condition {'test', 'scope', 'value',
+    'id', 'name'} (`name` is what the ID names in any catalogue (`names`), e.g. a keyword, unit or
+    detachment).
+    """
+    def name_of(child_id):
+        return names.get(child_id) or child_id
+
+    def condition(c):
+        return {'test': c.get('type'), 'scope': c.get('scope'), 'value': c.get('value'),
+                'id': c.get('childId'), 'name': name_of(c.get('childId'))}
+
+    def group(g, op):
+        return {'op': op, 'items': [condition(c) for c in g.get('conditions', [])] +
+                [group(sub, sub.get('type', 'and')) for sub in g.get('conditionGroups', [])]}
+
+    return [group(m, 'and') for m in node.get('modifiers', [])
+            if m.get('field') == 'hidden' and str(m.get('value')).lower() == 'true']
+
+
+def _tree_ids(trees):
+    """Every condition's ID in condition trees."""
+    out = []
+    for item in trees:
+        if 'items' in item:
+            out += _tree_ids(item['items'])
+        elif item.get('id'):
+            out.append(item['id'])
+    return out
+
+
+def enhancements(cat, members, detachment_ids, names):
+    """
+    [{'bsdata_id', 'name', 'points', 'text', 'buffs', 'detachment_keys', 'hidden_when', 'unit_bsdata_id'}]
+    for a faction: the entries costing "Enhancements" in its own catalogue and those it takes units
+    from. BSData hides each unless conditions hold (its detachment is in the army, the bearer is a
+    Character, Infantry, a given unit...); `hidden_when` keeps those conditions, with the enclosing
+    groups', as trees (_condition_tree) that armies.py evaluates for a bearer and the chosen
+    detachments (`names`: element names by ID in every file). `detachment_keys` are the detachments they name (`detachment_ids`: every
+    faction's, since some enhancements belong to another faction's detachment). One defined
+    inside a unit's own entry is an Upgrade for that unit (`unit_bsdata_id`). `buffs` are its effects
+    the maths models (rules_text.parse_enhancement: each for the bearer or for its whole unit).
+    """
+    sources = [cat] + [c for c in dict.fromkeys(e.cat for e in members) if c is not cat]
+    found, seen = [], set()
+
+    def visit(node, owner, inherited, unit_id):
+        trees = inherited + _condition_tree(node, names)
+        if node.get('type') in ('unit', 'model') and unit_id is None:
+            unit_id = node.get('id')
+        costs = {c.get('typeId'): c.get('value') or 0 for c in node.get('costs', [])}
+        if costs.get(ENHANCEMENTS_TYPE_ID) and node.get('id') not in seen and not node.get('hidden'):
+            seen.add(node['id'])
+            texts = [ability_text(p) for p in node.get('profiles', []) if p.get('typeName') == 'Abilities']
+            text = '\n\n'.join(t for t in texts if t)
+            found.append({
+                'bsdata_id': node['id'],
+                'name': node.get('name', ''),
+                'points': int(costs.get(PTS_TYPE_ID) or 0),
+                'text': text,
+                'buffs': parse_enhancement(text)['buffs'],
+                'detachment_keys': list(dict.fromkeys(i for i in _tree_ids(trees) if i in detachment_ids)),
+                'hidden_when': trees,
+                'unit_bsdata_id': unit_id,
+            })
+            return
+        for key in ('selectionEntries', 'selectionEntryGroups'):
+            for child in node.get(key, []):
+                visit(child, owner, trees, unit_id)
+
+    for source in sources:
+        for key in ('sharedSelectionEntries', 'sharedSelectionEntryGroups', 'selectionEntries'):
+            for node in source.root.get(key, []):
+                visit(node, source, [], None)
+    return found
 
 
 DP_TYPE_ID = '82ae-1066-5107-6ae0'  # The game system's "Detachment Points" cost type
@@ -1035,16 +1243,17 @@ def detachments(cat, members, catalogues, report):
 
 
 def _check_leaders(data, faction_id, faction, report):
-    """Match Leader targets to the faction's unit names (case-insensitively); report the rest."""
+    """Match Leader and Support targets to the faction's unit names (case-insensitively); report the rest."""
     names = {u['name'].lower(): u['name'] for u in data['units'] if u['faction_id'] == faction_id}
     for unit in data['units']:
         if unit['faction_id'] != faction_id:
             continue
-        matched = []
-        for target in unit['can_lead']:
-            canonical = names.get(target.lower())
-            if canonical:
-                matched.append(canonical)
-            else:
-                report.add('leader', faction, unit['name'], f'can lead "{target}", which is not in this faction')
-        unit['can_lead'] = matched
+        for key, verb in (('can_lead', 'lead'), ('can_support', 'support')):
+            matched = []
+            for target in unit.get(key, []):
+                canonical = names.get(target.lower())
+                if canonical:
+                    matched.append(canonical)
+                else:
+                    report.add('leader', faction, unit['name'], f'can {verb} "{target}", which is not in this faction')
+            unit[key] = matched

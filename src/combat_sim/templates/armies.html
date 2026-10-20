@@ -52,13 +52,17 @@
         </details>
 
         <div class="army-points" id="army-points"><span class="army-points-total">0 pts</span>
+            <span class="army-enhancement-count" id="army-enhancement-count"></span>
             <span class="army-saved-state" id="army-saved-state"></span></div>
         <ul class="army-problems" id="army-problems"></ul>
 
+        <div class="army-units-wrap">
         <table class="data-table army-units">
-            <thead><tr><th>Unit</th><th>Size</th><th>Points</th><th>Leader</th><th></th></tr></thead>
+            <thead><tr><th title="Warlord"><i class="fa-solid fa-crown" aria-hidden="true"></i></th><th>Unit</th><th>Size</th>
+                <th>Points</th><th>Joins / joined by</th><th>Enhancement</th><th></th></tr></thead>
             <tbody id="army-units"></tbody>
         </table>
+        </div>
 
         <div class="army-actions">
             <button class="btn btn-primary" id="save-army-btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
@@ -74,6 +78,29 @@
         <label class="checkbox-label"><input type="checkbox" id="unit-legends"> Show Legends</label>
         <div class="army-unit-picker" id="unit-picker"><p class="empty-message">Choose a faction first</p></div>
     </aside>
+</div>
+
+<div class="modal" id="wargear-modal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3 id="wargear-title">Wargear</h3>
+            <button class="modal-close" data-close="wargear-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <div class="wargear-body">
+            <div class="wargear-top">
+                <label>Models <select id="wargear-size" class="filter-select"></select></label>
+                <span class="wargear-points" id="wargear-points"></span>
+            </div>
+            <ul class="army-problems" id="wargear-problems"></ul>
+            <div id="wargear-sections"></div>
+            <div class="wargear-loadout" id="wargear-loadout"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="wargear-reset" title="Back to the datasheet's default wargear">Defaults</button>
+            <button class="btn btn-secondary" data-close="wargear-modal">Cancel</button>
+            <button class="btn btn-primary" id="wargear-apply">Apply</button>
+        </div>
+    </div>
 </div>
 
 <div class="modal" id="text-modal">

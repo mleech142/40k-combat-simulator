@@ -15,6 +15,11 @@
     "name": "Detachment Points",
     "id": "82ae-1066-5107-6ae0",
     "defaultCostLimit": -1
+   },
+   {
+    "name": "Enhancements",
+    "id": "f759-1bc4-cb3a-f0d2",
+    "defaultCostLimit": -1
    }
   ],
   "profileTypes": [
@@ -73,6 +78,14 @@
    {
     "name": "Battleline",
     "id": "k-bl"
+   },
+   {
+    "name": "Epic Hero",
+    "id": "k-epic"
+   },
+   {
+    "name": "Support",
+    "id": "k-support"
    }
   ]
  }

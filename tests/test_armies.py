@@ -72,21 +72,25 @@ def test_leaders_join_the_units_they_can_lead(client):
     priced = price(client, army(factions,
                                 {'uid': 'warriors', 'unit_id': units['Void Warriors']},
                                 {'uid': 'captain', 'unit_id': units['Star Captain'], 'attached_to': 'warriors'},
-                                {'uid': 'crew', 'unit_id': units['Gun Crew']}))
+                                {'uid': 'crew', 'unit_id': units['Gun Crew']}, warlord='captain'))
     entries = {e['uid']: e for e in priced['units']}
     assert entries['captain']['is_leader'] and entries['captain']['can_join'] == ['warriors']
     assert entries['warriors']['led_by'] == ['captain'] and priced['problems'] == []
     assert priced['roster'] == [
-        {'unit_id': units['Void Warriors'], 'models': 5, 'leader_id': units['Star Captain']},
-        {'unit_id': units['Gun Crew'], 'models': 2, 'leader_id': None},
+        {'unit_id': units['Void Warriors'], 'models': 5, 'leader_id': units['Star Captain'], 'enhancements': [],
+         'loadout': None, 'leader_loadout': None},
+        {'unit_id': units['Gun Crew'], 'models': 2, 'leader_id': None, 'enhancements': [],
+         'loadout': None, 'leader_loadout': None},
     ]
 
     wrong = price(client, army(factions, {'uid': 'crew', 'unit_id': units['Gun Crew']},
                                {'uid': 'captain', 'unit_id': units['Star Captain'], 'attached_to': 'crew'},
-                               {'uid': 'drone', 'unit_id': units['Scout Drone'], 'attached_to': 'crew'}))
-    assert wrong['problems'] == ["Star Captain: Can't lead Gun Crew.", 'Scout Drone: Only leaders can be attached to another unit.']
+                               {'uid': 'drone', 'unit_id': units['Scout Drone'], 'attached_to': 'crew'}, warlord='captain'))
+    assert wrong['problems'] == ["Star Captain: Can't join Gun Crew.",
+                                 'Scout Drone: Only leaders and support units can join another unit.']
 
-    gone = price(client, army(factions, {'uid': 'captain', 'unit_id': units['Star Captain'], 'attached_to': 'removed'}))
+    gone = price(client, army(factions, {'uid': 'captain', 'unit_id': units['Star Captain'], 'attached_to': 'removed'},
+                              warlord='captain'))
     assert gone['units'][0]['attached_to'] is None and gone['problems'] == []
 
 
@@ -94,11 +98,14 @@ def test_second_leader_takes_the_field_on_its_own_in_analytics(client):
     factions, units = ids(client)
     priced = price(client, army(factions, {'uid': 'w', 'unit_id': units['Void Warriors']},
                                 {'uid': 'c1', 'unit_id': units['Star Captain'], 'attached_to': 'w'},
-                                {'uid': 'c2', 'unit_id': units['Star Captain'], 'attached_to': 'w'}))
+                                {'uid': 'c2', 'unit_id': units['Star Captain'], 'attached_to': 'w'}, warlord='c1'))
     assert priced['roster'] == [
-        {'unit_id': units['Void Warriors'], 'models': 5, 'leader_id': units['Star Captain']},
-        {'unit_id': units['Star Captain'], 'models': 1, 'leader_id': None},
+        {'unit_id': units['Void Warriors'], 'models': 5, 'leader_id': units['Star Captain'], 'enhancements': [],
+         'loadout': None, 'leader_loadout': None},
+        {'unit_id': units['Star Captain'], 'models': 1, 'leader_id': None, 'enhancements': [],
+         'loadout': None, 'leader_loadout': None},
     ]
+    assert priced['problems'] == ['Star Captain: Void Warriors already has a leader (one each, unless a datasheet says otherwise).']
 
 
 def test_bad_requests(client):
@@ -149,11 +156,13 @@ def test_text_export(client):
     text = client.post('/api/armies/text', json=army(
         factions, {'uid': 'w', 'unit_id': units['Void Warriors']},
         {'uid': 'c', 'unit_id': units['Star Captain'], 'attached_to': 'w'},
-        {'uid': 'g', 'unit_id': units['Gun Crew'], 'models': 4}, limit=200,
-        detachment_key='d-vanguard', name='Patrol')).get_json()['text']
-    assert text == ('Patrol\nStarfarers - Void Vanguard (2 DP)\n300 / 200 points\n\n'
-                    'Void Warriors (5 models) - 80 pts\n  + led by Star Captain - 70 pts\nGun Crew (4 models) - 150 pts\n\n'
-                    'Problems:\n- 300 points is 100 over the 200 point limit.\n')
+        {'uid': 'g', 'unit_id': units['Gun Crew'], 'models': 4, 'enhancement': 'enh-sights'},
+        {'uid': 'm', 'unit_id': units['Field Medic'], 'attached_to': 'w'}, limit=200,
+        detachment_key='d-vanguard', name='Patrol', warlord='c')).get_json()['text']
+    assert text == ('Patrol\nStarfarers - Void Vanguard (2 DP)\n350 / 200 points\n\n'
+                    'Void Warriors (5 models) - 80 pts\n  + led by Star Captain - 70 pts [Warlord]\n'
+                    '  + supported by Field Medic - 40 pts\nGun Crew (4 models) - 160 pts [Targeting Sights]\n\n'
+                    'Problems:\n- 350 points is 150 over the 200 point limit.\n')
 
 
 def test_pages(client):
@@ -219,3 +228,126 @@ def test_armies_saved_with_one_detachment_still_open(client, make_client, tmp_pa
         restarted.get(f'/api/armies/{old["id"]}').get_json(), detachment_keys=['d-vanguard', 'd-bastion'])).get_json()
     assert [d['name'] for d in saved['detachments']] == ['Void Vanguard', 'Star Bastion']
 
+
+# --- Warlord, copies, support units, enhancements (BSData fixtures) --------------------------------
+
+def test_warlord_must_be_a_character(client):
+    factions, units = ids(client)
+    body = army(factions, {'uid': 'c', 'unit_id': units['Star Captain']}, {'uid': 'g', 'unit_id': units['Gun Crew']})
+    assert price(client, body)['problems'] == ['Choose a Warlord (one of your Characters).']
+    assert price(client, dict(body, warlord='c'))['warlord'] == 'c'
+    assert price(client, dict(body, warlord='c'))['problems'] == []
+    assert price(client, dict(body, warlord='g'))['problems'] == ["Gun Crew can't be the Warlord: choose a Character."]
+    assert price(client, army(factions, {'unit_id': units['Gun Crew']}))['problems'] == []  # No Characters, no Warlord
+
+
+@pytest.mark.parametrize('name, count, problem', [
+    ('Gun Crew', 4, 'Gun Crew: 4 in the army; at most 3.'),  # BSData's own limit
+    ('Void Warriors', 7, 'Void Warriors: 7 in the army; at most 6.'),  # Battleline, as BSData has it
+    ('Beast Pack', 4, 'Beast Pack: 4 in the army; at most 3.'),  # No limit in BSData: the rule of three
+    ('Star Lord', 2, 'Star Lord: 2 in the army; at most 1.'),  # An Epic Hero
+])
+def test_copies_of_a_datasheet(client, name, count, problem):
+    factions, units = ids(client)
+    allowed = price(client, army(factions, *[{'unit_id': units[name]}] * (count - 1), warlord='u1'))['problems']
+    over = price(client, army(factions, *[{'unit_id': units[name]}] * count, warlord='u1'))['problems']
+    assert problem not in allowed and problem in over
+
+
+def test_support_units_join_alongside_a_leader(client):
+    factions, units = ids(client)
+    priced = price(client, army(factions, {'uid': 'w', 'unit_id': units['Void Warriors']},
+                                {'uid': 'c', 'unit_id': units['Star Captain'], 'attached_to': 'w'},
+                                {'uid': 'm', 'unit_id': units['Field Medic'], 'attached_to': 'w'}, warlord='c'))
+    entries = {e['uid']: e for e in priced['units']}
+    assert entries['m']['is_support'] and entries['m']['can_join'] == ['w']
+    assert (entries['w']['led_by'], entries['w']['supported_by'], priced['problems']) == (['c'], ['m'], [])
+    assert [r['unit_id'] for r in priced['roster']] == [units['Void Warriors'], units['Field Medic']]  # On its own in Analytics
+
+    two = price(client, army(factions, {'uid': 'w', 'unit_id': units['Void Warriors']},
+                             {'uid': 'm1', 'unit_id': units['Field Medic'], 'attached_to': 'w'},
+                             {'uid': 'm2', 'unit_id': units['Field Medic'], 'attached_to': 'w'}))
+    assert two['problems'] == ['Field Medic: Void Warriors already has a support unit (one each, unless a datasheet says otherwise).']
+
+
+def test_enhancements_offered_and_checked(client):
+    factions, units = ids(client)
+    body = army(factions, {'uid': 'c', 'unit_id': units['Star Captain'], 'enhancement': 'enh-void-blade'},
+                {'uid': 'l', 'unit_id': units['Star Lord']}, {'uid': 'g', 'unit_id': units['Gun Crew']},
+                detachment_keys=['d-vanguard'], warlord='c')
+    priced = price(client, body)
+    entries = {e['uid']: e for e in priced['units']}
+    assert [o['key'] for o in entries['c']['enhancement_options']] == ['enh-void-blade']  # Its detachment's only
+    assert entries['l']['enhancement_options'] == []  # An Epic Hero
+    assert [o['key'] for o in entries['g']['enhancement_options']] == ['enh-sights']  # Its own Upgrade
+    assert (entries['c']['unit_points'], entries['c']['enhancement_points'], entries['c']['points']) == (70, 20, 90)
+    assert priced['total'] == 90 + 120 + 65 and priced['problems'] == []
+    assert (priced['enhancement_count'], priced['enhancement_limit']) == (1, 4)
+
+    no_detachment = price(client, dict(body, detachment_keys=['d-bastion']))
+    assert no_detachment['problems'] == ['Star Captain: Void Blade needs its detachment.']
+    # Bastion Ward: Infantry or the Star Lord only (BSData: hidden unless the bearer is either)
+    bastion = dict(body, detachment_keys=['d-bastion'], units=[
+        {'uid': 'c', 'unit_id': units['Star Captain'], 'enhancement': 'enh-bastion-ward'},
+        {'uid': 'l', 'unit_id': units['Star Lord'], 'enhancement': 'enh-bastion-ward'}])
+    problems = price(client, bastion)['problems']
+    assert "Star Lord: Epic Heroes can't be given enhancements." in problems
+    assert 'Bastion Ward is taken 2 times; at most 1.' in problems
+    assert not any(p.startswith('Star Captain') for p in problems)
+
+
+def test_enhancement_limit_and_upgrades(client):
+    factions, units = ids(client)
+    captains = [{'unit_id': units['Star Captain'], 'enhancement': key}
+                for key in ('enh-void-blade', 'enh-armada-relic', 'enh-void-blade')]
+    priced = price(client, army(factions, *captains, detachment_keys=['d-vanguard', 'd-armada'], limit=1000, warlord='u1'))
+    assert priced['enhancement_count'] == 3 and priced['enhancement_limit'] == 2
+    assert '3 enhancements; the limit is 2.' in priced['problems']
+    assert 'Void Blade is taken 2 times; at most 1.' in priced['problems']
+
+    crews = [{'unit_id': units['Gun Crew'], 'enhancement': 'enh-sights'}] * 3
+    upgrades = price(client, army(factions, *crews, detachment_keys=['d-vanguard']))
+    assert upgrades['enhancement_count'] == 0 and upgrades['problems'] == []  # Up to three of an Upgrade, not counted
+    wrong_unit = price(client, army(factions, {'unit_id': units['Void Warriors'], 'enhancement': 'enh-sights'},
+                                    detachment_keys=['d-vanguard']))
+    assert wrong_unit['problems'] == ['Void Warriors: Targeting Sights is an Upgrade for another unit.']
+
+
+def test_enhancements_reach_the_analytics_roster(client):
+    factions, units = ids(client)
+    priced = price(client, army(factions, {'uid': 'w', 'unit_id': units['Void Warriors']},
+                                {'uid': 'c', 'unit_id': units['Star Captain'], 'attached_to': 'w', 'enhancement': 'enh-void-blade'},
+                                {'uid': 'g', 'unit_id': units['Gun Crew'], 'enhancement': 'enh-sights'},
+                                detachment_keys=['d-vanguard'], warlord='c'))
+    enhancements = {e['name']: e['id'] for e in client.get(f'/api/enhancements?faction_id={factions["Starfarers"]}').get_json()}
+    assert [r['enhancements'] for r in priced['roster']] == [
+        [{'id': enhancements['Void Blade'], 'name': 'Void Blade', 'bearer': 'leader', 'unit_id': units['Star Captain']}],
+        [{'id': enhancements['Targeting Sights'], 'name': 'Targeting Sights', 'bearer': 'unit', 'unit_id': units['Gun Crew']}]]
+
+
+
+def test_enhancement_effects_in_the_matrix(client):
+    """Void Blade gives the bearer's melee attacks Lethal Hits; Bastion Ward a 4+ invulnerable save to the unit it leads."""
+    factions, units = ids(client)
+    enhancements = {e['name']: e['id'] for e in client.get(f'/api/enhancements?faction_id={factions["Starfarers"]}').get_json()}
+    captain = client.get(f'/api/units/{units["Star Captain"]}').get_json()
+    blade = next(w for w in captain['melee_weapons'] if w['name'] == 'Master blade')
+
+    def matrix(attacker_enhancements, leader_weapon=False, defender_enhancements=()):
+        weapon = {'weapon_id': blade['id'], 'weapon_type': 'melee', 'models': 1, 'leader': leader_weapon,
+                  'enhancements': attacker_enhancements}
+        result = client.post('/api/matrix/simulate', json={
+            'attackers': [{'unit_id': units['Star Captain'], 'weapons': [weapon], 'enhancements': attacker_enhancements}],
+            'defenders': [{'unit_id': units['Void Warriors'], 'model_count': 5, 'enhancements': list(defender_enhancements)}],
+            'conditions': {}}).get_json()
+        return result['matrix'][0][0], result['attackers'][0]['points']
+
+    plain, plain_points = matrix([])
+    bladed, bladed_points = matrix([{'id': enhancements['Void Blade'], 'bearer': 'unit'}])
+    assert bladed['avg_damage'] > plain['avg_damage'] and bladed_points == plain_points + 20
+    # The blade is the bearer's: carried by a leader, it doesn't reach the bodyguard's weapons
+    elsewhere, _ = matrix([{'id': enhancements['Void Blade'], 'bearer': 'leader'}])
+    assert elsewhere['avg_damage'] == plain['avg_damage']
+    # Bastion Ward: while its bearer leads the unit, that unit has a 4+ invulnerable save
+    warded, _ = matrix([], defender_enhancements=[{'id': enhancements['Bastion Ward'], 'bearer': 'leader'}])
+    assert warded['avg_damage'] < plain['avg_damage']

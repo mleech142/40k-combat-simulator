@@ -7,25 +7,50 @@
     <div class="page-header">
         <h2><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</h2>
     </div>
-    <p class="data-note">Factions, units, weapons and points come from the community-maintained
-        <a href="https://github.com/BSData/wh40k-11e" target="_blank" rel="noopener">BSData wh40k-11e</a> catalogues
-        (not endorsed by Games Workshop). The app doesn't include them: download your own copy here, or point it at a
-        folder of the <code>.json</code> files you already have.</p>
+    <p class="data-note">The app doesn't include any game data: download your own copy of each of the two data sets
+        below. Neither is endorsed by Games Workshop. Download them again any time to update.</p>
 
-    <div class="bsdata-status" id="setup-status">Checking…</div>
+    <section class="setup-card setup-downloads">
+        <h3>Download the game data</h3>
+        <p>You need both: the first gives the units and points, the second the rules and stratagems that change the
+            calculations.</p>
 
-    <section class="setup-card">
-        <h3>Download the latest catalogues</h3>
-        <p>Fetches the newest version of every catalogue from GitHub into <code id="download-folder"></code> and
-            uses it. If the download fails, the current data stays as it is.</p>
-        <div class="setup-row">
-            <button class="btn btn-primary" id="download-btn" onclick="downloadLatest()"><i class="fa-solid fa-download" aria-hidden="true"></i> Download latest</button>
+        <div class="setup-step">
+            <span class="setup-step-number">1</span>
+            <div class="setup-step-body">
+                <h4>Units, weapons and points</h4>
+                <p>Every faction's datasheets, weapons, wargear and points from the community-maintained
+                    <a href="https://github.com/BSData/wh40k-11e" target="_blank" rel="noopener">BSData wh40k-11e</a>
+                    catalogues. Fetches the newest version from GitHub into <code id="download-folder"></code> and uses
+                    it; if the download fails, the current data stays as it is.</p>
+                <div class="bsdata-status" id="setup-status">Checking…</div>
+                <div class="setup-row">
+                    <button class="btn btn-primary" id="download-btn" onclick="downloadLatest()"><i class="fa-solid fa-download" aria-hidden="true"></i> Download latest</button>
+                </div>
+                <div class="setup-message" id="download-message"></div>
+            </div>
         </div>
-        <div class="setup-message" id="download-message"></div>
+
+        <div class="setup-step">
+            <span class="setup-step-number">2</span>
+            <div class="setup-step-body">
+                <h4>Rules and stratagems</h4>
+                <p>Stratagems, detachment rules and army rules, word for word, from the
+                    <a href="https://wahapedia.ru/wh40k11ed/the-rules/data-export" target="_blank" rel="noopener">Wahapedia
+                    data export</a> (powered by Wahapedia). The app reads the effects it can model into modifiers; check
+                    or change them on the Data tab. Downloaded into <code id="wahapedia-folder"></code>; they replace the
+                    app's own rules and stratagems of the same name.</p>
+                <div class="bsdata-status" id="wahapedia-status"></div>
+                <div class="setup-row">
+                    <button class="btn btn-primary" id="wahapedia-btn" onclick="downloadWahapedia()"><i class="fa-solid fa-download" aria-hidden="true"></i> Download latest</button>
+                </div>
+                <div class="setup-message" id="wahapedia-message"></div>
+            </div>
+        </div>
     </section>
 
     <section class="setup-card">
-        <h3>Use a folder you already have</h3>
+        <h3>Units: use a folder you already have</h3>
         <p>The folder holding <code>Warhammer 40,000.json</code> and the faction catalogues (for example a
             downloaded and unzipped copy of the GitHub repository).</p>
         <div class="setup-row">
@@ -41,26 +66,12 @@
     </section>
 
     <section class="setup-card">
-        <h3>Re-import</h3>
-        <p>Changed the files in the folder yourself? Import them again (the app also notices on its next start).</p>
+        <h3>Units: re-import</h3>
+        <p>Changed the catalogue files in the folder yourself? Import them again (the app also notices on its next start).</p>
         <div class="setup-row">
             <button class="btn btn-secondary" id="reimport-btn" onclick="reimport()"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Re-import</button>
         </div>
         <div class="setup-message" id="reimport-message"></div>
-    </section>
-
-    <section class="setup-card">
-        <h3>Rules and stratagems</h3>
-        <p>Stratagems, detachment rules and army rules, word for word, from the
-            <a href="https://wahapedia.ru/wh40k11ed/the-rules/data-export" target="_blank" rel="noopener">Wahapedia data
-            export</a> (powered by Wahapedia; not endorsed by Games Workshop). The app reads the effects it can model
-            into modifiers; check or change them on the Data tab. Downloaded into <code id="wahapedia-folder"></code>;
-            they replace the app's own rules and stratagems of the same name.</p>
-        <div class="bsdata-status" id="wahapedia-status"></div>
-        <div class="setup-row">
-            <button class="btn btn-primary" id="wahapedia-btn" onclick="downloadWahapedia()"><i class="fa-solid fa-download" aria-hidden="true"></i> Download latest</button>
-        </div>
-        <div class="setup-message" id="wahapedia-message"></div>
     </section>
 
     <section class="setup-card" id="report-card" style="display:none">
@@ -77,7 +88,6 @@
     </section>
 
     <div class="setup-row">
-        <a class="btn btn-primary" href="/" id="continue-btn" style="display:none">Continue to the Simulator</a>
         <button class="btn btn-secondary" id="skip-btn" onclick="skipSetup()" style="display:none">Continue without BSData</button>
     </div>
 </div>
@@ -120,7 +130,6 @@ function renderStatus(status) {
     document.getElementById('default-folder').textContent = status.default_folder ? `(${status.default_folder})` : '';
     const input = document.getElementById('folder-input');
     if (!input.value) input.value = status.folder || '';
-    document.getElementById('continue-btn').style.display = status.loaded ? '' : 'none';
     document.getElementById('skip-btn').style.display = status.loaded ? 'none' : '';
     renderWahapediaStatus(status.wahapedia || {});
     renderReportSummary(status);

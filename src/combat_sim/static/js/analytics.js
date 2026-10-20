@@ -399,10 +399,11 @@
             for (const item of army.roster) {
                 const unit = await unitData(item.unit_id);
                 if (side === 'attacker') {
-                    entries.push(Core.attackerEntry(unit, item.models, item.leader_id ? await unitData(item.leader_id) : null));
+                    entries.push(Core.attackerEntry(unit, item.models, item.leader_id ? await unitData(item.leader_id) : null,
+                                                    item.enhancements, item.loadout, item.leader_loadout));
                 } else {
                     entries.push(Core.defenderEntry(unit, item.models || unit.default_models || DEFAULT_DEFENDER_MODELS,
-                                                    item.leader_id || null));
+                                                    item.leader_id || null, item.enhancements));
                 }
             }
             if (side === 'attacker') state.attackers = entries;
@@ -530,6 +531,7 @@
                     </label>` : ''}
                     <span class="unit-points">${unitPointsLabel(atk)}</span>
                     ${leaderSelect(atk.leaders, atk.leader_id, `data-a="${a}"`, 'atk-leader')}
+                    ${enhancementNote(atk)}
                 </td>`;
             const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
 
@@ -570,6 +572,12 @@
         });
 
         elements.attackerBody.innerHTML = html;
+    }
+
+    /** The enhancements an entry from an army carries (a leader's only while it leads the unit). */
+    function enhancementNote(entry) {
+        const shown = Core.activeEnhancements(entry);
+        return shown.length ? `<span class="leader-buffs" title="Enhancements from the army">${shown.map(e => escapeHtml(e.name || 'Enhancement')).join(', ')}</span>` : '';
     }
 
     /** Points of the unit at its size, plus its leader's. */
@@ -674,7 +682,7 @@
         elements.defenderBody.innerHTML = state.defenders.map((d, idx) => `
             <tr>
                 <td class="roster-unit-name">${escapeHtml(copyLabel(state.defenders, idx))}
-                    ${leaderSelect(d.leaders, d.leader_id, `data-d="${idx}"`, 'def-leader')}</td>
+                    ${leaderSelect(d.leaders, d.leader_id, `data-d="${idx}"`, 'def-leader')}${enhancementNote(d)}</td>
                 <td class="roster-muted">${escapeHtml(d.faction || '')}</td>
                 <td>${d.toughness}</td>
                 <td>${d.save}+</td>
@@ -1020,6 +1028,7 @@
                     profile_id: defender.profile_id,
                     extra_modifiers: defender.extra_modifiers || '',
                     leader_id: defender.leader_id || null,
+                    enhancements: defender.enhancements || [],
                     model_count: defender.model_count,
                     conditions: request.conditions,
                     attacker_rules: request.attacker_rules,

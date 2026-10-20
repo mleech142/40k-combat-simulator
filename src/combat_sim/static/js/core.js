@@ -218,7 +218,23 @@
      * Analytics: an attacker unit entry from /api/units/<id> data, at `models` models (weapon counts
      * scaled), with `leader` (that leader's /api/units data, or null) attached.
      */
-    function attackerEntry(unit, models = null, leader = null) {
+    /**
+     * Analytics weapon entries set to a chosen loadout ([{weapon_id, weapon_type, qty, default_use}] from an
+     * army's wargear): those weapons included with their counts, the others left out. `leaderOnly`:
+     * the leader's entries (or, false, the unit's own).
+     */
+    function withLoadout(entries, loadout, leaderOnly = false) {
+        if (!loadout) return entries;
+        const rows = new Map(loadout.map(r => [`${r.weapon_type}:${r.weapon_id}`, r]));
+        return entries.map(w => {
+            if (!!w.leader !== leaderOnly) return w;
+            const row = rows.get(`${w.weapon_type}:${w.weapon_id}`);
+            return row ? { ...w, models: row.qty, base_qty: row.qty, include: row.default_use !== false }
+                       : { ...w, include: false };
+        });
+    }
+
+    function attackerEntry(unit, models = null, leader = null, enhancements = [], loadout = null, leaderLoadout = null) {
         const entry = {
             unit_id: unit.id,
             unit_name: unit.name,
@@ -230,11 +246,18 @@
             weapons: matchupWeapons(unit),  // Loadout, then wargear options (not included)
             leaders: unit.leaders || [],
             leader_id: null,
+            enhancements: enhancements || [],  // From an army: [{id, bearer: 'unit'|'leader', name}]
         };
-        if (models && unit.default_models) scaleUnitSize(entry, models);
+        if (loadout) {  // Chosen wargear: its weapons and counts, at the size it was chosen for
+            entry.weapons = withLoadout(entry.weapons, loadout);
+            entry.unit_size = models || entry.unit_size;
+            entry.default_models = models || entry.default_models;
+        } else if (models && unit.default_models) {
+            scaleUnitSize(entry, models);
+        }
         if (leader) {
             const choice = entry.leaders.find(l => l.id === leader.id);
-            entry.weapons = withLeaderEntries(entry.weapons, leader);
+            entry.weapons = withLoadout(withLeaderEntries(entry.weapons, leader), leaderLoadout, true);
             entry.leader_id = leader.id;
             entry.leader_name = leader.name;
             entry.leader_points = choice?.points ?? null;
@@ -242,8 +265,8 @@
         return entry;
     }
 
-    /** Analytics: a defender unit entry from /api/units/<id> data, with a leader's id or null. */
-    function defenderEntry(unit, modelCount, leaderId = null) {
+    /** Analytics: a defender unit entry from /api/units/<id> data, with a leader's id or null (and an army's enhancements). */
+    function defenderEntry(unit, modelCount, leaderId = null, enhancements = []) {
         return {
             leaders: unit.leaders || [],
             leader_id: leaderId,
@@ -258,6 +281,7 @@
             invulnerable_save: unit.invulnerable_save,
             feel_no_pain: unit.feel_no_pain,
             model_count: modelCount,
+            enhancements: enhancements || [],
         };
     }
 
@@ -480,17 +504,29 @@
      * {attackers, defenders, conditions, weaponTypeFilter, defenderMode, includedProfiles,
      *  attackerTicked, defenderTicked}
      */
+    /** An Analytics entry's enhancements that apply: its own, and its leader's while that leader leads it. */
+    function activeEnhancements(entry) {
+        return (entry.enhancements || []).filter(e => e.bearer !== 'leader' || (entry.leader_id && entry.leader_id === e.unit_id));
+    }
+
+    /** An entry's enhancements as the server takes them ([{id, bearer}]). */
+    function enhancementRefs(entry) {
+        return activeEnhancements(entry).map(e => ({ id: e.id, bearer: e.bearer }));
+    }
+
     function buildMatrixRequest(page) {
         const filter = page.weaponTypeFilter || 'both';
         const attackers = page.attackers.map((atk, a) => ({
             label: copyLabel(page.attackers, a),
             unit_id: atk.unit_id,
             leader_id: atk.leader_id || null,
+            enhancements: enhancementRefs(atk),
             weapons: atk.weapons
                 .filter(w => w.include && weaponVisible(w, filter))
                 .map(w => ({ weapon_id: w.weapon_id, weapon_type: w.weapon_type, models: w.models,
                              label: w.leader ? `${w.name} (${w.leader_name})` : w.name,
-                             unit_id: atk.unit_id, leader_id: atk.leader_id || null })),
+                             unit_id: atk.unit_id, leader_id: atk.leader_id || null,
+                             leader: !!w.leader, enhancements: enhancementRefs(atk) })),
             unit_size: atk.unit_size || atk.default_models || null,
         })).filter(atk => atk.weapons.length > 0);
 
@@ -502,6 +538,7 @@
                 label: defenderLabel(page.defenders, idx) + (d.leader_id && d.leader_name ? ` + ${d.leader_name}` : ''),
                 extra_modifiers: d.extra_modifiers || '',
                 leader_id: d.leader_id || null,
+                enhancements: enhancementRefs(d),
             }));
 
         return {
@@ -647,7 +684,7 @@
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
         detachmentPickerHtml, formatRuleLine, formatRuleText,
-        leaderBuffSummary, withLeaderWeapons, withLeaderEntries, attackerEntry, defenderEntry, armyPoints, armyDetachmentPoints,
+        leaderBuffSummary, withLeaderWeapons, withLeaderEntries, withLoadout, attackerEntry, defenderEntry, activeEnhancements, enhancementRefs, armyPoints, armyDetachmentPoints,
         usedWeapons, weaponPayload, rulesForFilter, ruleRowTitle, rulesSelection, woundsMarker, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
         createPageState,

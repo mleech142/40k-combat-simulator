@@ -57,8 +57,8 @@ def test_factions_are_catalogues_named_without_their_prefix(result):
 
 def test_faction_takes_its_own_and_imported_units_but_not_allies(result):
     assert faction_units(result, 'Starfarers') == [
-        'Beast Pack', 'Field Bunker', 'Gun Crew', 'Scout Drone', 'Star Captain', 'Star Walker [Legends]',
-        'Void Warriors']
+        'Beast Pack', 'Field Bunker', 'Field Medic', 'Gun Crew', 'Scout Drone', 'Star Captain', 'Star Lord',
+        'Star Walker [Legends]', 'Void Warriors']
     assert faction_units(result, 'Allies') == ['Ally Agent']  # Linked from Starfarers, but not one of theirs
 
 
