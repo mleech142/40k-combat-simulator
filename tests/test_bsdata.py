@@ -57,8 +57,8 @@ def test_factions_are_catalogues_named_without_their_prefix(result):
 
 def test_faction_takes_its_own_and_imported_units_but_not_allies(result):
     assert faction_units(result, 'Starfarers') == [
-        'Beast Pack', 'Field Bunker', 'Gun Crew', 'Scout Drone', 'Star Captain', 'Star Walker [Legends]',
-        'Void Warriors']
+        'Beast Pack', 'Field Bunker', 'Field Medic', 'Gun Crew', 'Scout Drone', 'Star Captain', 'Star Lord',
+        'Star Walker [Legends]', 'Void Warriors']
     assert faction_units(result, 'Allies') == ['Ally Agent']  # Linked from Starfarers, but not one of theirs
 
 
@@ -297,8 +297,14 @@ def test_catalogue_from_another_game_system(scratch):
 def test_detachments_of_the_faction_but_not_of_allies(result):
     star = faction(result, 'Starfarers')['id']
     names = {d['name']: d for d in result.data['detachments'] if d['faction_id'] == star}
-    assert sorted(names) == ['Star Bastion', 'Void Vanguard']  # Not the linked "Allied Task Force"
+    assert sorted(names) == ['Star Armada', 'Star Bastion', 'Star Citadel', 'Void Vanguard']  # Not "Allied Task Force"
     assert names['Void Vanguard']['bsdata_id'] == 'd-vanguard'
+    # Detachment Points, and categories split into force dispositions and Unique Tags ("3DP Detachment" is neither)
+    assert (names['Void Vanguard']['dp'], names['Void Vanguard']['dispositions'], names['Void Vanguard']['tags']) == \
+        (2, ['Purge the Foe'], [])
+    assert (names['Star Bastion']['dp'], names['Star Bastion']['tags']) == (1, ['Fortress Detachment'])
+    assert (names['Star Armada']['dp'], names['Star Armada']['dispositions'], names['Star Armada']['tags']) == \
+        (3, ['Priority Assets'], [])
     assert names['Void Vanguard']['rules'] == [{'name': 'Swift Strike', 'text': 'Units from this army can Advance and shoot.'}]
     allies = faction(result, 'Allies')['id']
     assert [d['name'] for d in result.data['detachments'] if d['faction_id'] == allies] == ['Allied Task Force']

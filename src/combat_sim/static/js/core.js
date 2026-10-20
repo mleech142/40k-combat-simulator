@@ -214,6 +214,88 @@
         return result;
     }
 
+    /**
+     * Analytics: an attacker unit entry from /api/units/<id> data, at `models` models (weapon counts
+     * scaled), with `leader` (that leader's /api/units data, or null) attached.
+     */
+    /**
+     * Analytics weapon entries set to a chosen loadout ([{weapon_id, weapon_type, qty, default_use}] from an
+     * army's wargear): those weapons included with their counts, the others left out. `leaderOnly`:
+     * the leader's entries (or, false, the unit's own).
+     */
+    function withLoadout(entries, loadout, leaderOnly = false) {
+        if (!loadout) return entries;
+        const rows = new Map(loadout.map(r => [`${r.weapon_type}:${r.weapon_id}`, r]));
+        return entries.map(w => {
+            if (!!w.leader !== leaderOnly) return w;
+            const row = rows.get(`${w.weapon_type}:${w.weapon_id}`);
+            return row ? { ...w, models: row.qty, base_qty: row.qty, include: row.default_use !== false }
+                       : { ...w, include: false };
+        });
+    }
+
+    function attackerEntry(unit, models = null, leader = null, enhancements = [], loadout = null, leaderLoadout = null) {
+        const entry = {
+            unit_id: unit.id,
+            unit_name: unit.name,
+            faction: unit.faction,
+            faction_id: unit.faction_id,
+            default_models: unit.default_models || null,
+            unit_size: unit.default_models || null,
+            points_table: unit.points_by_model_count || [],
+            weapons: matchupWeapons(unit),  // Loadout, then wargear options (not included)
+            leaders: unit.leaders || [],
+            leader_id: null,
+            enhancements: enhancements || [],  // From an army: [{id, bearer: 'unit'|'leader', name}]
+        };
+        if (loadout) {  // Chosen wargear: its weapons and counts, at the size it was chosen for
+            entry.weapons = withLoadout(entry.weapons, loadout);
+            entry.unit_size = models || entry.unit_size;
+            entry.default_models = models || entry.default_models;
+        } else if (models && unit.default_models) {
+            scaleUnitSize(entry, models);
+        }
+        if (leader) {
+            const choice = entry.leaders.find(l => l.id === leader.id);
+            entry.weapons = withLoadout(withLeaderEntries(entry.weapons, leader), leaderLoadout, true);
+            entry.leader_id = leader.id;
+            entry.leader_name = leader.name;
+            entry.leader_points = choice?.points ?? null;
+        }
+        return entry;
+    }
+
+    /** Analytics: a defender unit entry from /api/units/<id> data, with a leader's id or null (and an army's enhancements). */
+    function defenderEntry(unit, modelCount, leaderId = null, enhancements = []) {
+        return {
+            leaders: unit.leaders || [],
+            leader_id: leaderId,
+            unit_id: unit.id,
+            unit_name: unit.name,
+            faction: unit.faction,
+            faction_id: unit.faction_id,
+            points_table: unit.points_by_model_count || [],
+            toughness: unit.toughness,
+            save: unit.save,
+            wounds: unit.wounds,
+            invulnerable_save: unit.invulnerable_save,
+            feel_no_pain: unit.feel_no_pain,
+            model_count: modelCount,
+            enhancements: enhancements || [],
+        };
+    }
+
+    /** Armies: Detachment Points spent against the battle size's, as {text, over} (an Incursion's single 3 DP detachment is checked by the server). */
+    function armyDetachmentPoints(spent, limit) {
+        return { text: limit != null ? `${spent} / ${limit} DP` : `${spent} DP`, over: limit != null && spent > limit };
+    }
+
+    /** Armies: an army's points against its limit, as {text, over}. */
+    function armyPoints(total, limit) {
+        const fmt = n => Number(n || 0).toLocaleString('en-GB');
+        return { text: limit ? `${fmt(total)} / ${fmt(limit)} pts` : `${fmt(total)} pts`, over: !!limit && total > limit };
+    }
+
     /** Analytics: an attacker's weapon entries with its leader's loadout added (replacing a previous leader's). */
     function withLeaderEntries(entries, leader) {
         const own = (entries || []).filter(e => !e.leader);
@@ -235,6 +317,35 @@
             html += `<optgroup label="${escapeHtml(faction)}">${detachments.filter(d => d.faction === faction).map(option).join('')}</optgroup>`;
         }
         return html;
+    }
+
+    /** Chosen detachment keys from saved state: a list, or one key as first saved, or nothing. */
+    function detachmentKeys(value) {
+        if (Array.isArray(value)) return [...new Set(value.filter(Boolean).map(String))];
+        return value ? [String(value)] : [];
+    }
+
+    /** "No detachment", one name, or "A + B" for the chosen detachments. */
+    function detachmentSummary(detachments, chosenKeys) {
+        const names = (detachments || []).filter(d => (chosenKeys || []).includes(d.key)).map(d => d.name);
+        return names.length ? names.join(' + ') : 'No detachment (faction-wide only)';
+    }
+
+    /**
+     * A detachment checklist (inside a <details class="detachment-picker">): its summary line and
+     * a checkbox per detachment with its Detachment Points, grouped by faction when there are several.
+     */
+    function detachmentPickerHtml(detachments, chosenKeys) {
+        const chosen = new Set(chosenKeys || []);
+        const box = d => `<label class="detachment-option">
+            <input type="checkbox" data-key="${escapeHtml(d.key)}"${chosen.has(d.key) ? ' checked' : ''}>
+            <span>${escapeHtml(d.name)}</span>${d.dp != null ? `<span class="detachment-dp">${d.dp} DP</span>` : ''}</label>`;
+        const factions = [...new Set((detachments || []).map(d => d.faction))];
+        const body = factions.length <= 1 ? (detachments || []).map(box).join('')
+            : factions.map(f => `<div class="detachment-faction">${escapeHtml(f || '')}</div>` +
+                detachments.filter(d => d.faction === f).map(box).join('')).join('');
+        return `<summary title="Detachments: offer their rules and stratagems too">${escapeHtml(detachmentSummary(detachments, chosenKeys))}</summary>
+            <div class="detachment-options">${body}</div>`;
     }
 
     // -------------------------------------------------------------------------
@@ -393,17 +504,29 @@
      * {attackers, defenders, conditions, weaponTypeFilter, defenderMode, includedProfiles,
      *  attackerTicked, defenderTicked}
      */
+    /** An Analytics entry's enhancements that apply: its own, and its leader's while that leader leads it. */
+    function activeEnhancements(entry) {
+        return (entry.enhancements || []).filter(e => e.bearer !== 'leader' || (entry.leader_id && entry.leader_id === e.unit_id));
+    }
+
+    /** An entry's enhancements as the server takes them ([{id, bearer}]). */
+    function enhancementRefs(entry) {
+        return activeEnhancements(entry).map(e => ({ id: e.id, bearer: e.bearer }));
+    }
+
     function buildMatrixRequest(page) {
         const filter = page.weaponTypeFilter || 'both';
         const attackers = page.attackers.map((atk, a) => ({
             label: copyLabel(page.attackers, a),
             unit_id: atk.unit_id,
             leader_id: atk.leader_id || null,
+            enhancements: enhancementRefs(atk),
             weapons: atk.weapons
                 .filter(w => w.include && weaponVisible(w, filter))
                 .map(w => ({ weapon_id: w.weapon_id, weapon_type: w.weapon_type, models: w.models,
                              label: w.leader ? `${w.name} (${w.leader_name})` : w.name,
-                             unit_id: atk.unit_id, leader_id: atk.leader_id || null })),
+                             unit_id: atk.unit_id, leader_id: atk.leader_id || null,
+                             leader: !!w.leader, enhancements: enhancementRefs(atk) })),
             unit_size: atk.unit_size || atk.default_models || null,
         })).filter(atk => atk.weapons.length > 0);
 
@@ -415,6 +538,7 @@
                 label: defenderLabel(page.defenders, idx) + (d.leader_id && d.leader_name ? ` + ${d.leader_name}` : ''),
                 extra_modifiers: d.extra_modifiers || '',
                 leader_id: d.leader_id || null,
+                enhancements: enhancementRefs(d),
             }));
 
         return {
@@ -558,8 +682,9 @@
     return {
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
-        simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, formatRuleLine, formatRuleText,
-        leaderBuffSummary, withLeaderWeapons, withLeaderEntries,
+        simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
+        detachmentPickerHtml, formatRuleLine, formatRuleText,
+        leaderBuffSummary, withLeaderWeapons, withLeaderEntries, withLoadout, attackerEntry, defenderEntry, activeEnhancements, enhancementRefs, armyPoints, armyDetachmentPoints,
         usedWeapons, weaponPayload, rulesForFilter, ruleRowTitle, rulesSelection, woundsMarker, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
         createPageState,

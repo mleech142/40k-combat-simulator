@@ -121,7 +121,7 @@
       ],
       "constraints": [
        {
-        "id": "c-41",
+        "id": "c-50",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -129,7 +129,7 @@
         "value": 1
        },
        {
-        "id": "c-42",
+        "id": "c-51",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -152,7 +152,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-43",
+        "id": "c-52",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -160,7 +160,7 @@
         "value": 1
        },
        {
-        "id": "c-44",
+        "id": "c-53",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -175,13 +175,42 @@
         "hidden": false,
         "type": "upgrade",
         "profiles": [],
-        "constraints": [],
+        "constraints": [
+         {
+          "id": "c-54",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "costs": [
+         {
+          "name": "pts",
+          "typeId": "51b2-306e-1021-d207",
+          "value": 0
+         },
+         {
+          "name": "Detachment Points",
+          "typeId": "82ae-1066-5107-6ae0",
+          "value": 2
+         }
+        ],
         "rules": [
          {
           "name": "Assigned",
           "id": "d-task-force-rule",
           "hidden": false,
           "description": "Agents can join any army."
+         }
+        ],
+        "categoryLinks": [
+         {
+          "name": "Disruption",
+          "id": "cl-k-cat-disruption",
+          "primary": false,
+          "targetId": "k-cat-disruption"
          }
         ]
        }

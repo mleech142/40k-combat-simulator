@@ -9,13 +9,14 @@ from pathlib import Path
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy.exc import IntegrityError
-from .models import (db, init_db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
-                     SavedScenario, SavedComparison, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
+from .models import (db, init_db, Faction, Detachment, Enhancement, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
+                     SavedScenario, SavedComparison, SavedArmy, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
-from . import bsdata_download, folder_dialog, wahapedia, wahapedia_download
+from . import armies, bsdata_download, folder_dialog, wahapedia, wahapedia_download
+from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
     simulate, simulate_analytical, simulate_monte_carlo_combined, simulate_attached_analytical,
@@ -198,6 +199,45 @@ def leader_modifiers(leader, side, weapon_type):
     return modifiers
 
 
+def load_enhancements(items):
+    """[(Enhancement, bearer)] from a request's [{'id', 'bearer'}]: 'leader' when the unit's leader carries it, else 'unit'."""
+    carried = []
+    for item in items or []:
+        try:
+            enhancement = db.session.get(Enhancement, int(item.get('id')))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if enhancement is not None:
+            carried.append((enhancement, 'leader' if item.get('bearer') == 'leader' else 'unit'))
+    return carried
+
+
+def enhancement_modifiers(carried, side, weapon_type, leader_weapon=False):
+    """
+    Modifier text from the enhancements a unit carries (load_enhancements), for one side and the
+    attacking weapon's phase. An effect for the bearer only applies to the bearer's own weapons
+    (the leader's when the leader carries it) and, as a target, only when the unit is the bearer.
+    """
+    modifiers = []
+    for enhancement, bearer in carried:
+        for buff in enhancement.buffs or []:
+            if (buff.get('applies_to') or 'Attacker') != side:
+                continue
+            if (buff.get('phase') or 'Both') not in RULE_PHASES['melee' if weapon_type == 'melee' else 'ranged']:
+                continue
+            if buff.get('scope') == 'bearer':
+                if side == 'Attacker' and (bearer == 'leader') != bool(leader_weapon):
+                    continue
+                if side == 'Target' and bearer != 'unit':
+                    continue
+            modifiers += [m.strip() for m in (buff.get('modifier') or '').split(',') if m.strip()]
+    return modifiers
+
+
+def enhancement_points(carried):
+    return sum(enhancement.points or 0 for enhancement, _ in carried)
+
+
 def leader_target(leader, extra_keywords=()):
     """A leader's own profile as the last stage of an attached-unit target (its models after the bodyguard)."""
     return DefenderProfile(
@@ -232,20 +272,6 @@ def modifier_has_effect(text, modelled_names):
     if not modelled_names:
         return bool(entries)
     return any(keyword_name(m).lower() in modelled_names for m in entries)
-
-
-def default_used(names):
-    """
-    Which weapons are used by default: all, except later profiles of a "Weapon - Profile" family
-    (alternative profiles of one gun). Same rule as the Simulator and Analytics pages.
-    """
-    families, used = set(), []
-    for name in names:
-        family = name.split(' - ')[0].strip().lower() if ' - ' in name else None
-        used.append(not family or family not in families)
-        if family:
-            families.add(family)
-    return used
 
 
 def weighted_average(values, weights):
@@ -378,6 +404,15 @@ def register_routes(app):
         rows = Detachment.query.filter(Detachment.faction_id.in_(faction_ids)).order_by(Detachment.name)
         return jsonify([d.to_dict() for d in rows])
 
+    @app.route('/api/enhancements')
+    def api_enhancements():
+        """BSData enhancements of one or more ?faction_id=N, with their points, text and modelled effects."""
+        faction_ids = [i for i in request.args.getlist('faction_id', type=int) if i]
+        if not faction_ids:
+            return jsonify([])
+        rows = Enhancement.query.filter(Enhancement.faction_id.in_(faction_ids)).order_by(Enhancement.name)
+        return jsonify([e.to_dict() for e in rows])
+
     def rules_from_keys(keys):
         """{'rule_ids', 'stratagem_ids'} from saved tick keys like 'rule:3' / 'stratagem:7'."""
         selection = {'rule_ids': [], 'stratagem_ids': []}
@@ -425,6 +460,8 @@ def register_routes(app):
         extra_modifiers = text_list(defender_data.get('extra_modifiers'))
         attacker_leader = load_leader(attacker_data.get('leader_id'))
         defender_leader = load_leader(defender_data.get('leader_id'))
+        attacker_enhancements = load_enhancements(attacker_data.get('enhancements'))
+        defender_enhancements = load_enhancements(defender_data.get('enhancements'))
 
         def target_profile(extra_keywords=()):
             return DefenderProfile(
@@ -443,9 +480,11 @@ def register_routes(app):
             w_type = 'melee' if w.get('type') == 'melee' else 'ranged'
             # Ticked rules and stratagems add modifier text to the weapon (attacker) or the target
             attacker_modifiers = (rule_modifiers(attacker_rules, 'Attacker', w.get('faction_id', attacker_data.get('faction_id')), w_type)
-                                  + leader_modifiers(attacker_leader, 'Attacker', w_type))
+                                  + leader_modifiers(attacker_leader, 'Attacker', w_type)
+                                  + enhancement_modifiers(attacker_enhancements, 'Attacker', w_type, w.get('leader')))
             target_modifiers = (rule_modifiers(target_rules, 'Target', defender_data.get('faction_id'), w_type)
-                                + leader_modifiers(defender_leader, 'Target', w_type))
+                                + leader_modifiers(defender_leader, 'Target', w_type)
+                                + enhancement_modifiers(defender_enhancements, 'Target', w_type))
             for side, side_modifiers in (('attacker', attacker_modifiers), ('target', target_modifiers)):
                 applied[side] += [m for m in side_modifiers if m not in applied[side]]
 
@@ -1400,11 +1439,13 @@ def register_routes(app):
         for atk in data.get('attackers', []):
             atk_unit = db.session.get(Unit, atk['unit_id']) if atk.get('unit_id') else None
             atk_leader = load_leader(atk.get('leader_id'))
+            atk_enhancements = load_enhancements(atk.get('enhancements'))
             weapons = []
             for w in atk.get('weapons', []):
                 w_type = 'melee' if w.get('weapon_type') == 'melee' else 'ranged'
                 weapon_modifiers = (rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
-                                    + leader_modifiers(atk_leader, 'Attacker', w_type))
+                                    + leader_modifiers(atk_leader, 'Attacker', w_type)
+                                    + enhancement_modifiers(atk_enhancements, 'Attacker', w_type, w.get('leader')))
                 weapon, profile = attacker_profile(w_type, w.get('weapon_id'), w.get('models', 1), weapon_modifiers)
                 if profile:
                     models = profile.models
@@ -1419,6 +1460,8 @@ def register_routes(app):
             points = atk_unit.points_for(unit_size) if atk_unit else None
             if atk_leader is not None and points is not None:
                 points += atk_leader.points_for(atk_leader.default_models or 1) or 0
+            if points is not None:
+                points += enhancement_points(atk_enhancements)
 
             # Kept even if its weapons were deleted, so rows stay aligned with the request
             attackers.append({
@@ -1446,6 +1489,7 @@ def register_routes(app):
                     # One-off target modifiers for this defender only (real units; never saved to the datasheet)
                     'extra_modifiers': text_list(def_config.get('extra_modifiers')) if isinstance(unit, Unit) else [],
                     'leader': load_leader(def_config.get('leader_id')) if isinstance(unit, Unit) else None,
+                    'enhancements': load_enhancements(def_config.get('enhancements')) if isinstance(unit, Unit) else [],
                 })
 
         # Each defender as seen by ranged and by melee attacks (target rules can be phase-specific);
@@ -1453,7 +1497,8 @@ def register_routes(app):
         for d in defenders:
             target_modifiers = {
                 w_type: (rule_modifiers(defender_rules, 'Target', d['unit'].faction_id, w_type)
-                         + leader_modifiers(d['leader'], 'Target', w_type) + d['extra_modifiers'])
+                         + leader_modifiers(d['leader'], 'Target', w_type)
+                         + enhancement_modifiers(d['enhancements'], 'Target', w_type) + d['extra_modifiers'])
                 for w_type in ('ranged', 'melee')
             }
             d['profiles'] = {w_type: defender_profile(d['unit'], d['model_count'], mods)
@@ -1705,6 +1750,7 @@ def register_routes(app):
         defender_rules = selected_rules(data.get('defender_rules'))
         extra_modifiers = text_list(data.get('extra_modifiers')) if isinstance(unit, Unit) else []
         defender_leader = load_leader(data.get('leader_id')) if isinstance(unit, Unit) else None
+        defender_enhancements = load_enhancements(data.get('enhancements')) if isinstance(unit, Unit) else []
 
         # Each weapon with its own unit's attacker rules, against the target as its phase sees it
         profiles, targets, leader_targets = [], [], []
@@ -1712,12 +1758,15 @@ def register_routes(app):
             w_type = 'melee' if w.get('weapon_type') == 'melee' else 'ranged'
             atk_unit = db.session.get(Unit, w['unit_id']) if w.get('unit_id') else None
             weapon_modifiers = (rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
-                                + leader_modifiers(load_leader(w.get('leader_id')), 'Attacker', w_type))
+                                + leader_modifiers(load_leader(w.get('leader_id')), 'Attacker', w_type)
+                                + enhancement_modifiers(load_enhancements(w.get('enhancements')), 'Attacker', w_type,
+                                                        w.get('leader')))
             _, profile = attacker_profile(w_type, w.get('weapon_id'), w.get('models', 1), weapon_modifiers)
             if profile:
                 profiles.append(profile)
                 target_modifiers = (rule_modifiers(defender_rules, 'Target', unit.faction_id, w_type)
-                                    + leader_modifiers(defender_leader, 'Target', w_type) + extra_modifiers)
+                                    + leader_modifiers(defender_leader, 'Target', w_type)
+                                    + enhancement_modifiers(defender_enhancements, 'Target', w_type) + extra_modifiers)
                 targets.append(defender_profile(unit, model_count, target_modifiers))
                 if defender_leader is not None:
                     leader_targets.append(leader_target(defender_leader, target_modifiers))
@@ -1759,6 +1808,115 @@ def register_routes(app):
             'method': result.method,
             'iterations': result.iterations,
         })
+
+    # --- Army lists (armies.py): built on the Armies page, used in Analytics ----------------
+
+    @app.route('/armies')
+    def armies_page():
+        factions = Faction.query.order_by(Faction.name).all()
+        return render_template('armies.html', factions=[{'id': f.id, 'name': f.name} for f in factions],
+                               battle_sizes=armies.BATTLE_SIZES)
+
+    def army_from_request():
+        try:
+            return armies.clean_army(request.get_json(silent=True)), None
+        except armies.ArmyError as err:
+            return None, (jsonify({'error': str(err)}), 400)
+
+    def saved_army_response(saved):
+        """A saved army with its prices and problems (its units priced too)."""
+        army = saved.to_dict()
+        return jsonify(dict(army, **armies.price_army(army)))
+
+    @app.route('/api/armies')
+    def api_list_armies():
+        """Saved armies, newest first, with their faction and points."""
+        names = {f.id: f.name for f in Faction.query}
+        out = []
+        for saved in SavedArmy.query.order_by(SavedArmy.updated_at.desc(), SavedArmy.id.desc()):
+            priced = armies.price_army(saved.to_dict())
+            out.append({'id': saved.id, 'name': saved.name, 'faction': names.get(saved.faction_id),
+                        'detachment': priced['detachment'], 'total': priced['total'],
+                        'points_limit': saved.points_limit, 'unit_count': len(saved.units or []),
+                        'problem_count': len(priced['problems'])})
+        return jsonify(out)
+
+    @app.route('/api/armies/price', methods=['POST'])
+    def api_price_army():
+        """Price and check an army as it is being built (nothing is saved)."""
+        army, error = army_from_request()
+        if error:
+            return error
+        return jsonify(armies.price_army(army))
+
+    @app.route('/api/armies/wargear', methods=['POST'])
+    def api_army_wargear():
+        """
+        One unit's wargear for the Armies page's popup: {unit_id, faction_id, models, wargear} ->
+        {models, points, problems, wargear (the full choices), loadout, form, summary, sizes}.
+        """
+        data = request.get_json(silent=True) or {}
+        unit = db.session.get(Unit, int(data.get('unit_id') or 0))
+        if unit is None or unit.wargear is None:
+            return jsonify({'error': 'This unit has no wargear to choose.'}), 404
+        try:
+            choices = armies.clean_wargear(data.get('wargear'))
+            models = int(data.get('models') or 0) or None
+        except (armies.ArmyError, TypeError, ValueError) as err:
+            return jsonify({'error': str(err)}), 400
+        faction = db.session.get(Faction, int(data.get('faction_id') or unit.faction_id))
+        result = armies.unit_wargear(unit, choices, models, faction.bsdata_id if faction else None)
+        return jsonify(dict(result, wargear=result.pop('choices'), sizes=armies.sizes_of(unit), name=unit.name))
+
+    @app.route('/api/armies/text', methods=['POST'])
+    def api_army_text():
+        """An army as plain text, to share."""
+        army, error = army_from_request()
+        if error:
+            return error
+        return jsonify({'text': armies.army_text(army, armies.price_army(army))})
+
+    @app.route('/api/armies', methods=['POST'])
+    def api_create_army():
+        army, error = army_from_request()
+        if error:
+            return error
+        saved = SavedArmy(**army)
+        db.session.add(saved)
+        db.session.commit()
+        return saved_army_response(saved)
+
+    @app.route('/api/armies/<int:army_id>')
+    def api_get_army(army_id):
+        return saved_army_response(db.get_or_404(SavedArmy, army_id))
+
+    @app.route('/api/armies/<int:army_id>', methods=['PUT'])
+    def api_update_army(army_id):
+        saved = db.get_or_404(SavedArmy, army_id)
+        army, error = army_from_request()
+        if error:
+            return error
+        for key, value in army.items():
+            setattr(saved, key, value)
+        db.session.commit()
+        return saved_army_response(saved)
+
+    @app.route('/api/armies/<int:army_id>/copy', methods=['POST'])
+    def api_copy_army(army_id):
+        saved = db.get_or_404(SavedArmy, army_id)
+        copy = SavedArmy(name=f'{saved.name} (copy)'[:200], faction_id=saved.faction_id,
+                         detachment_keys=saved.to_dict()['detachment_keys'], points_limit=saved.points_limit,
+                         warlord=saved.warlord,
+                         units=list(saved.units or []))
+        db.session.add(copy)
+        db.session.commit()
+        return saved_army_response(copy)
+
+    @app.route('/api/armies/<int:army_id>', methods=['DELETE'])
+    def api_delete_army(army_id):
+        db.session.delete(db.get_or_404(SavedArmy, army_id))
+        db.session.commit()
+        return jsonify({'message': 'Army deleted'})
 
     @app.route('/api/comparisons', methods=['GET'])
     def api_list_comparisons():

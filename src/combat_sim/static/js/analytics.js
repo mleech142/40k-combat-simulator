@@ -32,10 +32,10 @@
         genericProfiles: [],  // read-only, from /api/data/target-profiles
         genericIncluded: null,  // Set of included profile ids (null = each profile's default)
         // Rules & stratagems each side can tick, which are ticked ('rule:3', 'stratagem:7'), and the
-        // side's detachment (BSData key; '' = faction-wide rules only) from its factions' detachments
+        // side's chosen detachments (BSData keys; none = faction-wide rules only) from its factions' detachments
         rules: {
-            attacker: { available: [], ticked: new Set(), factions: '', detachment: '', detachments: [] },
-            defender: { available: [], ticked: new Set(), factions: '', detachment: '', detachments: [] },
+            attacker: { available: [], ticked: new Set(), factions: '', chosen: [], detachments: [] },
+            defender: { available: [], ticked: new Set(), factions: '', chosen: [], detachments: [] },
         },
         pickerMode: 'attacker',  // which table the Add Unit pop-up adds to
         conditions: {
@@ -73,6 +73,7 @@
         renderAttackerTable();
         renderDefenderTable();
         loadSavedComparisons();
+        loadArmyFromUrl();
         window.addEventListener('pagehide', savePageState);
     }
 
@@ -167,8 +168,9 @@
         elements.unitPickerFaction.addEventListener('change', loadUnitPickerList);
         document.getElementById('unit-picker-legends').addEventListener('change', loadUnitPickerList);
         ['attacker', 'defender'].forEach(side => {
-            document.getElementById(`${side}-detachment`).addEventListener('change', (e) => {
-                state.rules[side].detachment = e.target.value;
+            const picker = document.getElementById(`${side}-detachment`);
+            picker.addEventListener('change', () => {
+                state.rules[side].chosen = [...picker.querySelectorAll('input:checked')].map(cb => cb.dataset.key);
                 state.rules[side].factions = '';  // force a reload of the offered rules
                 refreshRules(side);
             });
@@ -257,7 +259,7 @@
     async function refreshRules(side) {
         const panel = state.rules[side];
         const factionIds = [...new Set(sideEntries(side).map(e => e.faction_id).filter(Boolean))].sort((a, b) => a - b);
-        const signature = factionIds.join(',') + '|' + panel.detachment;
+        const signature = factionIds.join(',') + '|' + panel.chosen.join(',');
         if (signature === panel.factions && panel.available.length) {
             renderRulesList(side);
             return;
@@ -270,14 +272,16 @@
             panel.detachments = factionIds.length
                 ? await fetch(`/api/detachments?${params}`).then(r => r.json())
                 : [];
-            if (!panel.detachments.some(d => d.key === panel.detachment)) panel.detachment = '';
-            const select = document.getElementById(`${side}-detachment`);
-            select.innerHTML = Core.detachmentOptionsHtml(panel.detachments, panel.detachment);
-            select.style.display = panel.detachments.length ? '' : 'none';
-            if (panel.detachment) params.append('detachment', panel.detachment);
+            panel.chosen = panel.chosen.filter(key => panel.detachments.some(d => d.key === key));
+            const picker = document.getElementById(`${side}-detachment`);
+            const open = picker.open;
+            picker.innerHTML = Core.detachmentPickerHtml(panel.detachments, panel.chosen);
+            picker.open = open;
+            picker.style.display = panel.detachments.length ? '' : 'none';
+            panel.chosen.forEach(key => params.append('detachment', key));
 
             const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
-            if (panel.factions !== factionIds.join(',') + '|' + panel.detachment) return;  // a newer refresh started
+            if (panel.factions !== factionIds.join(',') + '|' + panel.chosen.join(',')) return;  // a newer refresh started
             const keys = new Set(available.map(e => e.key));
             panel.available = available;
             panel.ticked = new Set([...panel.ticked].filter(k => keys.has(k)));
@@ -345,15 +349,15 @@
     function ticksForSaving() {
         return {
             attacker: [...state.rules.attacker.ticked], defender: [...state.rules.defender.ticked],
-            detachments: { attacker: state.rules.attacker.detachment, defender: state.rules.defender.detachment },
+            detachments: { attacker: state.rules.attacker.chosen, defender: state.rules.defender.chosen },
         };
     }
 
     function restoreTicks(saved) {
         state.rules.attacker.ticked = new Set(saved?.attacker || []);
         state.rules.defender.ticked = new Set(saved?.defender || []);
-        state.rules.attacker.detachment = saved?.detachments?.attacker || '';
-        state.rules.defender.detachment = saved?.detachments?.defender || '';
+        state.rules.attacker.chosen = Core.detachmentKeys(saved?.detachments?.attacker);
+        state.rules.defender.chosen = Core.detachmentKeys(saved?.detachments?.defender);
         state.rules.attacker.factions = '';  // force a reload; ticks are kept if still available
         state.rules.defender.factions = '';
     }
@@ -370,21 +374,57 @@
 
 
     function toDefenderEntry(unit, modelCount) {
-        return {
-            leaders: unit.leaders || [],
-            leader_id: null,
-            unit_id: unit.id,
-            unit_name: unit.name,
-            faction: unit.faction,
-            faction_id: unit.faction_id,
-            points_table: unit.points_by_model_count || [],
-            toughness: unit.toughness,
-            save: unit.save,
-            wounds: unit.wounds,
-            invulnerable_save: unit.invulnerable_save,
-            feel_no_pain: unit.feel_no_pain,
-            model_count: modelCount,
-        };
+        return Core.defenderEntry(unit, modelCount);
+    }
+
+    // =========================
+    // An army from the Armies page (/analytics?army=<id>&side=attacker|defender)
+    // =========================
+
+    /** Replace one side's units with a saved army's (its leaders attached) and choose its detachment. */
+    async function loadArmyFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const armyId = parseInt(params.get('army'));
+        if (!armyId) return;
+        const side = params.get('side') === 'defender' ? 'defender' : 'attacker';
+        history.replaceState(null, '', window.location.pathname);  // A reload keeps the page as it is then
+        try {
+            const army = await fetch(`/api/armies/${armyId}`).then(r => r.ok ? r.json() : Promise.reject(r.status));
+            const details = new Map();
+            const unitData = async id => {
+                if (!details.has(id)) details.set(id, await fetch(`/api/units/${id}`).then(r => r.json()));
+                return details.get(id);
+            };
+            const entries = [];
+            for (const item of army.roster) {
+                const unit = await unitData(item.unit_id);
+                if (side === 'attacker') {
+                    entries.push(Core.attackerEntry(unit, item.models, item.leader_id ? await unitData(item.leader_id) : null,
+                                                    item.enhancements, item.loadout, item.leader_loadout));
+                } else {
+                    entries.push(Core.defenderEntry(unit, item.models || unit.default_models || DEFAULT_DEFENDER_MODELS,
+                                                    item.leader_id || null, item.enhancements));
+                }
+            }
+            if (side === 'attacker') state.attackers = entries;
+            else {
+                state.defenders = entries;
+                setDefenderMode('real');
+            }
+            state.results = null;
+            state.rules[side].chosen = Core.detachmentKeys(army.detachment_keys);
+            state.rules[side].factions = '';  // Reload its detachments and tick list
+            renderAttackerTable();
+            renderDefenderTable();
+            elements.matrixContainer.innerHTML = `<div class="matrix-placeholder">
+                <p>${escapeHtml(army.name)} loaded as the ${side === 'attacker' ? 'attackers' : 'defenders'}.
+                   Click "Run Matrix" to compare.</p></div>`;
+            elements.matrixSummary.style.display = 'none';
+            document.getElementById('army-analysis').style.display = 'none';
+        } catch (err) {
+            console.error('Error loading army:', err);
+            alert('That army could not be loaded.');
+        }
     }
 
     function populateFactionFilter() {
@@ -449,18 +489,7 @@
             const unit = await response.json();
 
             if (state.pickerMode === 'attacker') {
-                state.attackers.push({
-                    unit_id: unit.id,
-                    unit_name: unit.name,
-                    faction: unit.faction,
-                    faction_id: unit.faction_id,
-                    default_models: unit.default_models || null,
-                    unit_size: unit.default_models || null,
-                    points_table: unit.points_by_model_count || [],
-                    weapons: Core.matchupWeapons(unit),  // Loadout, then wargear options (not included)
-                    leaders: unit.leaders || [],
-                    leader_id: null,
-                });
+                state.attackers.push(Core.attackerEntry(unit));
                 renderAttackerTable();
             } else {
                 state.defenders.push(toDefenderEntry(unit, unit.default_models || DEFAULT_DEFENDER_MODELS));
@@ -502,6 +531,7 @@
                     </label>` : ''}
                     <span class="unit-points">${unitPointsLabel(atk)}</span>
                     ${leaderSelect(atk.leaders, atk.leader_id, `data-a="${a}"`, 'atk-leader')}
+                    ${enhancementNote(atk)}
                 </td>`;
             const removeUnit = `<button class="btn-remove remove-unit" data-a="${a}" title="Remove unit"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
 
@@ -542,6 +572,12 @@
         });
 
         elements.attackerBody.innerHTML = html;
+    }
+
+    /** The enhancements an entry from an army carries (a leader's only while it leads the unit). */
+    function enhancementNote(entry) {
+        const shown = Core.activeEnhancements(entry);
+        return shown.length ? `<span class="leader-buffs" title="Enhancements from the army">${shown.map(e => escapeHtml(e.name || 'Enhancement')).join(', ')}</span>` : '';
     }
 
     /** Points of the unit at its size, plus its leader's. */
@@ -646,7 +682,7 @@
         elements.defenderBody.innerHTML = state.defenders.map((d, idx) => `
             <tr>
                 <td class="roster-unit-name">${escapeHtml(copyLabel(state.defenders, idx))}
-                    ${leaderSelect(d.leaders, d.leader_id, `data-d="${idx}"`, 'def-leader')}</td>
+                    ${leaderSelect(d.leaders, d.leader_id, `data-d="${idx}"`, 'def-leader')}${enhancementNote(d)}</td>
                 <td class="roster-muted">${escapeHtml(d.faction || '')}</td>
                 <td>${d.toughness}</td>
                 <td>${d.save}+</td>
@@ -992,6 +1028,7 @@
                     profile_id: defender.profile_id,
                     extra_modifiers: defender.extra_modifiers || '',
                     leader_id: defender.leader_id || null,
+                    enhancements: defender.enhancements || [],
                     model_count: defender.model_count,
                     conditions: request.conditions,
                     attacker_rules: request.attacker_rules,

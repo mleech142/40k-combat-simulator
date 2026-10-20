@@ -66,12 +66,12 @@ body {
 /* Main content */
 .main-content {
     padding: 1.5rem;
-    max-width: 1400px;
+    max-width: 1800px;
     margin: 0 auto;
 }
 
 .footer {
-    max-width: 1400px;
+    max-width: 1800px;
     margin: 0 auto;
     padding: 1rem 1.5rem 1.5rem;
     font-size: 0.75rem;
@@ -104,6 +104,43 @@ body {
     color: var(--text-secondary);
     font-size: 0.9rem;
     margin-bottom: 0.75rem;
+}
+
+/* The two downloads every user needs, as numbered steps in one card */
+.setup-downloads {
+    border-color: var(--accent-dim);
+}
+
+.setup-step {
+    display: flex;
+    gap: 1rem;
+    padding-top: 1rem;
+    margin-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
+.setup-step-number {
+    flex: none;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    background: var(--accent);
+    color: var(--on-accent);
+}
+
+.setup-step-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.setup-step-body h4 {
+    margin: 0.25rem 0 0.4rem;
+    font-size: 1rem;
+    color: var(--text-primary);
 }
 
 .setup-row {
@@ -3123,4 +3160,438 @@ h4 .fa-solid,
 
 .nav-link .fa-solid {
     opacity: 0.8;
+}
+
+/* =========================
+   Armies page
+   ========================= */
+
+.armies-layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr) 300px;
+    gap: 1rem;
+    align-items: start;
+}
+
+.armies-layout .card h3 {
+    margin-bottom: 0.75rem;
+}
+
+.army-form {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr;
+    gap: 0.75rem;
+}
+
+.army-form .filter-input,
+.army-form .filter-select {
+    width: 100%;
+}
+
+.army-points {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin: 0.75rem 0 0.25rem;
+}
+
+.army-points-total {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.army-points.over .army-points-total {
+    color: var(--error);
+}
+
+.army-saved-state {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.army-saved-state.unsaved {
+    color: var(--warning);
+}
+
+.army-problems {
+    margin: 0 0 0.75rem 1.1rem;
+    color: var(--warning);
+    font-size: 0.85rem;
+}
+
+.army-detachments {
+    margin-top: 1rem;
+}
+
+.army-detachments-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    cursor: pointer;
+    list-style: none;
+    padding: 0.35rem 0;
+}
+
+.army-detachments-header::-webkit-details-marker {
+    display: none;
+}
+
+.army-detachments-header::before {
+    content: '▸';  /* Right-pointing triangle; turns down when open */
+    color: var(--text-muted);
+    transition: transform 0.15s;
+}
+
+.army-detachments[open] > .army-detachments-header::before {
+    transform: rotate(90deg);
+}
+
+.army-detachments-chosen {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.army-dp {
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.army-dp.over {
+    color: var(--error);
+}
+
+.army-detachment-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 0.35rem 0.75rem;
+    max-height: 14rem;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+}
+
+.army-detachment {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.4rem;
+    padding: 0.3rem 0.4rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.army-detachment.chosen {
+    background: var(--accent-tint);
+}
+
+.army-detachment-name {
+    font-weight: 600;
+}
+
+.army-detachment-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.army-detachment-tag {
+    font-size: 0.65rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+
+/* Detachment checklists on the Simulator and Analytics */
+.detachment-picker {
+    margin: 0.25rem 0 0.5rem;
+    font-size: 0.85rem;
+}
+
+.detachment-picker summary {
+    cursor: pointer;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+}
+
+.detachment-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    max-height: 14rem;
+    overflow-y: auto;
+    padding: 0.4rem 0.6rem;
+}
+
+.detachment-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+
+.detachment-dp,
+.detachment-faction {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.detachment-faction {
+    margin-top: 0.3rem;
+    text-transform: uppercase;
+}
+
+.army-enhancement-count {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.army-enhancement-count.over {
+    color: var(--error);
+}
+
+.army-warlord-tag {
+    font-size: 0.65rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--accent-tint);
+    color: var(--accent);
+    text-transform: uppercase;
+}
+
+.army-joined-by {
+    display: block;
+    font-size: 0.75rem;
+}
+
+/* The army table stays inside its card: dropdowns shrink with it, and it scrolls sideways if still too wide */
+.army-units-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.army-units {
+    width: 100%;
+}
+
+/* Wargear: the button and summary in the army table, and the popup */
+.army-wargear {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    margin-top: 0.2rem;
+}
+
+.army-wargear-summary {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.wargear-body {
+    padding: 1rem 1.5rem;
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+.wargear-top {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.wargear-points {
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.wargear-section {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem 0.6rem;
+    margin: 0 0 0.75rem;
+}
+
+.wargear-section legend {
+    padding: 0 0.35rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wargear-range {
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.wargear-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+    cursor: pointer;
+}
+
+.wargear-count {
+    width: 4.5rem;
+    padding: 0.2rem 0.4rem;
+}
+
+.wargear-loadout {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.army-units select {
+    padding: 0.25rem 0.4rem;
+    width: 100%;
+    min-width: 5rem;
+    max-width: 14rem;
+    text-overflow: ellipsis;
+}
+
+.army-units .army-size {
+    width: auto;
+    min-width: 0;
+}
+
+/* Warlord: just wide enough for the crown and the radio button, which stay put when chosen */
+.army-units th:nth-child(1),
+.army-units td:nth-child(1) {
+    width: 1%;
+    padding-left: 0.6rem;
+    padding-right: 0.25rem;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.army-units .army-warlord {
+    margin: 0;
+    vertical-align: middle;
+}
+
+.army-units td:nth-child(3),
+.army-units td:nth-child(4) {
+    white-space: nowrap;
+}
+
+/* A leader or support unit sits under the unit it joins: its name is indented (not the Warlord column) */
+.army-unit-attached td:nth-child(2) {
+    padding-left: 1.75rem;
+}
+
+.army-unit-warning {
+    display: inline-block;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--warning) 20%, transparent);
+    color: var(--warning);
+    font-weight: 700;
+    cursor: help;
+}
+
+.army-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.army-add .filter-input {
+    width: 100%;
+}
+
+.army-add .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.5rem 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.army-unit-picker {
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+.army-list-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 0;
+}
+
+.army-list-item.active .army-list-name {
+    color: var(--accent);
+}
+
+.army-open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    text-align: left;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+}
+
+.army-list-name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.army-list-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.army-list-meta.over {
+    color: var(--warning);
+}
+
+.army-list-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.army-text {
+    width: calc(100% - 2rem);
+    margin: 1rem;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.85rem;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    resize: vertical;
+}
+
+.army-copied {
+    margin-right: auto;
+    color: var(--success);
+    font-size: 0.85rem;
+}
+
+@media (max-width: 1100px) {
+    .armies-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .army-form {
+        grid-template-columns: 1fr 1fr;
+    }
 }

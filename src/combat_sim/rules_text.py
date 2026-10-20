@@ -336,3 +336,38 @@ def parse_effects(text):
         else:
             skipped.append(sentence)
     return {'buffs': buffs, 'skipped': skipped, 'conditions': conditions}
+
+
+# ---------------------------------------------------------------------------
+# Enhancements: effects on the bearer, or on the unit it is in
+# ---------------------------------------------------------------------------
+
+# "ADEPTUS ASTARTES model only." / "SWORD BRETHREN SQUAD unit only.": who can take it (BSData checks that)
+RESTRICTION = re.compile(r"^[\w' ,/&-]+ (?:model|unit)s? only\.?$", re.I)
+
+
+def parse_enhancement(text):
+    """
+    {'buffs', 'skipped', 'conditions'} for an enhancement's text, each buff with a 'scope':
+    'unit' when it is for the unit the bearer is in ("This unit...", "the bearer's unit...", "While
+    the bearer is leading a unit, ...") and 'bearer' when for the bearer only ("This model's melee
+    attacks have [CLEAVE 1]", "The bearer has the Feel No Pain 5+ ability").
+    """
+    plain = plain_text(text)
+    buffs, skipped, conditions = [], [], []
+    leading, _ = parse_leader_buffs(re.sub(r'\bthe bearer\b', 'this model', plain, flags=re.I))
+    buffs += [dict(b, scope='unit') for b in leading]
+    for sentence in sentences(plain):
+        if RESTRICTION.match(sentence) or LEADING.search(re.sub(r'\bthe bearer\b', 'this model', sentence, flags=re.I)):
+            continue
+        if re.search(r'\bfriendly\b.*\bwithin\b', sentence, re.I):  # An aura: other units nearby, not this one
+            skipped.append(sentence)
+            continue
+        scope = 'unit' if re.search(r"\bthis unit\b|\bthe bearer's unit\b|\bthat unit\b", sentence, re.I) else 'bearer'
+        reworded = re.sub(r"\b(?:the bearer|this model|this unit)'s\b", "that unit's", sentence, flags=re.I)
+        reworded = re.sub(r"\b(?:the bearer|this model|this unit)\b", 'that unit', reworded, flags=re.I)
+        found = parse_effects(reworded)
+        buffs += [dict(b, scope=scope) for b in found['buffs'] if dict(b, scope=scope) not in buffs]
+        skipped += [sentence] if found['skipped'] else []
+        conditions += found['conditions']
+    return {'buffs': buffs, 'skipped': skipped, 'conditions': conditions}
