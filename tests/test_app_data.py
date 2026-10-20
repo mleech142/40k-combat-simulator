@@ -517,7 +517,7 @@ def test_simulator_attached_target_overflows_to_the_leader(app_client):
     rolled = client.post('/api/simulate', json=attached_body(void, captain, 'monte_carlo')).get_json()['summary']
     assert rolled['bodyguards_killed'] > 4.5
     assert 0 < rolled['leader_kill_probability'] < 100 and rolled['leader_damage'] > 0
-    assert rolled['models_killed'] == pytest.approx(rolled['bodyguards_killed'] + rolled['leader_killed'], abs=0.01)
+    assert rolled['models_killed'] == pytest.approx(rolled['bodyguards_killed'] + rolled['leader_killed'], abs=0.02)  # Three values rounded to 2 places
 
 
 def test_simulator_small_attack_never_reaches_the_leader(app_client):

@@ -349,6 +349,25 @@
         return (entries || []).filter(e => phases.includes(e.phase));
     }
 
+    /**
+     * Plotly shapes and annotations marking the target's total wounds on a damage distribution
+     * chart (bars on a category axis: bar i spans i - 0.5 to i + 0.5). Runs at or right of the
+     * line dealt at least that much damage. Empty when the distribution doesn't say.
+     */
+    function woundsMarker(distribution, color) {
+        const starts = distribution?.starts, wounds = distribution?.unit_wounds;
+        if (!starts?.length || !wounds) return { shapes: [], annotations: [] };
+        const width = starts.length > 1 ? starts[1] - starts[0] : 1;
+        const x = (wounds - starts[0]) / width - 0.5;
+        if (x > starts.length - 0.5) return { shapes: [], annotations: [] };  // No run reached it
+        return {
+            shapes: [{ type: 'line', xref: 'x', yref: 'paper', x0: x, x1: x, y0: 0, y1: 1,
+                       line: { color, width: 2, dash: 'dash' } }],
+            annotations: [{ xref: 'x', yref: 'paper', x, y: 1, yanchor: 'bottom', showarrow: false,
+                            text: `Unit's wounds (${wounds})`, font: { color, size: 10 } }],
+        };
+    }
+
     /** {rule_ids, stratagem_ids} from tick keys like 'rule:3' / 'stratagem:7'. */
     function rulesSelection(tickedKeys) {
         const selection = { rule_ids: [], stratagem_ids: [] };
@@ -535,7 +554,7 @@
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, formatRuleLine, formatRuleText,
         leaderBuffSummary, withLeaderWeapons, withLeaderEntries,
-        usedWeapons, weaponPayload, rulesForFilter, rulesSelection, buildMatrixRequest,
+        usedWeapons, weaponPayload, rulesForFilter, rulesSelection, woundsMarker, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
         createPageState,
     };

@@ -728,6 +728,30 @@ def _roll_weapon(
     return counts, damage_instances
 
 
+MAX_DISTRIBUTION_BARS = 30
+
+
+def damage_histogram(damage, unit_wounds):
+    """
+    The damage distribution chart: the share of runs (%) dealing each amount of damage, from 0
+    to the most any run dealt. One bar per amount, or equal ranges ("20-22") once there would be
+    more than MAX_DISTRIBUTION_BARS. `starts` is each bar's lowest damage; `unit_wounds` is the
+    target's total wounds, which the chart marks.
+    """
+    damage = np.asarray(damage, dtype=int)
+    top = int(damage.max()) if damage.size else 0
+    width = max(1, math.ceil((top + 1) / MAX_DISTRIBUTION_BARS))
+    starts = list(range(0, top + 1, width))
+    counts = np.bincount(damage // width, minlength=len(starts))[:len(starts)]
+    labels = [str(s) if width == 1 else f"{s}-{s + width - 1}" for s in starts]
+    return {
+        "labels": labels,
+        "starts": starts,
+        "probabilities": (counts / max(1, damage.size) * 100).tolist(),
+        "unit_wounds": unit_wounds,
+    }
+
+
 def _allocate_damage(damage_instances: list[int], defender: DefenderProfile) -> int:
     """
     Apply damage to defender models one at a time and return models killed.
@@ -782,15 +806,7 @@ def simulate_monte_carlo_combined(
     kills_array = np.array(kills_results)
     avg_damage = float(np.mean(damage_array))
 
-    # Distribution
-    max_damage = int(np.max(damage_array)) + 1
-    bins = list(range(min(max_damage + 1, 20)))
-    hist, _ = np.histogram(damage_array, bins=bins + [bins[-1] + 100000])
-
-    distribution = {
-        "labels": [str(b) for b in bins[:-1]] + [f"{bins[-1]}+"],
-        "probabilities": (hist / iterations * 100).tolist()
-    }
+    distribution = damage_histogram(damage_array, defender.model_count * defender.wounds)
 
     return SimulationResult(
         average_damage=round(avg_damage, 2),
@@ -863,9 +879,6 @@ def simulate_monte_carlo_attached(
     bodyguard_array, leader_array = np.array(bodyguard_results), np.array(leader_results)
     kills_array = bodyguard_array + leader_array
     avg_damage = float(np.mean(damage_array))
-    max_damage = int(np.max(damage_array)) + 1
-    bins = list(range(min(max_damage + 1, 20)))
-    hist, _ = np.histogram(damage_array, bins=bins + [bins[-1] + 100000])
     total_models = bodyguard.model_count + leader.model_count
     total_wounds = bodyguard.model_count * bodyguard.wounds + leader.model_count * leader.wounds
     return SimulationResult(
@@ -877,8 +890,7 @@ def simulate_monte_carlo_attached(
         wounds=round(totals['wounds'] / iterations, 2),
         failed_saves=round(totals['failed_saves'] / iterations, 2),
         damage_dealt=round(avg_damage, 2),
-        damage_distribution={"labels": [str(b) for b in bins[:-1]] + [f"{bins[-1]}+"],
-                             "probabilities": (hist / iterations * 100).tolist()},
+        damage_distribution=damage_histogram(damage_array, total_wounds),
         method="monte_carlo",
         iterations=iterations,
         kill_probability=round(float(np.mean(kills_array >= 1)) * 100, 1),

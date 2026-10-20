@@ -418,3 +418,36 @@ def test_monte_carlo_leader_only_dies_after_every_bodyguard():
     leader = DefenderProfile(4, 4, 1, model_count=1)
     rolled = simulate_monte_carlo_attached([weapon], bodyguard, leader, BattleConditions(), iterations=500)
     assert rolled.leader_killed == 0 and rolled.leader_kill_probability == 0
+
+
+# --- Damage distribution chart ------------------------------------------------------------------------
+
+from combat_sim.simulation import MAX_DISTRIBUTION_BARS, damage_histogram  # noqa: E402
+
+
+def test_damage_histogram_has_a_bar_for_every_amount_up_to_the_most_dealt():
+    chart = damage_histogram([0, 2, 2, 5], unit_wounds=11)
+    assert chart['labels'] == ['0', '1', '2', '3', '4', '5'] and chart['starts'] == [0, 1, 2, 3, 4, 5]
+    assert chart['probabilities'] == [25, 0, 50, 0, 0, 25]
+    assert chart['unit_wounds'] == 11
+
+
+def test_damage_histogram_groups_high_damage_into_equal_ranges():
+    chart = damage_histogram([0, 26, 40, 89], unit_wounds=11)
+    assert len(chart['labels']) <= MAX_DISTRIBUTION_BARS
+    assert chart['labels'][:3] == ['0-2', '3-5', '6-8'] and chart['labels'][-1] == '87-89'
+    assert sum(chart['probabilities']) == pytest.approx(100)
+    assert chart['probabilities'][26 // 3] == 25  # Nothing lumped into a last "19+" bar
+
+
+def test_monte_carlo_distribution_covers_every_run():
+    random.seed(5)
+    weapon = AttackerProfile('20', 2, 10, 4, '3', [], models=1)  # Far more than the target's 11 wounds
+    target = DefenderProfile(9, 4, 11, invulnerable_save=6, model_count=1)
+    result = simulate_monte_carlo_combined([weapon], target, BattleConditions(), iterations=500)
+    chart = result.damage_distribution
+    assert sum(chart['probabilities']) == pytest.approx(100)
+    assert int(chart['labels'][-1].split('-')[-1]) > 19 and chart['unit_wounds'] == 11
+    bodyguard, leader = DefenderProfile(4, 3, 2, model_count=5), DefenderProfile(4, 2, 5, model_count=1)
+    attached = simulate_monte_carlo_attached([weapon], bodyguard, leader, BattleConditions(), iterations=200)
+    assert attached.damage_distribution['unit_wounds'] == 15  # Bodyguard and leader

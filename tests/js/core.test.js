@@ -264,6 +264,16 @@ test('rulesForFilter keeps the phases a weapon type can use', () => {
     assert.deepEqual(Core.rulesForFilter(null, 'both'), []);
 });
 
+test('woundsMarker puts a line where the target wounds fall on the damage chart', () => {
+    const one = Core.woundsMarker({starts: [0, 1, 2, 3, 4, 5], unit_wounds: 3}, 'grey');
+    assert.equal(one.shapes[0].x0, 2.5);  // Left edge of the "3" bar
+    assert.equal(one.annotations[0].text, "Unit's wounds (3)");
+    const ranges = Core.woundsMarker({starts: [0, 3, 6, 9], unit_wounds: 6}, 'grey');
+    assert.equal(ranges.shapes[0].x0, 1.5);  // Left edge of the "6-8" bar
+    assert.deepEqual(Core.woundsMarker({starts: [0, 1, 2], unit_wounds: 11}, 'grey'), {shapes: [], annotations: []});
+    assert.deepEqual(Core.woundsMarker(null, 'grey'), {shapes: [], annotations: []});
+});
+
 test('rulesSelection splits tick keys into rule and stratagem ids', () => {
     assert.deepEqual(Core.rulesSelection(new Set(['rule:1', 'stratagem:7', 'rule:12'])),
         { rule_ids: [1, 12], stratagem_ids: [7] });
