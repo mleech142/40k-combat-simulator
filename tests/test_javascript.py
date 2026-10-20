@@ -15,6 +15,9 @@ NODE = shutil.which('node')
 
 @pytest.mark.skipif(NODE is None, reason='Node.js not installed')
 def test_javascript_unit_tests():
-    result = subprocess.run([NODE, '--test', 'tests/js/*.test.js'], cwd=ROOT,
+    # The files listed here, not a glob: Node only expands globs itself from version 21
+    files = sorted(str(p.relative_to(ROOT)) for p in (ROOT / 'tests' / 'js').glob('*.test.js'))
+    assert files, 'No JavaScript tests found in tests/js'
+    result = subprocess.run([NODE, '--test', *files], cwd=ROOT,
                             capture_output=True, text=True, encoding='utf-8', timeout=120)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
