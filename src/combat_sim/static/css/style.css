@@ -2068,6 +2068,54 @@ body {
     color: var(--warning);
 }
 
+.source-wahapedia {
+    background: var(--accent-tint);
+    color: var(--accent);
+}
+
+/* How much of a Wahapedia rule's text was read into modifiers */
+.rule-parse {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+}
+
+.rule-parse-modelled,
+.rule-parse-edited {
+    color: var(--success);
+}
+
+.rule-parse-partial {
+    color: var(--warning);
+}
+
+.rule-source {
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+}
+
+.rule-source summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.rule-source .rule-text,
+.rule-parse-notes {
+    margin-top: 0.35rem;
+    max-width: 640px;
+}
+
+.rule-parse-notes {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.wahapedia-source {
+    max-height: 14rem;
+    overflow-y: auto;
+    margin-bottom: 0.75rem;
+}
+
 .filter-check {
     display: flex;
     align-items: center;

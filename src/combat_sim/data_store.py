@@ -19,6 +19,7 @@ everything the app owns, and every confirmed edit in the app is written straight
                   "detachment_key", "detachment_name"}],
   "unit_modifiers": [{"bsdata_id", "name", "modifiers"}],  # Added to BSData units, by datasheet
   "leader_buffs": [{"bsdata_id", "name", "buffs": [{"applies_to", "phase", "modifier"}]}],  # Edited, by datasheet
+  "wahapedia_overrides": [{"kind" ("stratagem"/"rule"), "wahapedia_id", "name", "applies_to", "phase", "modifier"}],
   "keywords": [{"id", "name", "category", "applies_to", "format", "summary", "sim_step", "modelled", "rule_ref"}],
   "target_profiles": [{"id", "kind" ("generic"/"role"), "name", "models", "toughness", "wounds", "save",
                        "invulnerable_save", "feel_no_pain", "keywords", "weight", "use"}]
@@ -31,6 +32,12 @@ offered only with that detachment. Detachments themselves come from BSData only.
 name it by catalogue ID (`faction_key`), since database IDs differ between installs; one whose
 faction isn't in the BSData folder keeps a placeholder faction so it can still be edited.
 Schema version 1 files (all-custom data) load unchanged.
+
+Stratagems and rules imported from Wahapedia (wahapedia.py) are added the same way as BSData
+records, with stable IDs, and are never saved in the data JSON: only edits to how the maths
+reads them are ("wahapedia_overrides", by Wahapedia ID). With Wahapedia loaded, the data
+JSON's rules and stratagems that Wahapedia has too (same faction, or core, and name) are
+superseded: hidden on the pages, but kept in the file.
 """
 
 import hashlib
@@ -38,7 +45,7 @@ import json
 import os
 from pathlib import Path
 
-from . import bsdata
+from . import bsdata, wahapedia as wahapedia_import
 from .models import (db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword,
                      TargetProfile,
                      StableId, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons, REFERENCE_TABLES)
@@ -57,7 +64,7 @@ SECTIONS = [
     ('keywords', Keyword),  # Read-only reference
     ('target_profiles', TargetProfile),  # Read-only generic opponents and role benchmarks
 ]
-OWN_SECTIONS = ['unit_modifiers', 'leader_buffs']  # Saved in the data JSON but not a table of their own
+OWN_SECTIONS = ['unit_modifiers', 'leader_buffs', 'wahapedia_overrides']  # Saved in the data JSON, not a table of their own
 
 LOADOUTS = [('ranged_weapons', unit_ranged_weapons), ('melee_weapons', unit_melee_weapons)]
 WEAPON_SECTIONS = {'ranged': 'ranged_weapons', 'melee': 'melee_weapons'}
@@ -165,12 +172,14 @@ def stable_ids(keys):
     return known
 
 
-def merge_data(app_data, imported):
+def merge_data(app_data, imported, wahapedia=None, report=None):
     """
     The reference data to load: the app data plus the imported BSData records (with stable
-    database IDs), rules and stratagems linked to their factions, and unit modifiers applied.
-    Returns (data, {section: unmatched entries}) for the unit_modifiers and leader_buffs
-    entries whose datasheet isn't loaded, to keep in the data JSON.
+    database IDs), rules and stratagems linked to their factions, unit modifiers applied, and
+    Wahapedia's stratagems and rules (a WahapediaResult) with the app data's edits to them.
+    Returns (data, {section: unmatched entries}) for the unit_modifiers, leader_buffs and
+    wahapedia_overrides entries that match nothing loaded, to keep in the data JSON. Notes on
+    matching Wahapedia to BSData are added to the list `report`.
     """
     data = {name: [dict(r) for r in app_data.get(name, [])] for name, _ in SECTIONS}
     data['schema_version'], data['source'] = SCHEMA_VERSION, app_data.get('source')
@@ -214,7 +223,7 @@ def merge_data(app_data, imported):
     for unit in data['units']:
         if unit.get('bsdata_id'):
             units_by_entry.setdefault(unit['bsdata_id'], []).append(unit)
-    unmatched = {'unit_modifiers': [], 'leader_buffs': []}
+    unmatched = {'unit_modifiers': [], 'leader_buffs': [], 'wahapedia_overrides': list(app_data.get('wahapedia_overrides', []))}
     for entry in app_data.get('unit_modifiers', []):
         units = units_by_entry.get(entry.get('bsdata_id'))
         if not units:
@@ -230,7 +239,42 @@ def merge_data(app_data, imported):
             continue
         for unit in units:
             unit['leader_buffs_override'] = list(entry.get('buffs') or [])
+
+    if wahapedia is not None:
+        unmatched['wahapedia_overrides'] = _add_wahapedia(data, wahapedia, unmatched['wahapedia_overrides'],
+                                                          report if report is not None else [])
     return data, unmatched
+
+
+OVERRIDE_FIELDS = ('applies_to', 'phase', 'modifier')
+
+
+def _add_wahapedia(data, wahapedia, overrides, report):
+    """
+    Append Wahapedia's stratagems and rules (with stable IDs and the app data's edits), and
+    mark the app data's records they replace (same table, faction and name). Returns the
+    overrides that matched nothing.
+    """
+    factions = [f for f in data['factions'] if f.get('source') == 'bsdata']
+    rows, notes = wahapedia_import.link(wahapedia.data, factions, data['detachments'])
+    report.extend(notes)
+    ids = stable_ids([(key, table) for table, key, _ in rows])
+    edits = {(o.get('kind'), str(o.get('wahapedia_id'))): o for o in overrides}
+    used = set()
+    for table, key, record in rows:
+        record = dict(record, id=ids[key])
+        edit = edits.get(('stratagem' if table == 'stratagems' else 'rule', record['wahapedia_id']))
+        if edit:
+            record.update({f: edit.get(f) for f in OVERRIDE_FIELDS}, edited=True)
+            used.add(id(edit))
+        data[table].append(record)
+
+    names = {(table, record['faction_id'], wahapedia_import.name_key(record['name'])) for table, _, record in rows}
+    for section in ('faction_rules', 'stratagems'):
+        for record in data[section]:
+            if record.get('source', 'app') == 'app' and                     (section, record.get('faction_id'), wahapedia_import.name_key(record['name'])) in names:
+                record['superseded'] = True
+    return [o for o in overrides if id(o) not in used]
 
 
 def unique_name(name, taken, label):
@@ -369,6 +413,11 @@ def export_data(source=None, unmatched=None):
                         table.select().where(table.c.unit_id == obj.id).order_by(table.c.position, table.c.weapon_id)
                     ).all()
                     record[key] = [{'weapon_id': r.weapon_id, 'qty': r.qty} for r in rows]
+            if model in (FactionRule, Stratagem):
+                if obj.source == 'wahapedia':
+                    continue
+                for col in WAHAPEDIA_COLUMNS:
+                    record.pop(col, None)
             if model in (FactionRule, Stratagem) and obj.faction_id is not None and obj.faction_id not in custom:
                 faction = obj.faction
                 record.pop('faction_id')
@@ -388,8 +437,21 @@ def export_data(source=None, unmatched=None):
             buffs.append({'bsdata_id': unit.bsdata_id, 'name': unit.name, 'buffs': list(unit.leader_buffs_override)})
     data['unit_modifiers'] = modifiers + [m for m in unmatched.get('unit_modifiers', []) if m.get('bsdata_id') not in seen_modifiers]
     data['leader_buffs'] = buffs + [b for b in unmatched.get('leader_buffs', []) if b.get('bsdata_id') not in seen_buffs]
+
+    edits, seen_edits = [], set()
+    for kind, model in (('stratagem', Stratagem), ('rule', FactionRule)):
+        for obj in model.query.filter_by(source='wahapedia', edited=True).order_by(model.name, model.id):
+            if (kind, obj.wahapedia_id) not in seen_edits:
+                seen_edits.add((kind, obj.wahapedia_id))
+                edits.append({'kind': kind, 'wahapedia_id': obj.wahapedia_id, 'name': obj.name,
+                              **{f: getattr(obj, f) for f in OVERRIDE_FIELDS}})
+    data['wahapedia_overrides'] = edits + [o for o in unmatched.get('wahapedia_overrides', [])
+                                           if (o.get('kind'), str(o.get('wahapedia_id'))) not in seen_edits]
     return data
 
+
+# Rule and stratagem columns only Wahapedia records use (or set on load), left out of the data JSON
+WAHAPEDIA_COLUMNS = ('source', 'wahapedia_id', 'text', 'parse', 'edited', 'superseded')
 
 # Unit columns only BSData units use, left out of custom units in the data JSON
 BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'added_modifiers', 'leader_buffs_override'}

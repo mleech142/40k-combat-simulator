@@ -49,10 +49,24 @@
         <div class="setup-message" id="reimport-message"></div>
     </section>
 
+    <section class="setup-card">
+        <h3>Rules and stratagems</h3>
+        <p>Stratagems, detachment rules and army rules, word for word, from the
+            <a href="https://wahapedia.ru/wh40k11ed/the-rules/data-export" target="_blank" rel="noopener">Wahapedia data
+            export</a> (powered by Wahapedia; not endorsed by Games Workshop). The app reads the effects it can model
+            into modifiers; check or change them on the Data tab. Downloaded into <code id="wahapedia-folder"></code>;
+            they replace the app's own rules and stratagems of the same name.</p>
+        <div class="bsdata-status" id="wahapedia-status"></div>
+        <div class="setup-row">
+            <button class="btn btn-primary" id="wahapedia-btn" onclick="downloadWahapedia()"><i class="fa-solid fa-download" aria-hidden="true"></i> Download latest</button>
+        </div>
+        <div class="setup-message" id="wahapedia-message"></div>
+    </section>
+
     <section class="setup-card" id="report-card" style="display:none">
         <h3>Import notes</h3>
-        <p>Things the importer couldn't read fully. The units still import; these are worth knowing when a result
-            looks off.</p>
+        <p>Things the importers couldn't read fully. The units and rules still import; these are worth knowing when a
+            result looks off.</p>
         <details class="setup-report" id="report-details">
             <summary id="report-summary"></summary>
             <table class="data-table data-table-compact">
@@ -77,6 +91,7 @@ const REPORT_KINDS = {
     leader: 'Leader target not found', unknown_keyword: 'Unknown weapon keyword', mixed_profile: 'Mixed stat lines',
     weapon_stats: 'Unreadable weapon', points: 'Points not fully worked out', missing_link: 'Broken link',
     skipped_unit: 'Unit skipped', skipped_faction: 'Faction skipped',
+    wahapedia_detachment: 'Wahapedia detachment not in BSData', wahapedia_faction: 'Wahapedia faction not in BSData',
 };
 
 document.addEventListener('DOMContentLoaded', () => loadStatus());
@@ -107,13 +122,39 @@ function renderStatus(status) {
     if (!input.value) input.value = status.folder || '';
     document.getElementById('continue-btn').style.display = status.loaded ? '' : 'none';
     document.getElementById('skip-btn').style.display = status.loaded ? 'none' : '';
+    renderWahapediaStatus(status.wahapedia || {});
     renderReportSummary(status);
 }
 
+function renderWahapediaStatus(w) {
+    const el = document.getElementById('wahapedia-status');
+    document.getElementById('wahapedia-folder').textContent = w.folder || '';
+    if (w.loaded) {
+        const parsed = w.parsed || {};
+        const modelled = (parsed.modelled || 0) + (parsed.partial || 0);
+        el.className = 'bsdata-status bsdata-status-ok';
+        el.innerHTML = `<i class="fa-solid fa-circle-check" aria-hidden="true"></i> ${w.stratagems} stratagems and ${w.rules} rules,` +
+            ` ${modelled} of them read into modifiers` +
+            (w.last_update ? ` <span class="muted">(Wahapedia updated ${esc(w.last_update.slice(0, 10))})</span>` : '');
+    } else if (w.error) {
+        el.className = 'bsdata-status bsdata-status-error';
+        el.textContent = `The Wahapedia files could not be read: ${w.error}`;
+    } else {
+        el.className = 'bsdata-status bsdata-status-missing';
+        el.textContent = 'Not downloaded yet: the app uses the core stratagems it ships with.';
+    }
+}
+
+function reportCounts(status) {
+    const counts = {...(status.report_counts || {})};
+    for (const [kind, n] of Object.entries(status.wahapedia?.report_counts || {})) counts[kind] = (counts[kind] || 0) + n;
+    return counts;
+}
+
 function renderReportSummary(status) {
-    const counts = status.report_counts || {};
+    const counts = reportCounts(status);
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    document.getElementById('report-card').style.display = status.loaded && total ? '' : 'none';
+    document.getElementById('report-card').style.display = (status.loaded || status.wahapedia?.loaded) && total ? '' : 'none';
     document.getElementById('report-summary').textContent = `${total} notes: ` +
         Object.entries(counts).map(([kind, n]) => `${n} × ${REPORT_KINDS[kind] || kind}`).join(', ');
     document.getElementById('report-rows').innerHTML = '';
@@ -126,13 +167,13 @@ document.addEventListener('toggle', async e => {
     const rows = document.getElementById('report-rows');
     if (rows.children.length) return;
     const status = await fetch('/api/data/status?report=1').then(r => r.json());
-    rows.innerHTML = (status.report || []).map(item => `<tr>
+    rows.innerHTML = [...(status.report || []), ...(status.wahapedia?.report || [])].map(item => `<tr>
         <td>${esc(REPORT_KINDS[item.kind] || item.kind)}</td><td>${esc(item.faction || '')}</td>
         <td>${esc(item.unit || '')}</td><td>${esc(item.detail)}</td></tr>`).join('');
 }, true);
 
 /** POST and show the outcome in a message line; returns the new status or null. */
-async function run(button, messageId, url, body, working) {
+async function run(button, messageId, url, body, working, done = null) {
     const message = document.getElementById(messageId);
     const buttons = document.querySelectorAll('.setup-page button');
     buttons.forEach(b => b.disabled = true);
@@ -148,7 +189,7 @@ async function run(button, messageId, url, body, working) {
             return null;
         }
         message.className = 'setup-message ok';
-        message.textContent = data.loaded ? `Done: ${data.factions} factions, ${data.units} units.` : 'Done.';
+        message.textContent = done ? done(data) : data.loaded ? `Done: ${data.factions} factions, ${data.units} units.` : 'Done.';
         await loadStatus(data);
         return data;
     } catch (err) {
@@ -162,6 +203,11 @@ async function run(button, messageId, url, body, working) {
 
 function downloadLatest() {
     run(null, 'download-message', '/api/bsdata/download', {}, 'Downloading from GitHub and importing… (this can take a minute)');
+}
+
+function downloadWahapedia() {
+    run(null, 'wahapedia-message', '/api/wahapedia/download', {}, 'Downloading from Wahapedia and reading the rules…',
+        data => `Done: ${data.wahapedia.stratagems} stratagems and ${data.wahapedia.rules} rules.`);
 }
 
 async function browseFolder() {

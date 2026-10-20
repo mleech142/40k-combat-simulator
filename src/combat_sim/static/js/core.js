@@ -349,6 +349,12 @@
         return (entries || []).filter(e => phases.includes(e.phase));
     }
 
+    /** Tooltip of a rule/stratagem in a tick list: whether it changes the maths, and any conditions left to the player. */
+    function ruleRowTitle(entry) {
+        const title = entry.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)';
+        return entry.conditions?.length ? `${title}. Tick it only when: ${entry.conditions.join('; ')}` : title;
+    }
+
     /** {rule_ids, stratagem_ids} from tick keys like 'rule:3' / 'stratagem:7'. */
     function rulesSelection(tickedKeys) {
         const selection = { rule_ids: [], stratagem_ids: [] };
@@ -535,7 +541,7 @@
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, formatRuleLine, formatRuleText,
         leaderBuffSummary, withLeaderWeapons, withLeaderEntries,
-        usedWeapons, weaponPayload, rulesForFilter, rulesSelection, buildMatrixRequest,
+        usedWeapons, weaponPayload, rulesForFilter, ruleRowTitle, rulesSelection, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
         createPageState,
     };
