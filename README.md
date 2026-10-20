@@ -10,10 +10,10 @@ Work out what your Warhammer 40,000 (11th edition) units really do. Pick an atta
 | --- | --- |
 | Getting started, every page explained with screenshots, and how the maths works, in plain English. **Start here if you just want to use the app.** | Running from source, tests, data sources, architecture and releases. **For working on the code.** |
 
-## Quick start (Windows)
+## Quick start
 
-1. Download the latest zip from the [Releases page](https://github.com/mleech142/40k-combat-simulator/releases) and unzip it.
-2. Run **`40kCombatSimulator.exe`** (if Windows warns you: **More info → Run anyway**).
+1. Download the latest zip for **Windows** or **Linux** from the [Releases page](https://github.com/mleech142/40k-combat-simulator/releases) and unzip it.
+2. Run **`40kCombatSimulator.exe`** on Windows (if it warns you: **More info → Run anyway**), or `./40kCombatSimulator/40kCombatSimulator` from a terminal on Linux.
 3. On the **Setup** page that opens, press **both** Download buttons: units and points, then rules and stratagems.
 4. Pick a page from the menu and start simulating.
 

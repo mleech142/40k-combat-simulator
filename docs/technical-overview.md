@@ -15,7 +15,7 @@ For anyone working on the code: how to run and test it, where the data comes fro
 | **Frontend** | Server-rendered Jinja pages with vanilla JavaScript; Plotly.js and Font Awesome Free 7.3.1 bundled in `static/vendor` (works offline) |
 | **Game data** | [BSData wh40k-11e](https://github.com/BSData/wh40k-11e) (units, weapons, points, wargear, enhancements) and the [Wahapedia data export](https://wahapedia.ru/wh40k11ed/the-rules/data-export) (stratagems and rules), each downloaded by the user, never committed or shipped |
 | **Maths** | Mirrors the original `40KCombatSimulator_v2.xlsx` formula for formula ([parity notes](excel-parity.md)); analytical and Monte Carlo engines |
-| **Shipping** | Windows exe built by PyInstaller, published by GitHub Actions on a version tag |
+| **Shipping** | Windows and Linux builds made by PyInstaller and published together by GitHub Actions on a version tag; tests run on Linux for every push |
 
 ---
 
@@ -28,7 +28,7 @@ python run.py              # --debug for Flask's debugger while developing (neve
 
 The browser opens <http://127.0.0.1:5000> (or the next free port; the console says which). The app only listens on this computer. From source it reads and writes `data/` in the repository; the exe uses `%APPDATA%\40K Combat Simulator\` instead (`paths.py`).
 
-Shortcuts: `launcher.bat` (Windows) or `./launcher.sh` (Linux/Mac) create a virtual environment, install the requirements and start the app.
+Shortcuts: `launcher.bat` (Windows) or `./launcher.sh` (Linux/Mac) create a virtual environment, install the requirements and start the app. On Debian/Ubuntu you may need `sudo apt install python3-venv` first, and `python3-tk` for the Setup page's Browse button (optional: you can type a folder path instead).
 
 On first run the app opens **Setup**: download the BSData catalogues and the Wahapedia export there.
 
@@ -131,7 +131,7 @@ More detail for contributors is in [`CLAUDE.md`](../CLAUDE.md).
 2. Add release notes in `docs/release-notes/vX.Y.Z.md`.
 3. Commit, tag `vX.Y.Z` and push.
 
-GitHub Actions then runs the tests, builds the exe and publishes the release. Full steps and how the build works: [releasing.md](releasing.md).
+GitHub Actions then tests and builds on Windows and Linux and publishes both zips. A trial build without publishing: Actions → Release → *Run workflow*. Full steps and how the build works: [releasing.md](releasing.md).
 
 ---
 

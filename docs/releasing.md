@@ -1,6 +1,6 @@
 # Releasing
 
-Users download a zipped Windows build from GitHub Releases and run `40kCombatSimulator.exe`; no Python needed.
+Users download a zipped build for Windows or Linux from GitHub Releases and run `40kCombatSimulator` (`.exe` on Windows); no Python needed.
 
 ## Publish a release
 
@@ -12,7 +12,11 @@ Users download a zipped Windows build from GitHub Releases and run `40kCombatSim
    git push origin master v1.1.0
    ```
 
-3. The **Release** workflow (`.github/workflows/release.yml`) checks the tag matches `__version__`, runs the full test suite, builds the exe with PyInstaller, zips it and creates the GitHub release with the zip attached and the notes from `docs/release-notes/<tag>.md` (or generated from the commits). If any step fails, no release is created; fix, delete the tag (`git tag -d v1.1.0 && git push origin :v1.1.0`) and tag again.
+3. The **Release** workflow (`.github/workflows/release.yml`) builds on Windows and on Linux (Ubuntu 22.04) side by side: each checks the tag matches `__version__`, runs the full test suite, builds with PyInstaller and zips the result (`40kCombatSimulator-v1.1.0-windows.zip`, `…-linux.zip`). When both succeed, it creates the GitHub release with both zips and the notes from `docs/release-notes/<tag>.md` (or generated from the commits). If any step fails, no release is created; fix, delete the tag (`git tag -d v1.1.0 && git push origin :v1.1.0`) and tag again.
+
+**Trial build:** Actions → Release → *Run workflow* (on any branch) builds and tests both zips and keeps them as workflow artifacts (`…-vX.Y.Z-test-…`), without publishing a release.
+
+**Tests on every push:** the **Tests** workflow (`.github/workflows/tests.yml`) runs the suite on Linux for every push and pull request.
 
 ## Build locally
 
@@ -21,7 +25,7 @@ pip install -r requirements-dev.txt
 pyinstaller --noconfirm --clean combat_sim.spec
 ```
 
-The app is in `dist/40kCombatSimulator/` (about 66 MB). To try it without touching your own `%APPDATA%` data, point `APPDATA` at a scratch folder first (PowerShell: `$env:APPDATA = "C:\temp\appdata"; .\dist\40kCombatSimulator\40kCombatSimulator.exe`).
+The app is in `dist/40kCombatSimulator/` (about 66 MB). PyInstaller builds for the system it runs on: build on Windows for the Windows zip, on Linux for the Linux one. To try a build without touching your own data, point it at a scratch folder first: PowerShell `$env:APPDATA = "C:\temp\appdata"; .\dist\40kCombatSimulator\40kCombatSimulator.exe`; Linux `XDG_DATA_HOME=/tmp/appdata ./dist/40kCombatSimulator/40kCombatSimulator`.
 
 ## How the build works
 
