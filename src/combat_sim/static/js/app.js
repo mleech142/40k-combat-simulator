@@ -902,19 +902,24 @@ function renderWeaponResults(rows) {
 }
 
 /**
- * Draw damage distribution chart
+ * Draw the damage distribution chart (Monte Carlo only: the analytical engine gives averages,
+ * not a spread, so the chart is hidden then).
  */
 function drawChart(distribution) {
     const chartEl = document.getElementById('chart');
     if (!chartEl) return;
-
-    // Default distribution if none provided (analytical mode)
-    const labels = distribution?.labels || ['0', '1', '2', '3', '4', '5', '6', '7', '8+'];
-    const probabilities = distribution?.probabilities || [5, 8, 12, 18, 22, 18, 10, 5, 2];
+    const section = document.getElementById('distribution-section');
+    if (!distribution?.labels?.length) {
+        Plotly.purge(chartEl);
+        if (section) section.style.display = 'none';
+        return;
+    }
+    if (section) section.style.display = '';
+    const marker = Core.woundsMarker(distribution, themeColor('--text-secondary'));
 
     Plotly.newPlot(chartEl, [{
-        x: labels,
-        y: probabilities,
+        x: distribution.labels,
+        y: distribution.probabilities,
         type: 'bar',
         marker: {
             color: themeColor('--accent'),
@@ -928,12 +933,15 @@ function drawChart(distribution) {
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
         font: { color: themeColor('--text-primary'), size: 11 },
-        margin: { t: 20, r: 20, b: 50, l: 50 },
+        margin: { t: 30, r: 20, b: 50, l: 50 },
         xaxis: {
             title: 'Damage',
+            type: 'category',
             gridcolor: themeColor('--border'),
             linecolor: themeColor('--border')
         },
+        shapes: marker.shapes,
+        annotations: marker.annotations,
         yaxis: {
             title: 'Probability %',
             gridcolor: themeColor('--border'),

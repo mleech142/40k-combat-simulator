@@ -1031,6 +1031,7 @@
             return;
         }
 
+        const marker = Core.woundsMarker(distribution, themeColor('--text-secondary'));
         Plotly.newPlot('detail-chart', [{
             x: distribution.labels,
             y: distribution.probabilities,
@@ -1040,7 +1041,9 @@
             },
             hovertemplate: '%{x} damage: %{y:.1f}%<extra></extra>'
         }], {
-            margin: { t: 10, r: 10, b: 30, l: 40 },
+            margin: { t: 24, r: 10, b: 30, l: 40 },
+            shapes: marker.shapes,
+            annotations: marker.annotations,
             paper_bgcolor: 'transparent',
             plot_bgcolor: 'transparent',
             font: { color: themeColor('--text-primary') },

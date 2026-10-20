@@ -625,6 +625,12 @@ body {
     margin-bottom: 1rem;
 }
 
+.distribution .chart-note {
+    margin: -0.5rem 0 0.75rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
 /* Breakdown table */
 .breakdown-table {
     width: 100%;
