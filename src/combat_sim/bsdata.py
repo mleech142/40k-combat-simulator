@@ -51,9 +51,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .rules_text import tidy_text, plain_text, parse_leader_buffs  # noqa: F401 (also used by importers of bsdata)
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 4  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 5  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -68,117 +69,6 @@ DEFENSIVE_TEXT = [
                 r'damage characteristic of that attack\.?$', re.I),
      'Damage Modifier -1'),
 ]
-
-
-# ---------------------------------------------------------------------------
-# Leader buffs: "While this model is leading a unit, ..." as modifier rows
-# ---------------------------------------------------------------------------
-
-LEADING = re.compile(r'while this model is leading a unit,?\s*', re.I)
-PHASE_OF = {'ranged': 'Shooting', 'melee': 'Fighting', None: 'Both'}
-UNIT = r"(?:models in )?(?:that|this model's) unit"
-
-
-def _ability_name(text):
-    """'[SUSTAINED HITS 1]' -> 'Sustained Hits 1', 'ANTI-INFANTRY 4+' -> 'Anti-Infantry 4+'."""
-    return text.strip(' []').lower().title()
-
-
-def _buff(applies_to, kind, modifier):
-    return {'applies_to': applies_to, 'phase': PHASE_OF[kind.lower() if kind else None], 'modifier': modifier}
-
-
-def _attack_effects(kind, effect):
-    """Buffs from the end of "each time a model in that unit makes a [ranged|melee] attack, ..."."""
-    found = []
-    for m in re.finditer(r'add (\d) to the (hit|wound) roll', effect, re.I):
-        found.append(_buff('Attacker', kind, f'{m.group(2).title()} Modifier +{m.group(1)}'))
-    for m in re.finditer(r're-roll (?:the|a) (hit|wound) roll(?: of (1))?', effect, re.I):
-        name = 'Reroll Hits' if m.group(1).lower() == 'hit' else 'Reroll Wounds'
-        found.append(_buff('Attacker', kind, f'{name} 1' if m.group(2) else name))
-    m = (re.search(r'unmodifi?ed (hit|wound) roll of (\d)\+ scores a critical', effect, re.I)  # "unmodifed" too
-         or re.search(r'critical (hit|wound) is scored on an unmodified (?:hit|wound) roll of (\d)\+', effect, re.I))
-    if m:
-        found.append(_buff('Attacker', kind, f'Critical {m.group(1).title()}s {m.group(2)}+'))
-    if re.search(r'improve the armou?r penetration characteristic of that attack by 1', effect, re.I):
-        found.append(_buff('Attacker', kind, 'AP Modifier -1'))
-    for m in re.finditer(r'add (\d) to the (strength|attacks|damage) characteristic of that attack', effect, re.I):
-        found.append(_buff('Attacker', kind, f'{m.group(2).title()} Modifier +{m.group(1)}'))
-    for ability in re.findall(r'that attack has the (\[[^\]]+\])', effect, re.I):
-        found.append(_buff('Attacker', kind, _ability_name(ability)))
-    return found
-
-
-# "Improve the X characteristic ... by N": the modifier for each characteristic (better = lower for AP and skills)
-IMPROVED = {'armour penetration': 'AP Modifier -', 'armor penetration': 'AP Modifier -', 'strength': 'Strength Modifier +',
-            'attacks': 'Attacks Modifier +', 'damage': 'Damage Modifier +', 'ballistic skill': 'BS Modifier -',
-            'weapon skill': 'WS Modifier -'}
-
-
-def _sentence_buffs(sentence):
-    """The buffs one sentence grants, or [] if it says nothing the maths models (or adds a condition)."""
-    text = sentence.strip().rstrip('.').strip()
-    text = re.sub(r'^in addition,?\s*', '', text, flags=re.I)
-
-    # Weapons gain abilities: "[ranged|melee] weapons equipped by models in that unit have the [X] (and [Y]) abilities"
-    m = re.match(r'^(?:(ranged|melee) )?weapons equipped by ' + UNIT + r' have the ((?:\[[^\]]+\](?:,? and |, )?)+) abili?t(?:y|ies)$', text, re.I)  # "abilties": a BSData typo
-    if m:
-        return [_buff('Attacker', m.group(1), _ability_name(a)) for a in re.findall(r'\[[^\]]+\]', m.group(2))]
-
-    # Weapon characteristics: "improve the Armour Penetration characteristic of melee weapons ... by 1",
-    # "add 1 to the Strength characteristic of melee weapons equipped by models in that unit"
-    m = re.match(r'^improve the (.+?) characteristics? of (?:(ranged|melee) )?weapons equipped by ' + UNIT + r' by (\d)$', text, re.I)
-    if m:
-        names = [IMPROVED.get(n.strip().lower()) for n in re.split(r',| and ', m.group(1)) if n.strip()]
-        if names and all(names):
-            return [_buff('Attacker', m.group(2), f'{name}{m.group(3)}') for name in names]
-    m = re.match(r'^add (\d) to the (strength|attacks|damage) characteristic of (?:(ranged|melee) )?weapons equipped by ' + UNIT + '$', text, re.I)
-    if m:
-        return [_buff('Attacker', m.group(3), f'{m.group(2).title()} Modifier +{m.group(1)}')]
-
-    # "Each time a model in that unit makes a [ranged|melee] attack, ..." (no extra condition after "attack")
-    m = re.match(r'^each time a model in ' + UNIT.replace('(?:models in )?', '') + r' makes an? (?:(ranged|melee) )?attack, (.+)$', text, re.I)
-    if m:
-        return _attack_effects(m.group(1), m.group(2))
-
-    # Defensive: invulnerable save, Feel No Pain (unconditional only), Stealth, -1 to be hit or wounded
-    m = re.match(r'^models in that unit have an? (\d)\+ invulnerable save$', text, re.I)
-    if m:
-        return [_buff('Target', None, f'Invulnerable Save {m.group(1)}+')]
-    m = re.match(r'^models in that unit have the feel no pain (\d)\+ ability$', text, re.I)
-    if m:
-        return [_buff('Target', None, f'Feel No Pain {m.group(1)}+')]
-    if re.match(r'^models in that unit have the stealth ability$', text, re.I):
-        return [_buff('Target', 'ranged', 'Stealth')]
-    m = re.match(r'^each time an? (?:(ranged|melee) )?attack targets that unit, subtract (\d) from the (hit|wound) roll$', text, re.I)
-    if m:
-        return [_buff('Target', m.group(1), f'{m.group(3).title()} Modifier -{m.group(2)}')]
-    m = re.match(r'^each time an attack is allocated to a model in that unit, subtract (\d) from the damage characteristic of that attack$', text, re.I)
-    if m:
-        return [_buff('Target', None, f'Damage Modifier -{m.group(1)}')]
-    return []
-
-
-def parse_leader_buffs(text):
-    """
-    (buffs, sentences not modelled) from an ability's text, plain or marked up. Only the part
-    after "While this model is leading a unit," counts; text without it gives ([], []).
-    """
-    plain = plain_text(text)
-    m = LEADING.search(plain)
-    if not m:
-        return [], []
-    buffs, skipped = [], []
-    body = plain[m.end():].split('\n\n')[0].replace('\n', ' ')
-    for sentence in re.split(r'(?<=\.)\s+(?=[A-Z])', body):
-        if not sentence.strip():
-            continue
-        found = _sentence_buffs(sentence)
-        if found:
-            buffs.extend(b for b in found if b not in buffs)
-        else:
-            skipped.append(sentence.strip())
-    return buffs, skipped
 
 
 class BSDataError(Exception):
@@ -713,25 +603,6 @@ def ability_text(profile):
 
 
 # Characters BSData's text uses for layout that read as ordinary ones
-TIDY_CHARACTERS = str.maketrans({'\u00a0': ' ', '\u2011': '-', '\u2010': '-', '\u2013': '-', '\u2019': "'"})
-
-
-def tidy_text(text):
-    """BSData text with non-breaking spaces and hyphens made ordinary, repeated spaces collapsed
-    and trailing spaces removed; its markup is kept."""
-    lines = [re.sub(r' {2,}', ' ', line).rstrip() for line in (text or '').translate(TIDY_CHARACTERS).split('\n')]
-    return '\n'.join(lines).strip()
-
-
-# BSData's text markup: **bold**, *italic*, ^^keyword^^, <ins>changed</ins>, footnote daggers
-MARKUP = re.compile(r'\*+|\^\^|</?ins>|[†‡]')
-
-
-def plain_text(text):
-    """The words of BSData text without its markup, for parsing (bullets and line breaks kept)."""
-    return re.sub(r' {2,}', ' ', MARKUP.sub('', tidy_text(text)))
-
-
 def _int(text):
     """'5"' -> 5, '3+' -> 3, '-2' -> -2; None when not a number ('N/A', '-', '*')."""
     m = re.match(r'^\s*(-?\d+)', text or '')

@@ -7,7 +7,7 @@ a = Analysis(
     datas=[
         ('src/combat_sim/templates', 'combat_sim/templates'),
         ('src/combat_sim/static', 'combat_sim/static'),
-        ('data/app_data.json', 'data'),  # copied to the user's data folder on first run (BSData is never bundled)
+        ('data/app_data.json', 'data'),  # copied to the user's data folder on first run (BSData and Wahapedia never bundled)
     ],
     excludes=['openpyxl', 'pytest', 'IPython', 'matplotlib'],  # tkinter stays: the Setup page's folder dialog
 )

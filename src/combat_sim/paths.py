@@ -9,7 +9,8 @@ replaced on every update, so the app data JSON and database live in a per-user f
 The bundled app data JSON is copied there on first run and never overwritten afterwards.
 
 The BSData catalogues are never shipped: users put them in the `bsdata` folder inside the
-data folder (BSDATA_DIR overrides it). The cached import sits next to the app data JSON.
+data folder (BSDATA_DIR overrides it). The cached import sits next to the app data JSON, and
+so does the `wahapedia` folder of rules and stratagems the user downloads (WAHAPEDIA_DIR overrides it).
 
 Version 1 kept everything in `40k_data.json`; on the first start of version 2 that file and
 the database (whose saved scenarios refer to its IDs) are moved into `archive-v1`.
@@ -25,6 +26,7 @@ DATA_FILE = 'app_data.json'
 DATABASE_FILE = 'combat_sim.db'
 BSDATA_FOLDER = 'bsdata'
 BSDATA_CACHE_FILE = 'bsdata_cache.json'
+WAHAPEDIA_FOLDER = 'wahapedia'
 V1_DATA_FILE = '40k_data.json'
 V1_ARCHIVE_FOLDER = 'archive-v1'
 

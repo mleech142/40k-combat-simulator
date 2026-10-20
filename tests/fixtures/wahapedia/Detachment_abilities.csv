@@ -1,0 +1,3 @@
+﻿id|faction_id|name|legend|description|detachment|detachment_id|
+301|SF|Vanguard Doctrine||<b>Doctrine:</b> Each time a model in your unit makes a melee attack, add 1 to the Hit roll.|Void Vanguard|001|
+302|SF|Lost Doctrine||Models in your unit have the Stealth ability.|Lost Fleet|003|
