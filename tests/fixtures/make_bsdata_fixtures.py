@@ -12,6 +12,7 @@ OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().paren
 GS = 'gs-test'
 PTS = '51b2-306e-1021-d207'
 UNIT_T, RANGED_T, MELEE_T, ABIL_T = 'pt-unit', 'pt-ranged', 'pt-melee', 'pt-abil'
+DP = '82ae-1066-5107-6ae0'  # The game system's "Detachment Points" cost type
 
 
 def cat_link(cid, name):
@@ -61,6 +62,8 @@ def upgrade(eid, name, profiles=(), constraints=(), costs=None, **extra):
             'constraints': list(constraints)}
     if costs is not None:
         node['costs'] = pts(costs)
+    if 'costs_extra' in extra:
+        node['costs'] = extra.pop('costs_extra')
     node.update(extra)
     return node
 
@@ -103,7 +106,8 @@ def write(name, content):
 
 write('Test System', {'gameSystem': {
     'name': 'Test System', 'id': GS, 'battleScribeVersion': 2.03, 'revision': 7, 'type': 'gameSystem',
-    'costTypes': [{'name': 'pts', 'id': PTS, 'defaultCostLimit': -1}],
+    'costTypes': [{'name': 'pts', 'id': PTS, 'defaultCostLimit': -1},
+                  {'name': 'Detachment Points', 'id': DP, 'defaultCostLimit': -1}],
     'profileTypes': [{'name': n, 'id': i} for n, i in
                      [('Unit', UNIT_T), ('Ranged Weapons', RANGED_T), ('Melee Weapons', MELEE_T), ('Abilities', ABIL_T)]],
     'sharedRules': [{'name': n, 'id': i, 'description': n} for n, i in
@@ -253,16 +257,27 @@ gun_crew = {
 }
 
 def detachment_entry(eid, gid, options):
-    """A root "Detachment" entry: a group whose options are the detachments, each with its rule."""
+    """
+    A root "Detachment" entry: a group whose options are the detachments, each with its rule,
+    its Detachment Points cost and its force disposition (a category link).
+    """
     return {'name': 'Detachment', 'id': eid, 'hidden': False, 'type': 'upgrade',
             'selectionEntryGroups': [group(gid, 'Detachment', constraints=cons(1, 1), children=[
-                upgrade(oid, name, rules=[{'name': rule, 'id': f'{oid}-rule', 'hidden': False, 'description': text}])
-                for oid, name, rule, text in options])]}
+                upgrade(oid, name, constraints=cons(None, 1),
+                        rules=[{'name': rule, 'id': f'{oid}-rule', 'hidden': False, 'description': text}],
+                        costs_extra=[{'name': 'pts', 'typeId': PTS, 'value': 0},
+                                     {'name': 'Detachment Points', 'typeId': DP, 'value': dp}],
+                        categoryLinks=[cat_link(f'k-cat-{c.lower().replace(" ", "-")}', c) for c in categories])
+                for oid, name, rule, text, dp, *categories in options])]}
 
 
 star_detachments = detachment_entry('e-star-det', 'g-star-det', [
-    ('d-vanguard', 'Void Vanguard', 'Swift Strike', 'Units from this army can Advance and shoot.'),
-    ('d-bastion', 'Star Bastion', 'Hold Fast', 'Units on objectives get +1 to their saves.'),
+    ('d-vanguard', 'Void Vanguard', 'Swift Strike', 'Units from this army can Advance and shoot.', 2, 'Purge the Foe'),
+    ('d-bastion', 'Star Bastion', 'Hold Fast', 'Units on objectives get +1 to their saves.', 1, 'Take and Hold',
+     'Fortress Detachment'),
+    ('d-citadel', 'Star Citadel', 'Walls', 'Units in cover get +1 to their saves.', 1, 'Take and Hold',
+     'Fortress Detachment'),  # Shares a Unique Tag with Star Bastion: never both
+    ('d-armada', 'Star Armada', 'Fleet', 'The whole fleet strikes.', 3, 'Priority Assets', '3DP Detachment'),
 ])
 
 write('Xenos - Starfarers', {'catalogue': {
@@ -324,7 +339,7 @@ write('Imperium - Allies', {'catalogue': {
          'selectionEntries': [upgrade('e-agent-pistol', 'Laser pistol', constraints=cons(1, 1), profiles=[
              weapon('p-agent-pistol', 'Laser pistol', 'ranged', '12"', '1', '3+', '4', '-1', '1', 'Pistol')])]},
         detachment_entry('e-allies-det', 'g-allies-det', [
-            ('d-task-force', 'Allied Task Force', 'Assigned', 'Agents can join any army.')]),
+            ('d-task-force', 'Allied Task Force', 'Assigned', 'Agents can join any army.', 2, 'Disruption')]),
     ],
     'entryLinks': [link('rl-ally-agent', 'Ally Agent', 'u-agent'), link('rl-allies-det', 'Detachment', 'e-allies-det')],
 }})

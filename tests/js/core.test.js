@@ -207,6 +207,60 @@ test('withLeaderWeapons adds the leader loadout, replacing a previous leader', (
     assert.deepEqual(withOptions.ranged.map(w => w.name), ['Rifle', 'Pistol', 'Plasma']);
 });
 
+test('attackerEntry builds an Analytics unit at a size with its leader', () => {
+    const unit = {
+        id: 1, name: 'Warriors', faction: 'Starfarers', faction_id: 3, default_models: 5,
+        points_by_model_count: [null, 16, 32, 48, 64, 80, 160, 160, 160, 160, 160],
+        ranged_weapons: [{ id: 10, type: 'ranged', name: 'Rifle', qty: 5, default_use: true }], melee_weapons: [],
+        leaders: [{ id: 2, name: 'Captain', points: 70, leader_buffs: [] }],
+    };
+    const captain = { id: 2, name: 'Captain', ranged_weapons: [{ id: 11, type: 'ranged', name: 'Pistol', qty: 1 }], melee_weapons: [] };
+    const entry = Core.attackerEntry(unit, 10, captain);
+    assert.equal(entry.unit_size, 10);
+    assert.deepEqual(entry.weapons.map(w => [w.name, w.models, !!w.leader]), [['Rifle', 10, false], ['Pistol', 1, true]]);
+    assert.deepEqual([entry.leader_id, entry.leader_name, entry.leader_points], [2, 'Captain', 70]);
+    const plain = Core.attackerEntry(unit);
+    assert.equal(plain.unit_size, 5);
+    assert.equal(plain.leader_id, null);
+});
+
+test('defenderEntry carries the unit stats, size and leader', () => {
+    const unit = { id: 1, name: 'Warriors', faction: 'Starfarers', faction_id: 3, toughness: 4, save: 3, wounds: 2,
+                   invulnerable_save: null, feel_no_pain: 6, leaders: [] };
+    const entry = Core.defenderEntry(unit, 10, 2);
+    assert.deepEqual([entry.unit_id, entry.toughness, entry.model_count, entry.leader_id, entry.feel_no_pain], [1, 4, 10, 2, 6]);
+});
+
+test('detachmentKeys reads a list, one key as first saved, or nothing', () => {
+    assert.deepEqual(Core.detachmentKeys(['a', 'b', 'a', '']), ['a', 'b']);
+    assert.deepEqual(Core.detachmentKeys('a'), ['a']);
+    assert.deepEqual(Core.detachmentKeys(''), []);
+    assert.deepEqual(Core.detachmentKeys(undefined), []);
+});
+
+test('detachmentPickerHtml ticks the chosen detachments and shows their DP', () => {
+    const detachments = [{ key: 'g', name: 'Gladius', dp: 3, faction: 'SM' }, { key: 'p', name: 'Phobos', dp: 1, faction: 'SM' }];
+    const html = Core.detachmentPickerHtml(detachments, ['p']);
+    assert.match(html, /<summary[^>]*>Phobos<\/summary>/);
+    assert.match(html, /data-key="p" checked/);
+    assert.doesNotMatch(html, /data-key="g" checked/);
+    assert.match(html, /3 DP/);
+    assert.equal(Core.detachmentSummary(detachments, ['g', 'p']), 'Gladius + Phobos');
+    assert.equal(Core.detachmentSummary(detachments, []), 'No detachment (faction-wide only)');
+});
+
+test('armyDetachmentPoints shows the DP spent against the budget', () => {
+    assert.deepEqual(Core.armyDetachmentPoints(3, 3), { text: '3 / 3 DP', over: false });
+    assert.deepEqual(Core.armyDetachmentPoints(4, 3), { text: '4 / 3 DP', over: true });
+    assert.deepEqual(Core.armyDetachmentPoints(2, null), { text: '2 DP', over: false });
+});
+
+test('armyPoints shows the total against the limit', () => {
+    assert.deepEqual(Core.armyPoints(1995, 2000), { text: '1,995 / 2,000 pts', over: false });
+    assert.deepEqual(Core.armyPoints(2010, 2000), { text: '2,010 / 2,000 pts', over: true });
+    assert.deepEqual(Core.armyPoints(450, null), { text: '450 pts', over: false });
+});
+
 test('withLeaderEntries and scaling: the leader is never scaled with the unit', () => {
     const atk = { default_models: 5, unit_size: 5, weapons: [
         { name: 'Rifle', weapon_id: 1, models: 5, base_qty: 5, include: true }] };

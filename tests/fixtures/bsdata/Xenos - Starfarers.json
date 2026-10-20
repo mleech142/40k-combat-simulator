@@ -1834,13 +1834,42 @@
         "hidden": false,
         "type": "upgrade",
         "profiles": [],
-        "constraints": [],
+        "constraints": [
+         {
+          "id": "c-39",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "costs": [
+         {
+          "name": "pts",
+          "typeId": "51b2-306e-1021-d207",
+          "value": 0
+         },
+         {
+          "name": "Detachment Points",
+          "typeId": "82ae-1066-5107-6ae0",
+          "value": 2
+         }
+        ],
         "rules": [
          {
           "name": "Swift Strike",
           "id": "d-vanguard-rule",
           "hidden": false,
           "description": "Units from this army can Advance and shoot."
+         }
+        ],
+        "categoryLinks": [
+         {
+          "name": "Purge the Foe",
+          "id": "cl-k-cat-purge-the-foe",
+          "primary": false,
+          "targetId": "k-cat-purge-the-foe"
          }
         ]
        },
@@ -1850,13 +1879,150 @@
         "hidden": false,
         "type": "upgrade",
         "profiles": [],
-        "constraints": [],
+        "constraints": [
+         {
+          "id": "c-40",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "costs": [
+         {
+          "name": "pts",
+          "typeId": "51b2-306e-1021-d207",
+          "value": 0
+         },
+         {
+          "name": "Detachment Points",
+          "typeId": "82ae-1066-5107-6ae0",
+          "value": 1
+         }
+        ],
         "rules": [
          {
           "name": "Hold Fast",
           "id": "d-bastion-rule",
           "hidden": false,
           "description": "Units on objectives get +1 to their saves."
+         }
+        ],
+        "categoryLinks": [
+         {
+          "name": "Take and Hold",
+          "id": "cl-k-cat-take-and-hold",
+          "primary": false,
+          "targetId": "k-cat-take-and-hold"
+         },
+         {
+          "name": "Fortress Detachment",
+          "id": "cl-k-cat-fortress-detachment",
+          "primary": false,
+          "targetId": "k-cat-fortress-detachment"
+         }
+        ]
+       },
+       {
+        "name": "Star Citadel",
+        "id": "d-citadel",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [],
+        "constraints": [
+         {
+          "id": "c-41",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "costs": [
+         {
+          "name": "pts",
+          "typeId": "51b2-306e-1021-d207",
+          "value": 0
+         },
+         {
+          "name": "Detachment Points",
+          "typeId": "82ae-1066-5107-6ae0",
+          "value": 1
+         }
+        ],
+        "rules": [
+         {
+          "name": "Walls",
+          "id": "d-citadel-rule",
+          "hidden": false,
+          "description": "Units in cover get +1 to their saves."
+         }
+        ],
+        "categoryLinks": [
+         {
+          "name": "Take and Hold",
+          "id": "cl-k-cat-take-and-hold",
+          "primary": false,
+          "targetId": "k-cat-take-and-hold"
+         },
+         {
+          "name": "Fortress Detachment",
+          "id": "cl-k-cat-fortress-detachment",
+          "primary": false,
+          "targetId": "k-cat-fortress-detachment"
+         }
+        ]
+       },
+       {
+        "name": "Star Armada",
+        "id": "d-armada",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [],
+        "constraints": [
+         {
+          "id": "c-42",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "costs": [
+         {
+          "name": "pts",
+          "typeId": "51b2-306e-1021-d207",
+          "value": 0
+         },
+         {
+          "name": "Detachment Points",
+          "typeId": "82ae-1066-5107-6ae0",
+          "value": 3
+         }
+        ],
+        "rules": [
+         {
+          "name": "Fleet",
+          "id": "d-armada-rule",
+          "hidden": false,
+          "description": "The whole fleet strikes."
+         }
+        ],
+        "categoryLinks": [
+         {
+          "name": "Priority Assets",
+          "id": "cl-k-cat-priority-assets",
+          "primary": false,
+          "targetId": "k-cat-priority-assets"
+         },
+         {
+          "name": "3DP Detachment",
+          "id": "cl-k-cat-3dp-detachment",
+          "primary": false,
+          "targetId": "k-cat-3dp-detachment"
          }
         ]
        }

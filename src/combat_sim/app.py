@@ -10,12 +10,12 @@ from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy.exc import IntegrityError
 from .models import (db, init_db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
-                     SavedScenario, SavedComparison, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
+                     SavedScenario, SavedComparison, SavedArmy, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
-from . import bsdata_download, folder_dialog, wahapedia, wahapedia_download
+from . import armies, bsdata_download, folder_dialog, wahapedia, wahapedia_download
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
     simulate, simulate_analytical, simulate_monte_carlo_combined, simulate_attached_analytical,
@@ -1759,6 +1759,95 @@ def register_routes(app):
             'method': result.method,
             'iterations': result.iterations,
         })
+
+    # --- Army lists (armies.py): built on the Armies page, used in Analytics ----------------
+
+    @app.route('/armies')
+    def armies_page():
+        factions = Faction.query.order_by(Faction.name).all()
+        return render_template('armies.html', factions=[{'id': f.id, 'name': f.name} for f in factions],
+                               battle_sizes=armies.BATTLE_SIZES)
+
+    def army_from_request():
+        try:
+            return armies.clean_army(request.get_json(silent=True)), None
+        except armies.ArmyError as err:
+            return None, (jsonify({'error': str(err)}), 400)
+
+    def saved_army_response(saved):
+        """A saved army with its prices and problems (its units priced too)."""
+        army = saved.to_dict()
+        return jsonify(dict(army, **armies.price_army(army)))
+
+    @app.route('/api/armies')
+    def api_list_armies():
+        """Saved armies, newest first, with their faction and points."""
+        names = {f.id: f.name for f in Faction.query}
+        out = []
+        for saved in SavedArmy.query.order_by(SavedArmy.updated_at.desc(), SavedArmy.id.desc()):
+            priced = armies.price_army(saved.to_dict())
+            out.append({'id': saved.id, 'name': saved.name, 'faction': names.get(saved.faction_id),
+                        'detachment': priced['detachment'], 'total': priced['total'],
+                        'points_limit': saved.points_limit, 'unit_count': len(saved.units or []),
+                        'problem_count': len(priced['problems'])})
+        return jsonify(out)
+
+    @app.route('/api/armies/price', methods=['POST'])
+    def api_price_army():
+        """Price and check an army as it is being built (nothing is saved)."""
+        army, error = army_from_request()
+        if error:
+            return error
+        return jsonify(armies.price_army(army))
+
+    @app.route('/api/armies/text', methods=['POST'])
+    def api_army_text():
+        """An army as plain text, to share."""
+        army, error = army_from_request()
+        if error:
+            return error
+        return jsonify({'text': armies.army_text(army, armies.price_army(army))})
+
+    @app.route('/api/armies', methods=['POST'])
+    def api_create_army():
+        army, error = army_from_request()
+        if error:
+            return error
+        saved = SavedArmy(**army)
+        db.session.add(saved)
+        db.session.commit()
+        return saved_army_response(saved)
+
+    @app.route('/api/armies/<int:army_id>')
+    def api_get_army(army_id):
+        return saved_army_response(db.get_or_404(SavedArmy, army_id))
+
+    @app.route('/api/armies/<int:army_id>', methods=['PUT'])
+    def api_update_army(army_id):
+        saved = db.get_or_404(SavedArmy, army_id)
+        army, error = army_from_request()
+        if error:
+            return error
+        for key, value in army.items():
+            setattr(saved, key, value)
+        db.session.commit()
+        return saved_army_response(saved)
+
+    @app.route('/api/armies/<int:army_id>/copy', methods=['POST'])
+    def api_copy_army(army_id):
+        saved = db.get_or_404(SavedArmy, army_id)
+        copy = SavedArmy(name=f'{saved.name} (copy)'[:200], faction_id=saved.faction_id,
+                         detachment_keys=saved.to_dict()['detachment_keys'], points_limit=saved.points_limit,
+                         units=list(saved.units or []))
+        db.session.add(copy)
+        db.session.commit()
+        return saved_army_response(copy)
+
+    @app.route('/api/armies/<int:army_id>', methods=['DELETE'])
+    def api_delete_army(army_id):
+        db.session.delete(db.get_or_404(SavedArmy, army_id))
+        db.session.commit()
+        return jsonify({'message': 'Army deleted'})
 
     @app.route('/api/comparisons', methods=['GET'])
     def api_list_comparisons():

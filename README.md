@@ -9,6 +9,7 @@ It replaces the `40KCombatSimulator_v2.xlsx` spreadsheet: its maths is reproduce
 ## Features
 
 - **Simulator** — one attacking unit against one target: tick any of the unit's weapons (with how many models carry each), swap in wargear options, attach a leader to either unit (its weapons join the attacker; its buffs apply to the unit it leads), set battle conditions, pick each side's detachment and tick faction rules and stratagems, and add one-off *extra modifiers* to the target. Shows per-weapon results, totals and (in Monte Carlo mode) a damage distribution with kill and wipe chances.
+- **Armies** — build an army list from your faction's datasheets (unit sizes, leaders, detachment, points limit), save and copy lists, share them as text, and send one to Analytics as your attackers or your opponent.
 - **Analytics** — your army against an opponent's real units or generic benchmark profiles (MEQ, TEQ, vehicles…): a heat-map grid per unit and for the whole army, unit sizes with correct points, army-wide rules and stratagems, and an **Army Analysis** panel (summary, gaps, role scores with a spider chart, Toughness/Save coverage, reverse durability).
 - **Data** — browse every BSData faction, unit and weapon (read-only), with each faction's army and detachment rules as reference text. Write the faction rules and stratagems the maths uses (for the whole faction or one detachment), add modifiers to BSData units, and build your own units and weapons in custom factions (copying BSData weapons if you like). Read-only reference tabs list every rules keyword and the benchmark target profiles. Every confirmed change is saved straight to the app data file.
 - **Setup** — download the latest BSData catalogues, point the app at a folder of them, or re-import; see what the import couldn't read.
@@ -24,7 +25,7 @@ It replaces the `40KCombatSimulator_v2.xlsx` spreadsheet: its maths is reproduce
 3. Your browser opens the app on its **Setup** page. Click **Download latest** to fetch the BSData catalogues (about 50 MB, a few seconds), or choose a folder of them you already have. Then **Continue to the Simulator**.
 4. Close the console window to stop the app.
 
-Your data lives in `%APPDATA%\40K Combat Simulator\`, not in the unzipped folder, so you can replace the folder with a newer release without losing anything: the downloaded catalogues (`bsdata\`), the app data file with your rules, stratagems and custom units, your settings, and your saved scenarios and comparisons. On first run that folder is filled with the app data shipped in the release; later releases never overwrite it. To update the unit data, open **Setup** and click **Download latest** again: units keep their identities, so saved scenarios and comparisons keep working.
+Your data lives in `%APPDATA%\40K Combat Simulator\`, not in the unzipped folder, so you can replace the folder with a newer release without losing anything: the downloaded catalogues (`bsdata\`), the app data file with your rules, stratagems and custom units, your settings, and your saved scenarios, comparisons and armies. On first run that folder is filled with the app data shipped in the release; later releases never overwrite it. To update the unit data, open **Setup** and click **Download latest** again: units keep their identities, so saved scenarios and comparisons keep working.
 
 **Upgrading from 1.x:** version 2 no longer uses the 1.x data file. On first start the old `40k_data.json` and its database (with the 1.x saved scenarios and comparisons, whose units no longer exist) are moved to `%APPDATA%\40K Combat Simulator\archive-v1\`.
 
@@ -113,7 +114,7 @@ The tests never touch `data/` — each starts the app on its own temporary data 
 │   ├── data_store.py     # Merges BSData with data/app_data.json; reads/validates/writes the app data
 │   ├── simulation.py     # Combat engine: resolve() + analytical and Monte Carlo engines
 │   ├── paths.py          # Where data lives: repository data/ from source, %APPDATA% in the exe
-│   ├── templates/        # Jinja2 pages (Simulator, Analytics, Scenarios, Data)
+│   ├── templates/        # Jinja2 pages (Simulator, Analytics, Armies, Scenarios, Data, Setup)
 │   └── static/           # CSS and JavaScript (core.js + app.js are loaded on every page)
 ├── data/                 # app_data.json (committed); bsdata/, the import cache and combat_sim.db (local)
 ├── archive/              # Version 1: the v1 workbook, 40k_data_v1.json and migrate_excel.py

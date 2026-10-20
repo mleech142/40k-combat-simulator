@@ -10,6 +10,11 @@
     "name": "pts",
     "id": "51b2-306e-1021-d207",
     "defaultCostLimit": -1
+   },
+   {
+    "name": "Detachment Points",
+    "id": "82ae-1066-5107-6ae0",
+    "defaultCostLimit": -1
    }
   ],
   "profileTypes": [

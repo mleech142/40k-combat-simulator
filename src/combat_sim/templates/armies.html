@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Armies - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2><i class="fa-solid fa-chess-rook" aria-hidden="true"></i> Armies</h2>
+    <div class="header-actions">
+        <button class="btn btn-secondary" id="new-army-btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> New army</button>
+    </div>
+</div>
+<p class="data-note">Build an army list, then send it to Analytics as your attackers or defenders. Points come from
+    BSData; the list is checked against the points limit, unit sizes and which units each leader can lead.</p>
+
+<div class="armies-layout">
+    <aside class="card armies-saved">
+        <h3>Saved armies</h3>
+        <div id="army-list"><p class="empty-message">No saved armies yet</p></div>
+    </aside>
+
+    <section class="card army-builder">
+        <div class="army-form">
+            <div class="form-group army-name">
+                <label for="army-name">Name</label>
+                <input type="text" id="army-name" class="filter-input" maxlength="200" placeholder="New army">
+            </div>
+            <div class="form-group">
+                <label for="army-faction">Faction</label>
+                <select id="army-faction" class="filter-select">
+                    <option value="">Choose a faction</option>
+                    {% for f in factions %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="army-limit">Points limit</label>
+                <select id="army-limit" class="filter-select">
+                    {% for name, points, dp in battle_sizes %}<option value="{{ points }}">{{ name }} ({{ points }} pts, {{ dp }} DP)</option>{% endfor %}
+                    <option value="">No limit</option>
+                </select>
+            </div>
+        </div>
+
+        <details class="army-detachments" id="army-detachments-section">
+            <summary class="army-detachments-header">
+                <h4>Detachments</h4>
+                <span class="army-detachments-chosen" id="army-detachments-chosen"></span>
+                <span class="army-dp" id="army-dp"></span>
+            </summary>
+            <p class="weapon-picker-hint">Each costs Detachment Points (DP): Incursion allows 2 (or a single 3 DP
+                detachment), Strike Force 3, Onslaught 4. No two may share a Unique Tag.</p>
+            <div class="army-detachment-list" id="army-detachments"><p class="empty-message">Choose a faction first</p></div>
+        </details>
+
+        <div class="army-points" id="army-points"><span class="army-points-total">0 pts</span>
+            <span class="army-saved-state" id="army-saved-state"></span></div>
+        <ul class="army-problems" id="army-problems"></ul>
+
+        <table class="data-table army-units">
+            <thead><tr><th>Unit</th><th>Size</th><th>Points</th><th>Leader</th><th></th></tr></thead>
+            <tbody id="army-units"></tbody>
+        </table>
+
+        <div class="army-actions">
+            <button class="btn btn-primary" id="save-army-btn"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+            <button class="btn btn-secondary" id="attackers-btn" title="Save, then open Analytics with this army as the attackers"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Analyse as attackers</button>
+            <button class="btn btn-secondary" id="defenders-btn" title="Save, then open Analytics with this army as the defenders"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Analyse as defenders</button>
+            <button class="btn btn-secondary" id="text-btn"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> Copy as text</button>
+        </div>
+    </section>
+
+    <aside class="card army-add">
+        <h3>Add units</h3>
+        <input type="text" id="unit-search" class="filter-input" placeholder="Search this faction's units">
+        <label class="checkbox-label"><input type="checkbox" id="unit-legends"> Show Legends</label>
+        <div class="army-unit-picker" id="unit-picker"><p class="empty-message">Choose a faction first</p></div>
+    </aside>
+</div>
+
+<div class="modal" id="text-modal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3>Army as text</h3>
+            <button class="modal-close" data-close="text-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <textarea id="army-text" class="army-text" rows="16" readonly></textarea>
+        <div class="modal-actions">
+            <span class="army-copied" id="army-copied"></span>
+            <button class="btn btn-primary" id="copy-text-btn"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/armies.js') }}"></script>
+{% endblock %}

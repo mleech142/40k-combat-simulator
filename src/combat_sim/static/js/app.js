@@ -77,10 +77,10 @@ const state = {
         iterations: 1000,
     },
     // Rules & stratagems that can be ticked for each side, which are ticked ('rule:3', 'stratagem:7'),
-    // and the side's detachment (BSData key; '' = faction-wide rules only)
+    // and the side's chosen detachments (BSData keys; none = faction-wide rules only)
     rules: {
-        attacker: { available: [], ticked: new Set(), factionId: null, detachment: '', detachments: [] },
-        target: { available: [], ticked: new Set(), factionId: null, detachment: '', detachments: [] },
+        attacker: { available: [], ticked: new Set(), factionId: null, chosen: [], detachments: [] },
+        target: { available: [], ticked: new Set(), factionId: null, chosen: [], detachments: [] },
     },
 };
 
@@ -153,7 +153,7 @@ function saveSimulatorState() {
             attacker: [...state.rules.attacker.ticked],
             target: [...state.rules.target.ticked],
         },
-        detachments: { attacker: state.rules.attacker.detachment, target: state.rules.target.detachment },
+        detachments: { attacker: state.rules.attacker.chosen, target: state.rules.target.chosen },
         leaders: { attacker: state.attacker.leader?.id ?? null, defender: state.defender.leader?.id ?? null },
         legends: {
             attacker: document.getElementById('attacker-legends').checked,
@@ -178,8 +178,8 @@ async function restoreSimulatorState() {
 
     document.getElementById('attacker-legends').checked = !!saved.legends?.attacker;
     document.getElementById('defender-legends').checked = !!saved.legends?.defender;
-    state.rules.attacker.detachment = saved.detachments?.attacker || '';
-    state.rules.target.detachment = saved.detachments?.target || '';
+    state.rules.attacker.chosen = Core.detachmentKeys(saved.detachments?.attacker);
+    state.rules.target.chosen = Core.detachmentKeys(saved.detachments?.target);
 
     document.getElementById('defender-unit').value = saved.defenderUnitText || '';
     if (saved.defenderUnit) {
@@ -238,20 +238,20 @@ const RULE_GROUPS = [
     ['core', 'Core stratagems'],
 ];
 
-/** The detachment dropdowns reload their side's rules when changed. */
+/** The detachment checklists reload their side's rules when changed. */
 function initDetachmentSelects() {
     for (const side of ['attacker', 'target']) {
-        const select = document.getElementById(`${side}-detachment`);
-        if (!select) continue;
-        select.style.display = 'none';
-        select.addEventListener('change', () => {
-            state.rules[side].detachment = select.value;
+        const picker = document.getElementById(`${side}-detachment`);
+        if (!picker) continue;
+        picker.style.display = 'none';
+        picker.addEventListener('change', () => {
+            state.rules[side].chosen = [...picker.querySelectorAll('input:checked')].map(cb => cb.dataset.key);
             loadRulesFor(side, state.rules[side].factionId);
         });
     }
 }
 
-/** Fill a side's detachment dropdown for its faction (hidden when the faction has none). */
+/** Fill a side's detachment checklist for its faction (hidden when the faction has none). */
 async function loadDetachments(side, factionId) {
     const panel = state.rules[side];
     const select = document.getElementById(`${side}-detachment`);
@@ -261,9 +261,11 @@ async function loadDetachments(side, factionId) {
             : [];
     }
     panel.factionId = factionId;
-    if (!panel.detachments.some(d => d.key === panel.detachment)) panel.detachment = '';
+    panel.chosen = (panel.chosen || []).filter(key => panel.detachments.some(d => d.key === key));
     if (select) {
-        select.innerHTML = Core.detachmentOptionsHtml(panel.detachments, panel.detachment);
+        const open = select.open;
+        select.innerHTML = Core.detachmentPickerHtml(panel.detachments, panel.chosen);
+        select.open = open;
         select.style.display = panel.detachments.length ? '' : 'none';
     }
 }
@@ -276,7 +278,7 @@ async function loadRulesFor(side, factionId, ticked = null) {
     await loadDetachments(side, factionId);
     const params = new URLSearchParams({ side: side === 'attacker' ? 'Attacker' : 'Target' });
     if (factionId) params.append('faction_id', factionId);
-    if (state.rules[side].detachment) params.append('detachment', state.rules[side].detachment);
+    (state.rules[side].chosen || []).forEach(key => params.append('detachment', key));
     try {
         const available = await fetch(`/api/rules/available?${params}`).then(r => r.json());
         const panel = state.rules[side];
@@ -994,7 +996,7 @@ async function saveScenario() {
             type: state.attacker.weaponType,
             weapons: weapons.map(weaponPayload),
             rules: [...state.rules.attacker.ticked],
-            detachment: state.rules.attacker.detachment,
+            detachments: state.rules.attacker.chosen,
             leader_id: state.attacker.leader?.id ?? null,
             leader_name: state.attacker.leader?.name ?? null,
         },
@@ -1010,7 +1012,7 @@ async function saveScenario() {
             model_count: modelCount,
             extra_modifiers: state.defender.extraModifiers,
             rules: [...state.rules.target.ticked],
-            detachment: state.rules.target.detachment,
+            detachments: state.rules.target.chosen,
             unit_id: defender.id ?? null,
             leader_id: state.defender.leader?.id ?? null,
             leader_name: state.defender.leader?.name ?? null,
@@ -1132,7 +1134,7 @@ function checkForLoadedScenario() {
         // We need to reconstruct the weapon and unit objects
         if (scenario.attacker_config) {
             const config = scenario.attacker_config;
-            state.rules.attacker.detachment = config.detachment || '';
+            state.rules.attacker.chosen = Core.detachmentKeys(config.detachments ?? config.detachment);
             loadScenarioAttacker(config).then(() =>
                 loadRulesFor('attacker', state.attacker.unit?.faction_id ?? config.faction_id ?? null, config.rules || []));
         }
@@ -1155,7 +1157,7 @@ function checkForLoadedScenario() {
                 state.defender.unit.id = scenario.defender_config.unit_id;
                 loadDefenderLeaders(scenario.defender_config.unit_id, scenario.defender_config.leader_id);
             }
-            state.rules.target.detachment = scenario.defender_config.detachment || '';
+            state.rules.target.chosen = Core.detachmentKeys(scenario.defender_config.detachments ?? scenario.defender_config.detachment);
             loadRulesFor('target', state.defender.unit.faction_id, scenario.defender_config.rules || []);
         }
 

@@ -62,12 +62,16 @@ class Detachment(db.Model):
     bsdata_id = db.Column(db.String(40), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     rules = db.Column(JSON, default=list)  # [{"name", "text"}]
+    dp = db.Column(db.Integer, nullable=True)  # Detachment Points cost (None = not given)
+    dispositions = db.Column(JSON, default=list)  # Force dispositions, e.g. ["Take and Hold"]
+    tags = db.Column(JSON, default=list)  # Unique Tags: an army can't have two detachments sharing one
 
     faction = db.relationship('Faction')
 
     def to_dict(self):
         return {'id': self.id, 'key': self.bsdata_id, 'name': self.name, 'faction_id': self.faction_id,
-                'faction': self.faction.name if self.faction else None, 'rules': self.rules or []}
+                'faction': self.faction.name if self.faction else None, 'rules': self.rules or [],
+                'dp': self.dp, 'dispositions': self.dispositions or [], 'tags': self.tags or []}
 
 
 # A unit's loadout: which of its faction's weapons it carries, and how many models carry each.
@@ -546,6 +550,28 @@ class SavedScenario(db.Model):
         return f'<SavedScenario {self.name}>'
 
 
+class SavedArmy(db.Model):
+    """An army list built on the Armies page (see armies.py). Kept in the database only, like scenarios."""
+    __tablename__ = 'saved_armies'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    faction_id = db.Column(db.Integer, nullable=False)  # Stable across BSData imports (stable_ids)
+    detachment_key = db.Column(db.String(40), nullable=True)  # First saved form: one detachment (read only)
+    detachment_keys = db.Column(JSON, nullable=True)  # BSData detachment IDs
+    points_limit = db.Column(db.Integer, nullable=True)  # None = no limit
+    # [{"uid", "unit_id", "models", "attached_to" (uid of the unit a leader leads, or null)}]
+    units = db.Column(JSON, nullable=False, default=list)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        keys = self.detachment_keys if self.detachment_keys is not None else ([self.detachment_key] if self.detachment_key else [])
+        return {'id': self.id, 'name': self.name, 'faction_id': self.faction_id, 'detachment_keys': keys,
+                'points_limit': self.points_limit, 'units': self.units or [],
+                'updated_at': (self.updated_at or self.created_at).isoformat() if (self.updated_at or self.created_at) else None}
+
+
 class SavedComparison(db.Model):
     """A saved matrix comparison for army analysis."""
     __tablename__ = 'saved_comparisons'
@@ -576,3 +602,22 @@ def init_db(app):
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        add_missing_columns()
+
+
+def add_missing_columns():
+    """
+    Add new nullable columns of the persistent tables to a database made by an older version
+    (create_all only makes missing tables). Anything else still needs a manual ALTER TABLE.
+    """
+    inspector = db.inspect(db.engine)
+    for model in (SavedScenario, SavedComparison, SavedArmy, StableId):
+        table = model.__table__
+        if not inspector.has_table(table.name):
+            continue
+        have = {c['name'] for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name not in have and column.nullable:
+                kind = column.type.compile(db.engine.dialect)
+                db.session.execute(db.text(f'ALTER TABLE {table.name} ADD COLUMN {column.name} {kind}'))
+    db.session.commit()

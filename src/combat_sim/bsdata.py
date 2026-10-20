@@ -54,7 +54,7 @@ from pathlib import Path
 from .rules_text import tidy_text, plain_text, parse_leader_buffs  # noqa: F401 (also used by importers of bsdata)
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 5  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 6  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -986,8 +986,18 @@ def _rule_text(rule):
     return {'name': rule.get('name', ''), 'text': tidy_text(rule.get('description'))}
 
 
+DP_TYPE_ID = '82ae-1066-5107-6ae0'  # The game system's "Detachment Points" cost type
+# A detachment's categories: these are force dispositions; "3DP Detachment" marks a 3 DP cost; any
+# other is a Unique Tag (no two detachments in an army may share one, e.g. "Phobos Detachment")
+FORCE_DISPOSITIONS = ('Take and Hold', 'Purge the Foe', 'Disruption', 'Reconnaissance', 'Priority Assets')
+
+
 def detachments(cat, members, catalogues, report):
-    """[{'bsdata_id', 'name', 'rules': [{'name', 'text'}]}] for a faction (see the module docstring)."""
+    """
+    [{'bsdata_id', 'name', 'rules': [{'name', 'text'}], 'dp', 'dispositions', 'tags'}] for a faction
+    (see the module docstring). `dp` is its Detachment Points cost (None if it has none);
+    `dispositions` and `tags` (Unique Tags) come from its categories (see FORCE_DISPOSITIONS).
+    """
     sources = {cat} | {e.cat for e in members}
     roots = [(cat, node) for node in cat.root.get('entryLinks', []) + cat.root.get('selectionEntries', [])]
     for link in cat.links():
@@ -1015,7 +1025,12 @@ def detachments(cat, members, catalogues, report):
                             rules.append(_rule_text(target))
                 rules += [{'name': p['name'], 'text': ability_text(p)} for p in profiles(option, report)
                           if p.get('typeName') == 'Abilities']
-                found.append({'bsdata_id': option.id, 'name': option.name, 'rules': rules})
+                costs = [c for c in option.merged('costs') if c.get('typeId') == DP_TYPE_ID]
+                categories = [c for c in option.category_names() if not re.fullmatch(r'\d+ ?DP Detachment', c)]
+                found.append({'bsdata_id': option.id, 'name': option.name, 'rules': rules,
+                              'dp': int(costs[-1].get('value') or 0) if costs else None,
+                              'dispositions': [c for c in categories if c in FORCE_DISPOSITIONS],
+                              'tags': [c for c in categories if c not in FORCE_DISPOSITIONS]})
     return found
 
 

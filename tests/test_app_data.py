@@ -311,11 +311,14 @@ def test_detachments_and_reference_text(app_client):
     client, _ = app_client
     star = factions(client)['Starfarers']['id']
     detachments = client.get(f'/api/detachments?faction_id={star}').get_json()
-    assert [(d['name'], d['key']) for d in detachments] == [('Star Bastion', 'd-bastion'), ('Void Vanguard', 'd-vanguard')]
+    assert [(d['name'], d['key'], d['dp']) for d in detachments] == [
+        ('Star Armada', 'd-armada', 3), ('Star Bastion', 'd-bastion', 1), ('Star Citadel', 'd-citadel', 1),
+        ('Void Vanguard', 'd-vanguard', 2)]
+    assert (detachments[1]['dispositions'], detachments[1]['tags']) == (['Take and Hold'], ['Fortress Detachment'])
     assert all(d['id'] >= BSDATA_ID_BASE for d in detachments)
     reference = client.get(f'/api/data/factions/{star}/reference').get_json()
     assert reference['army_rules'][0]['name'] == 'Star Pact'
-    assert reference['detachments'][1]['rules'][0]['name'] == 'Swift Strike'
+    assert reference['detachments'][3]['rules'][0]['name'] == 'Swift Strike'
     assert client.get('/api/detachments').get_json() == []
 
 
