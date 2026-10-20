@@ -12,10 +12,10 @@ from sqlalchemy.exc import IntegrityError
 from .models import (db, init_db, Faction, Detachment, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
                      SavedScenario, SavedComparison, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
-from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, prepare_data_dir
+from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
-from . import bsdata_download, folder_dialog
+from . import bsdata_download, folder_dialog, wahapedia, wahapedia_download
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
     simulate, simulate_analytical, simulate_monte_carlo_combined, simulate_attached_analytical,
@@ -32,7 +32,8 @@ def create_app(config=None):
     # database default to the folder from paths.data_dir(): the repository's data/ from source,
     # a per-user folder in the packaged exe. Settings, the import cache and "Download latest"
     # sit next to the app data JSON. The BSData folder is the one chosen on the Setup page,
-    # else BSDATA_DIR, else the bsdata folder next to the app data JSON.
+    # else BSDATA_DIR, else the bsdata folder next to the app data JSON. Wahapedia's files
+    # (rules and stratagems) are in WAHAPEDIA_DIR, else the wahapedia folder next to it.
     data_json = os.environ.get('DATA_JSON')
     database_url = os.environ.get('DATABASE_URL')
     if not (data_json and database_url):
@@ -44,6 +45,7 @@ def create_app(config=None):
     app.config['DOWNLOAD_DIR'] = str(Path(data_json).parent / BSDATA_FOLDER)
     app.config['DEFAULT_BSDATA_DIR'] = os.environ.get('BSDATA_DIR') or app.config['DOWNLOAD_DIR']
     app.config['BSDATA_CACHE'] = str(Path(data_json).parent / BSDATA_CACHE_FILE)
+    app.config['WAHAPEDIA_DIR'] = os.environ.get('WAHAPEDIA_DIR') or str(Path(data_json).parent / WAHAPEDIA_FOLDER)
     app.config['SETTINGS_JSON'] = str(settings_path(data_json))
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -54,15 +56,19 @@ def create_app(config=None):
 
     @app.context_processor
     def inject_page_globals():
+        wahapedia_loaded = (app.config.get('WAHAPEDIA_STATUS') or {}).get('loaded')
+        last_update = ((app.config.get('WAHAPEDIA_STATUS') or {}).get('source') or {}).get('last_update') or ''
         return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
-                'bsdata_label': bsdata_label(app)}
+                'bsdata_label': bsdata_label(app),
+                'wahapedia_label': (last_update[:10] or 'loaded') if wahapedia_loaded else None}
 
     if config:
         app.config.update(config)
 
-    # Initialize database, then rebuild the reference tables from BSData and the app data JSON
+    # Initialize database, then rebuild the reference tables from BSData, Wahapedia and the app data JSON
     init_db(app)
     with app.app_context():
+        load_wahapedia(app)
         reload_bsdata(app)
 
     # Register routes
@@ -91,6 +97,14 @@ def reload_bsdata(app, fresh=False):
     return status
 
 
+def load_wahapedia(app):
+    """Import the Wahapedia folder (rules and stratagems); the reference tables are rebuilt separately."""
+    result, status = wahapedia.load_folder(app.config['WAHAPEDIA_DIR'])
+    app.config['WAHAPEDIA_RESULT'] = result
+    app.config['WAHAPEDIA_STATUS'] = status
+    return status
+
+
 def bsdata_label(app):
     """Data version for the footer: the downloaded commit, else the game system revision."""
     status = app.config.get('BSDATA_STATUS') or {}
@@ -104,8 +118,10 @@ def bsdata_label(app):
 
 
 def load_reference_data(app, data):
-    """Rebuild the reference tables from app data JSON `data` plus the loaded BSData import."""
-    merged, unmatched = merge_data(data, app.config.get('BSDATA_RESULT'))
+    """Rebuild the reference tables from app data JSON `data` plus the loaded BSData and Wahapedia imports."""
+    report = []
+    merged, unmatched = merge_data(data, app.config.get('BSDATA_RESULT'), app.config.get('WAHAPEDIA_RESULT'), report)
+    (app.config.get('WAHAPEDIA_STATUS') or {})['report'] = report
     app.config['DATA_SOURCE'] = data.get('source')
     app.config['UNMATCHED'] = unmatched
     rebuild_reference_tables(merged)
@@ -128,13 +144,13 @@ RULE_PHASES = {'ranged': ('Shooting', 'Both'), 'melee': ('Fighting', 'Both')}
 
 
 def selected_rules(selection):
-    """Ticked faction rules and stratagems from {'rule_ids': [...], 'stratagem_ids': [...]}."""
+    """Ticked faction rules and stratagems from {'rule_ids': [...], 'stratagem_ids': [...]} (not superseded ones)."""
     selection = selection or {}
     rule_ids = [int(i) for i in selection.get('rule_ids', []) or []]
     strat_ids = [int(i) for i in selection.get('stratagem_ids', []) or []]
     rules = FactionRule.query.filter(FactionRule.id.in_(rule_ids)).all() if rule_ids else []
     strats = Stratagem.query.filter(Stratagem.id.in_(strat_ids)).all() if strat_ids else []
-    return rules + strats
+    return [r for r in rules + strats if not r.superseded]
 
 
 def rule_modifiers(records, side, faction_id, weapon_type):
@@ -319,6 +335,8 @@ def register_routes(app):
         chosen = set(request.args.getlist('detachment'))
 
         def offered(record):
+            if record.superseded or (record.source == 'wahapedia' and not record.phase):
+                return False  # Replaced by Wahapedia's, or used outside the Shooting and Fight phases
             return (record.applies_to or 'Attacker') == side and (
                 not record.detachment_key or record.detachment_key in chosen)
         modelled = {k.name.lower() for k in Keyword.query.filter_by(modelled=True)}
@@ -337,6 +355,8 @@ def register_routes(app):
                 'modifier': record.modifier,
                 'has_effect': modifier_has_effect(record.modifier, modelled),
                 'detachment': record.detachment_name,
+                'source': record.source,
+                'conditions': [] if record.edited else (record.parse or {}).get('conditions') or [],
             }
 
         entries = []
@@ -638,7 +658,51 @@ def register_routes(app):
             'download': load_settings(app.config['SETTINGS_JSON']).get('download'),
             'download_folder': app.config['DOWNLOAD_DIR'],
             'default_folder': app.config['DEFAULT_BSDATA_DIR'],
+            'wahapedia': wahapedia_status(bool(request.args.get('report'))),
         })
+
+    def wahapedia_status(with_report=False):
+        """The Wahapedia import: whether it loaded, when Wahapedia last updated it, counts and report."""
+        status = app.config.get('WAHAPEDIA_STATUS') or {}
+        report = status.get('report') or []
+        counts = {}
+        for item in report:
+            counts[item['kind']] = counts.get(item['kind'], 0) + 1
+        # Each Wahapedia record once (it is copied into every BSData faction that has it)
+        parsed, unique = {}, {}
+        for kind, model in (('stratagems', Stratagem), ('rules', FactionRule)):
+            records = dict(db.session.query(model.wahapedia_id, model.parse).filter(model.source == 'wahapedia'))
+            unique[kind] = len(records)
+            for parse in records.values():
+                key = (parse or {}).get('status') or 'not_modelled'
+                parsed[key] = parsed.get(key, 0) + 1
+        return {
+            'folder': status.get('folder'),
+            'loaded': bool(status.get('loaded')),
+            'error': status.get('error'),
+            'last_update': (status.get('source') or {}).get('last_update'),
+            'stratagems': unique['stratagems'],
+            'rules': unique['rules'],
+            'parsed': parsed,
+            'report_counts': counts,
+            'report': report if with_report else None,
+            'download': load_settings(app.config['SETTINGS_JSON']).get('wahapedia_download'),
+        }
+
+    @app.route('/api/wahapedia/download', methods=['POST'])
+    def api_wahapedia_download():
+        """Download the latest rules and stratagems from Wahapedia and use them."""
+        try:
+            info = wahapedia_download.download(app.config['WAHAPEDIA_DIR'])
+        except wahapedia_download.DownloadError as err:
+            return jsonify({'error': str(err)}), 502
+        update_settings(app.config['SETTINGS_JSON'], wahapedia_download=dict(
+            info, downloaded_at=datetime.now(timezone.utc).isoformat(timespec='seconds')))
+        status = load_wahapedia(app)
+        if status.get('error'):
+            return jsonify({'error': status['error']}), 400
+        load_reference_data(app, read_data_file(app.config['DATA_JSON']))
+        return api_data_status()
 
     # --- Setup: choosing, downloading and re-importing the BSData folder -------------
 
@@ -768,8 +832,8 @@ def register_routes(app):
             'source': f.source,
             'editable': f.editable,
             'unit_count': unit_counts.get(f.id, 0),
-            'rule_count': f.faction_rules.count(),
-            'stratagem_count': f.stratagems.count(),
+            'rule_count': f.faction_rules.filter_by(superseded=False).count(),
+            'stratagem_count': f.stratagems.filter_by(superseded=False).count(),
         } for f in factions])
 
     @app.route('/api/data/factions/<int:faction_id>/reference')
@@ -841,7 +905,7 @@ def register_routes(app):
     @app.route('/api/data/rules')
     def api_data_rules():
         """Faction rules, optionally for one faction."""
-        query = FactionRule.query
+        query = FactionRule.query.filter_by(superseded=False)
         if request.args.get('faction_id', type=int):
             query = query.filter_by(faction_id=request.args.get('faction_id', type=int))
         return jsonify([r.to_dict() for r in query.order_by(FactionRule.name).all()])
@@ -858,15 +922,43 @@ def register_routes(app):
     @app.route('/api/data/rules/<int:rule_id>', methods=['PUT'])
     def api_data_update_rule(rule_id):
         rule = db.get_or_404(FactionRule, rule_id)
+        if rule.source == 'wahapedia':
+            return edit_wahapedia(FactionRule, rule, request.get_json())
         apply_rule_fields(rule, request.get_json())
         save_data()
         return jsonify(rule.to_dict())
 
     @app.route('/api/data/rules/<int:rule_id>', methods=['DELETE'])
     def api_data_delete_rule(rule_id):
-        db.session.delete(db.get_or_404(FactionRule, rule_id))
+        rule = db.get_or_404(FactionRule, rule_id)
+        if rule.source == 'wahapedia':
+            return read_only(WAHAPEDIA_READ_ONLY)
+        db.session.delete(rule)
         save_data()
         return jsonify({'message': 'Rule deleted'})
+
+    WAHAPEDIA_READ_ONLY = "Rules and stratagems from Wahapedia can't be deleted; change how the maths reads them instead."
+
+    def edit_wahapedia(model, record, data):
+        """
+        Set how the maths reads a Wahapedia rule or stratagem (applies to, phase, modifier) in every
+        faction that has it, or {'reset': true} to go back to what was parsed from its text.
+        """
+        if data.get('reset'):
+            values, edited = (record.parse or {}).get('parsed') or {}, False
+        else:
+            values, edited = data, True
+        applies_to = values.get('applies_to') or 'Attacker'
+        phase = values.get('phase') or None
+        if applies_to not in BUFF_SIDES or (phase is not None and phase not in BUFF_PHASES):
+            return jsonify({'error': 'Applies to must be Attacker or Target, and phase Shooting, Fighting or Both.'}), 400
+        for copy in model.query.filter_by(source='wahapedia', wahapedia_id=record.wahapedia_id):
+            copy.applies_to = applies_to
+            copy.phase = phase
+            copy.modifier = (values.get('modifier') or '').strip() or None
+            copy.edited = edited
+        save_data()
+        return jsonify(record.to_dict())
 
     # --- Stratagems (core when faction_id is null) --------------------------
 
@@ -882,7 +974,7 @@ def register_routes(app):
     @app.route('/api/data/stratagems')
     def api_data_stratagems():
         """Stratagems: ?core=1 for core ones, ?faction_id=N for a faction's, otherwise all."""
-        query = Stratagem.query
+        query = Stratagem.query.filter_by(superseded=False)
         if request.args.get('core'):
             query = query.filter(Stratagem.faction_id.is_(None))
         elif request.args.get('faction_id', type=int):
@@ -901,13 +993,18 @@ def register_routes(app):
     @app.route('/api/data/stratagems/<int:strat_id>', methods=['PUT'])
     def api_data_update_stratagem(strat_id):
         strat = db.get_or_404(Stratagem, strat_id)
+        if strat.source == 'wahapedia':
+            return edit_wahapedia(Stratagem, strat, request.get_json())
         apply_stratagem_fields(strat, request.get_json())
         save_data()
         return jsonify(strat.to_dict())
 
     @app.route('/api/data/stratagems/<int:strat_id>', methods=['DELETE'])
     def api_data_delete_stratagem(strat_id):
-        db.session.delete(db.get_or_404(Stratagem, strat_id))
+        strat = db.get_or_404(Stratagem, strat_id)
+        if strat.source == 'wahapedia':
+            return read_only(WAHAPEDIA_READ_ONLY)
+        db.session.delete(strat)
         save_data()
         return jsonify({'message': 'Stratagem deleted'})
 

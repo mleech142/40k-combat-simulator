@@ -312,7 +312,7 @@
             <div class="rules-group-title">${escapeHtml(title)}</div>
             ${groups.get(title).map(e => `
                 <label class="rule-row${e.has_effect ? '' : ' rule-no-effect'}"
-                       title="${e.has_effect ? 'Changes the calculations' : 'No effect on the calculations (listed for reference)'}">
+                       title="${escapeHtml(Core.ruleRowTitle(e))}">
                     <input type="checkbox" data-key="${e.key}" ${panel.ticked.has(e.key) ? 'checked' : ''}>
                     <span class="rule-name">${escapeHtml(e.name)}</span>
                     ${e.detachment ? `<span class="rule-detachment">${escapeHtml(e.detachment)}</span>` : ''}

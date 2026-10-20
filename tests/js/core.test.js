@@ -256,6 +256,13 @@ const rules = [
     { key: 'stratagem:4', phase: 'Other' },
 ];
 
+test('ruleRowTitle says whether a rule counts and what it is conditional on', () => {
+    assert.equal(Core.ruleRowTitle({has_effect: true}), 'Changes the calculations');
+    assert.equal(Core.ruleRowTitle({has_effect: false, conditions: []}), 'No effect on the calculations (listed for reference)');
+    assert.equal(Core.ruleRowTitle({has_effect: true, conditions: ['If your unit is on an objective', 'that targets a Monster']}),
+        'Changes the calculations. Tick it only when: If your unit is on an objective; that targets a Monster');
+});
+
 test('rulesForFilter keeps the phases a weapon type can use', () => {
     const keys = filter => Core.rulesForFilter(rules, filter).map(e => e.key);
     assert.deepEqual(keys('ranged'), ['rule:1', 'stratagem:3']);

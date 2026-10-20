@@ -214,6 +214,7 @@
                 <input type="text" id="rule-modifier" placeholder="e.g. Sustained Hits 1, Lance" oninput="checkKeywordInput(this)">
                 <div class="kw-hint" id="rule-modifier-hint"></div>
             </div>
+            <div class="wahapedia-source" id="rule-source-text" style="display:none"></div>
             <div class="form-group" id="rule-detachment-group">
                 <label>Detachment</label>
                 <select id="rule-detachment"></select>
@@ -269,6 +270,7 @@
                 <input type="text" id="stratagem-modifier" placeholder="e.g. Hit Modifier +1" oninput="checkKeywordInput(this)">
                 <div class="kw-hint" id="stratagem-modifier-hint"></div>
             </div>
+            <div class="wahapedia-source" id="stratagem-source-text" style="display:none"></div>
             <div class="form-group" id="stratagem-detachment-group">
                 <label>Detachment</label>
                 <select id="stratagem-detachment"></select>
@@ -550,7 +552,51 @@ async function loadStatus() {
     }
 }
 
-const SOURCE_LABEL = {bsdata: 'BSData', custom: 'Custom', missing: 'Not in BSData folder'};
+const SOURCE_LABEL = {bsdata: 'BSData', custom: 'Custom', missing: 'Not in BSData folder', wahapedia: 'Wahapedia'};
+
+// How much of a Wahapedia rule's text the app read into modifiers
+const PARSE_LABEL = {modelled: 'Read into modifiers', partial: 'Partly read', not_modelled: 'Text only'};
+
+/** Badge, how it was read and its text (folded) for a rule or stratagem from Wahapedia; '' for others. */
+function wahapediaDetails(record) {
+    if (record.source !== 'wahapedia') return '';
+    const parse = record.parse || {};
+    const status = record.edited ? 'Edited' : (PARSE_LABEL[parse.status] || '');
+    const list = (title, items) => items?.length
+        ? `<p class="rule-parse-notes"><strong>${title}:</strong> ${items.map(esc).join(' · ')}</p>` : '';
+    return ` ${sourceBadge('wahapedia')} <span class="rule-parse rule-parse-${record.edited ? 'edited' : esc(parse.status || '')}">${status}</span>
+        <details class="rule-source">
+            <summary>Text</summary>
+            <div class="rule-text">${Core.formatRuleText(record.text)}</div>
+            ${record.edited ? '' : list('Conditions left to you', parse.conditions) + list('Not read', parse.skipped)}
+        </details>`;
+}
+
+/** Edit / Reset (Wahapedia) or Edit / Delete buttons for a rule or stratagem. */
+function ruleActions(record, kind) {
+    const edit = `<button class="btn-small" onclick="${kind === 'rule' ? 'editRule' : 'editStratagem'}(${record.id})">Edit</button>`;
+    if (record.source === 'wahapedia') {
+        return edit + (record.edited
+            ? ` <button class="btn-small" onclick="resetWahapedia('${kind}', ${record.id})" title="Back to what was read from the text">Reset</button>` : '');
+    }
+    return `${edit} <button class="btn-small btn-danger" onclick="${kind === 'rule' ? 'deleteRule' : 'deleteStratagem'}(${record.id})">Delete</button>`;
+}
+
+async function resetWahapedia(kind, id) {
+    if (await api(`/api/data/${kind === 'rule' ? 'rules' : 'stratagems'}/${id}`, 'PUT', {reset: true})) loadFactions();
+}
+
+/** Wahapedia records: only how the maths reads them can change; show their text in the form. */
+function setWahapediaForm(kind, record) {
+    const fromWahapedia = record?.source === 'wahapedia';
+    const ids = kind === 'rule' ? ['rule-name', 'rule-detachment'] : ['stratagem-name', 'stratagem-cp', 'stratagem-detachment', 'stratagem-notes'];
+    ids.forEach(id => { document.getElementById(id).disabled = fromWahapedia; });
+    const text = document.getElementById(`${kind}-source-text`);
+    text.style.display = fromWahapedia ? '' : 'none';
+    text.innerHTML = fromWahapedia
+        ? `<p class="data-note">From Wahapedia: its text is read-only. Applies to, phase and modifier are how the
+            maths reads it; changes apply in every faction that has it.</p><div class="rule-text">${Core.formatRuleText(record.text)}</div>` : '';
+}
 
 function sourceBadge(source) {
     return `<span class="source-badge source-${esc(source)}">${SOURCE_LABEL[source] || esc(source)}</span>`;
@@ -651,15 +697,12 @@ async function loadFactionDetail(factionId) {
             <thead><tr><th>Rule</th><th>Detachment</th><th>Applies To</th><th>Phase</th><th>Modifier</th><th>Actions</th></tr></thead>
             <tbody>${rules.length ? rules.map(r => `
                 <tr>
-                    <td>${esc(r.name)}</td>
+                    <td>${esc(r.name)}${wahapediaDetails(r)}</td>
                     <td>${r.detachment_name ? esc(r.detachment_name) : '<span class="muted">Whole faction</span>'}</td>
                     <td>${dash(r.applies_to)}</td>
                     <td>${dash(r.phase)}</td>
                     <td>${dash(r.modifier)}</td>
-                    <td>
-                        <button class="btn-small" onclick="editRule(${r.id})">Edit</button>
-                        <button class="btn-small btn-danger" onclick="deleteRule(${r.id})">Delete</button>
-                    </td>
+                    <td>${ruleActions(r, 'rule')}</td>
                 </tr>`).join('') : '<tr><td colspan="6" class="empty-cell">No faction rules</td></tr>'}
             </tbody>
         </table>
@@ -711,16 +754,13 @@ function renderStratagemRows(tbody, strats, emptyText) {
     strats.forEach(s => detailRecords.stratagems.set(s.id, s));
     tbody.innerHTML = strats.length ? strats.map(s => `
         <tr>
-            <td>${esc(s.name)}${s.detachment_name ? ` <span class="rule-detachment">${esc(s.detachment_name)}</span>` : ''}</td>
+            <td>${esc(s.name)}${s.detachment_name ? ` <span class="rule-detachment">${esc(s.detachment_name)}</span>` : ''}${wahapediaDetails(s)}</td>
             <td>${dash(s.cp)}</td>
             <td>${dash(s.applies_to)}</td>
-            <td>${dash(s.phase)}</td>
+            <td>${s.source === 'wahapedia' && !s.phase ? '<span class="muted">Other phases</span>' : dash(s.phase)}</td>
             <td>${dash(s.modifier)}</td>
             <td class="notes-cell">${dash(s.notes)}</td>
-            <td>
-                <button class="btn-small" onclick="editStratagem(${s.id})">Edit</button>
-                <button class="btn-small btn-danger" onclick="deleteStratagem(${s.id})">Delete</button>
-            </td>
+            <td>${ruleActions(s, 'stratagem')}</td>
         </tr>`).join('') : `<tr><td colspan="7" class="empty-cell">${emptyText}</td></tr>`;
 }
 
@@ -770,6 +810,7 @@ function showRuleModal(factionId) {
     document.getElementById('rule-id').value = '';
     document.getElementById('rule-faction-id').value = factionId;
     fillDetachmentSelect('rule', factionId);
+    setWahapediaForm('rule', null);
     openModal('rule-modal');
 }
 
@@ -784,6 +825,7 @@ function editRule(id) {
     document.getElementById('rule-phase').value = rule.phase || 'Both';
     document.getElementById('rule-modifier').value = rule.modifier || '';
     fillDetachmentSelect('rule', rule.faction_id, rule);
+    setWahapediaForm('rule', rule);
     openModal('rule-modal');
 }
 
@@ -818,6 +860,7 @@ function showStratagemModal(factionId) {
     document.getElementById('stratagem-id').value = '';
     document.getElementById('stratagem-faction-id').value = factionId ?? '';
     fillDetachmentSelect('stratagem', factionId);
+    setWahapediaForm('stratagem', null);
     openModal('stratagem-modal');
 }
 
@@ -835,6 +878,7 @@ function editStratagem(id) {
     document.getElementById('stratagem-modifier').value = strat.modifier || '';
     document.getElementById('stratagem-notes').value = strat.notes || '';
     fillDetachmentSelect('stratagem', strat.faction_id, strat);
+    setWahapediaForm('stratagem', strat);
     openModal('stratagem-modal');
 }
 

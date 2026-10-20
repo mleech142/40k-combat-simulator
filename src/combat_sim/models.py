@@ -11,6 +11,10 @@ Factions with `source` 'bsdata' come from the BSData catalogues: their units and
 are read-only. 'custom' factions (and their units and weapons) are made in the app. BSData
 records get IDs from BSDATA_ID_BASE up, kept stable across imports by StableId; custom
 records keep their own, below it.
+
+Faction rules and stratagems with `source` 'wahapedia' come from the Wahapedia export
+(wahapedia.py), with their text and what was parsed from it; only their applies to / phase /
+modifier can be edited. Hand-written ones ('app') that Wahapedia has too are `superseded`.
 """
 
 from flask_sqlalchemy import SQLAlchemy
@@ -334,7 +338,7 @@ class MeleeWeapon(db.Model):
 
 
 class FactionRule(db.Model):
-    """A faction rule (stored for reference; not yet used by the maths)."""
+    """A faction rule: army-wide or for one detachment. Ticked on the Simulator and Analytics pages."""
     __tablename__ = 'faction_rules'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -346,6 +350,14 @@ class FactionRule(db.Model):
     # Only with this BSData detachment (its bsdata_id; null = the whole faction)
     detachment_key = db.Column(db.String(40), nullable=True)
     detachment_name = db.Column(db.String(100), nullable=True)
+    # 'app' (written in the app) or 'wahapedia' (imported; see the module docstring)
+    source = db.Column(db.String(10), nullable=False, default='app')
+    wahapedia_id = db.Column(db.String(20), nullable=True)
+    text = db.Column(db.Text, nullable=True)  # Wahapedia: the rule's text, with BSData-style markup
+    # Wahapedia: {'status': 'modelled'|'partial'|'not_modelled', 'skipped', 'conditions', 'parsed': {applies_to, phase, modifier}}
+    parse = db.Column(JSON, nullable=True)
+    edited = db.Column(db.Boolean, default=False)  # Wahapedia: applies to / phase / modifier changed in the app
+    superseded = db.Column(db.Boolean, default=False)  # App: replaced by Wahapedia's (hidden, but kept in the data JSON)
 
     def __repr__(self):
         return f'<FactionRule {self.name}>'
@@ -360,11 +372,15 @@ class FactionRule(db.Model):
             'modifier': self.modifier,
             'detachment_key': self.detachment_key,
             'detachment_name': self.detachment_name,
+            'source': self.source,
+            'text': self.text,
+            'parse': self.parse,
+            'edited': bool(self.edited),
         }
 
 
 class Stratagem(db.Model):
-    """A stratagem: core (no faction) or faction-specific. Stored for reference; not yet used by the maths."""
+    """A stratagem: core (no faction) or faction-specific. Ticked on the Simulator and Analytics pages."""
     __tablename__ = 'stratagems'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -377,6 +393,12 @@ class Stratagem(db.Model):
     notes = db.Column(db.Text, nullable=True)
     detachment_key = db.Column(db.String(40), nullable=True)  # As for FactionRule
     detachment_name = db.Column(db.String(100), nullable=True)
+    source = db.Column(db.String(10), nullable=False, default='app')  # As for FactionRule, and the columns below
+    wahapedia_id = db.Column(db.String(20), nullable=True)
+    text = db.Column(db.Text, nullable=True)
+    parse = db.Column(JSON, nullable=True)
+    edited = db.Column(db.Boolean, default=False)
+    superseded = db.Column(db.Boolean, default=False)
 
     def __repr__(self):
         return f'<Stratagem {self.name}>'
@@ -397,6 +419,10 @@ class Stratagem(db.Model):
             'notes': self.notes,
             'detachment_key': self.detachment_key,
             'detachment_name': self.detachment_name,
+            'source': self.source,
+            'text': self.text,
+            'parse': self.parse,
+            'edited': bool(self.edited),
         }
 
 
