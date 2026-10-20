@@ -8,6 +8,14 @@
   "gameSystemRevision": 7,
   "library": false,
   "type": "catalogue",
+  "catalogueLinks": [
+   {
+    "name": "Starfarers Library",
+    "id": "cl-allies-lib",
+    "targetId": "cat-star-lib",
+    "type": "catalogue"
+   }
+  ],
   "sharedSelectionEntries": [
    {
     "name": "Ally Agent",
@@ -121,7 +129,7 @@
       ],
       "constraints": [
        {
-        "id": "c-50",
+        "id": "c-52",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -129,7 +137,7 @@
         "value": 1
        },
        {
-        "id": "c-51",
+        "id": "c-53",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -152,7 +160,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-52",
+        "id": "c-54",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -160,7 +168,7 @@
         "value": 1
        },
        {
-        "id": "c-53",
+        "id": "c-55",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -177,7 +185,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-54",
+          "id": "c-56",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -234,6 +242,14 @@
     "id": "rl-allies-det",
     "hidden": false,
     "targetId": "e-allies-det",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Wandering Troupe",
+    "id": "rl-allies-troupe",
+    "hidden": false,
+    "targetId": "u-troupe",
     "type": "selectionEntry",
     "constraints": []
    }

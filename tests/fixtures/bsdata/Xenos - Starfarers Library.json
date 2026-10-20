@@ -212,6 +212,101 @@
       "value": 100
      }
     ]
+   },
+   {
+    "name": "Wandering Troupe",
+    "id": "u-troupe",
+    "hidden": false,
+    "type": "unit",
+    "categoryLinks": [
+     {
+      "name": "Faction: Wanderers",
+      "id": "cl-k-faction-wanderers",
+      "primary": false,
+      "targetId": "k-faction-wanderers"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Troupe Player",
+      "id": "m-troupe",
+      "hidden": false,
+      "type": "model",
+      "constraints": [
+       {
+        "id": "c-50",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 5
+       },
+       {
+        "id": "c-51",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 5
+       }
+      ],
+      "selectionEntries": [],
+      "entryLinks": [],
+      "selectionEntryGroups": [],
+      "profiles": [
+       {
+        "name": "Troupe Player",
+        "id": "p-troupe",
+        "hidden": false,
+        "typeId": "pt-unit",
+        "typeName": "Unit",
+        "characteristics": [
+         {
+          "name": "M",
+          "$text": "8\""
+         },
+         {
+          "name": "T",
+          "$text": "3"
+         },
+         {
+          "name": "Sv",
+          "$text": "6+"
+         },
+         {
+          "name": "W",
+          "$text": "1"
+         },
+         {
+          "name": "LD",
+          "$text": "7+"
+         },
+         {
+          "name": "OC",
+          "$text": "1"
+         },
+         {
+          "name": "InSv",
+          "$text": ""
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 80
+     }
+    ]
    }
   ],
   "entryLinks": [
