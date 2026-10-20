@@ -21,6 +21,14 @@ How to set up the 40K Combat Simulator, use each page, and read what it tells yo
 
 That's it. Pick any page from the menu at the top. Close the black console window to stop the app.
 
+**On Linux:** download the `…-linux.zip` instead, unzip it, and run it from a terminal:
+
+```bash
+./40kCombatSimulator/40kCombatSimulator
+```
+
+Your browser opens the app as above; press Ctrl+C in the terminal to stop it. It needs a reasonably recent distribution (for example Ubuntu 22.04, Debian 12 or Fedora 36, or newer). Your data lives in `~/.local/share/40K Combat Simulator/`.
+
 > The app doesn't come with any game data; each person downloads their own copy. Neither source is made by Games Workshop.
 
 ---
@@ -178,6 +186,8 @@ Things that depend on the table rather than the dice: movement, charges, Precisi
 | Problem | Try |
 | --- | --- |
 | "Windows protected your PC" | **More info → Run anyway** (the app isn't code-signed) |
+| Linux: "Permission denied" | `chmod +x 40kCombatSimulator/40kCombatSimulator`, then run it again |
+| Linux: an error mentioning `GLIBC` | Your distribution is too old for the download: run from source instead (see the [technical overview](technical-overview.md#run-from-source)) |
 | The browser didn't open | Open the address shown in the black console window (usually `http://127.0.0.1:5000`) |
 | No units in the lists | Go to **Setup** and press **Download latest** in step 1 |
 | No stratagems | Go to **Setup** and press **Download latest** in step 2, then tick a detachment |

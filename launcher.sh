@@ -12,6 +12,13 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# The virtual environment needs the venv module (Debian/Ubuntu: sudo apt install python3-venv)
+if ! python3 -c "import venv, ensurepip" &> /dev/null; then
+    echo "ERROR: Python's venv module is missing."
+    echo "On Debian/Ubuntu: sudo apt install python3-venv"
+    exit 1
+fi
+
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
@@ -33,11 +40,11 @@ source venv/bin/activate
 echo "Checking dependencies..."
 pip install -q -r requirements.txt
 
-# Unit data comes from BSData: the catalogue .json files go in data/bsdata
-if ! ls data/bsdata/*.json >/dev/null 2>&1; then
+# The game data (BSData units and Wahapedia rules) is downloaded from the app's Setup page
+if ! ls data/bsdata/*.json >/dev/null 2>&1 || [ ! -f data/wahapedia/Stratagems.csv ]; then
     echo
-    echo "No BSData catalogues in data/bsdata - download the .json files from"
-    echo "https://github.com/BSData/wh40k-11e into that folder to get factions and units."
+    echo "First run? The app opens its Setup page: press both Download buttons there"
+    echo "(units and points, then rules and stratagems)."
 fi
 
 # Start the application

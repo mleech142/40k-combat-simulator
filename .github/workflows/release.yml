@@ -1,18 +1,32 @@
-# Builds the Windows release when a version tag is pushed:
+# Builds the Windows and Linux releases when a version tag is pushed:
 #   git tag v1.0.0 && git push origin v1.0.0
 # The tag must match __version__ in src/combat_sim/__init__.py. See docs/releasing.md.
+#
+# Each platform is tested and built on its own; the release is published only when both
+# builds succeed. Run it by hand (Actions > Release > Run workflow) to build both zips as
+# workflow artifacts without publishing anything.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write  # create the GitHub release
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+          - platform: linux
+            # The oldest supported Ubuntu runner: a build runs on Linux systems at least this new (glibc 2.35+)
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,14 +34,27 @@ jobs:
         with:
           python-version: '3.11'
 
+      - uses: actions/setup-node@v4  # The JavaScript tests run inside pytest
+        with:
+          node-version: '20'
+
       - name: Install
         run: pip install -r requirements-dev.txt
 
-      - name: Check the tag matches the app version
-        shell: pwsh
+      - name: Name the build
+        id: name
+        shell: bash
         run: |
-          $version = python -c "import sys; sys.path.insert(0, 'src'); import combat_sim; print(combat_sim.__version__)"
-          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match __version__ $version" }
+          version=$(python -c "import sys; sys.path.insert(0, 'src'); import combat_sim; print(combat_sim.__version__)")
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            if [ "v$version" != "${{ github.ref_name }}" ]; then
+              echo "Tag ${{ github.ref_name }} does not match __version__ $version"; exit 1
+            fi
+            label="${{ github.ref_name }}"
+          else
+            label="v$version-test"
+          fi
+          echo "zip=40kCombatSimulator-$label-${{ matrix.platform }}.zip" >> "$GITHUB_OUTPUT"
 
       - name: Test
         run: python -m pytest tests -q
@@ -35,20 +62,42 @@ jobs:
       - name: Build
         run: pyinstaller --noconfirm --clean combat_sim.spec
 
-      - name: Zip
+      - name: Zip (Windows)
+        if: matrix.platform == 'windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/40kCombatSimulator -DestinationPath "40kCombatSimulator-${{ github.ref_name }}-windows.zip"
+        run: Compress-Archive -Path dist/40kCombatSimulator -DestinationPath "${{ steps.name.outputs.zip }}"
+
+      - name: Zip (Linux)
+        if: matrix.platform == 'linux'
+        # zip keeps the executable's permissions, which unzip restores
+        run: cd dist && zip -qr "../${{ steps.name.outputs.zip }}" 40kCombatSimulator
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: ${{ steps.name.outputs.zip }}
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
         run: |
           # Notes from docs/release-notes/<tag>.md if written, otherwise generated from the commits
-          $zip = "40kCombatSimulator-${{ github.ref_name }}-windows.zip"
-          $notes = "docs/release-notes/${{ github.ref_name }}.md"
-          if (Test-Path $notes) {
-            gh release create "${{ github.ref_name }}" $zip --title "${{ github.ref_name }}" --notes-file $notes
-          } else {
-            gh release create "${{ github.ref_name }}" $zip --title "${{ github.ref_name }}" --generate-notes
-          }
+          notes="docs/release-notes/${{ github.ref_name }}.md"
+          if [ -f "$notes" ]; then
+            gh release create "${{ github.ref_name }}" dist/*.zip --title "${{ github.ref_name }}" --notes-file "$notes"
+          else
+            gh release create "${{ github.ref_name }}" dist/*.zip --title "${{ github.ref_name }}" --generate-notes
+          fi

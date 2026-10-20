@@ -1,0 +1,28 @@
+# Runs the tests on Linux for every push and pull request (Windows is tested by every release
+# build, which also tests Linux). Linux only here: it keeps the Actions minutes down.
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4  # The JavaScript tests run inside pytest
+        with:
+          node-version: '20'
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Test
+        run: python -m pytest tests -q
