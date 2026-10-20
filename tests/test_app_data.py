@@ -93,7 +93,7 @@ def test_unit_list_within_a_faction_is_not_capped(app_client):
     client, _ = app_client
     star = factions(client)['Starfarers']['id']
     listed = client.get(f'/api/units?faction_id={star}').get_json()
-    assert len(listed) == 8  # Every non-Legends Starfarers unit (the search cap is for searches only)
+    assert len(listed) == 9  # Every non-Legends Starfarers unit (the search cap is for searches only)
 
 
 def test_status_reports_the_import(app_client):

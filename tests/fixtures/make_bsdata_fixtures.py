@@ -372,6 +372,7 @@ write('Xenos - Starfarers', {'catalogue': {
         link('rl-lord', 'Star Lord', 'u-lord'),
         link('rl-medic', 'Field Medic', 'u-medic'),
         link('rl-agent', 'Ally Agent', 'u-agent'),  # An ally from another army: left out
+        link('rl-troupe', 'Wandering Troupe', 'u-troupe'),  # Nobody's own faction: taken
         link('rl-hidden', 'Hidden Thing', 'u-captain') | {'hidden': True},
     ],
 }})
@@ -392,6 +393,12 @@ write('Xenos - Starfarers Library', {'catalogue': {
          'categoryLinks': [cat_link('k-veh', 'Vehicle')],
          'profiles': [unit_profile('p-bunker', 'Field Bunker', '-', '10', '3+', '15', '-', '0')],
          'costs': pts(100)},
+        # No catalogue's own faction (like Aeldari Harlequins): it joins every army that links it
+        {'name': 'Wandering Troupe', 'id': 'u-troupe', 'hidden': False, 'type': 'unit',
+         'categoryLinks': [cat_link('k-faction-wanderers', 'Faction: Wanderers'), cat_link('k-inf', 'Infantry')],
+         'selectionEntries': [model('m-troupe', 'Troupe Player', constraints=cons(5, 5), profiles=[
+             unit_profile('p-troupe', 'Troupe Player', '8"', '3', '6+', '1', '7+', '1')])],
+         'costs': pts(80)},
     ],
     'entryLinks': [link('rl-drone', 'Scout Drone', 'u-drone'), link('rl-bunker', 'Field Bunker', 'u-bunker')],
 }})
@@ -401,6 +408,9 @@ write('Xenos - Starfarers Library', {'catalogue': {
 write('Imperium - Allies', {'catalogue': {
     'name': 'Imperium - Allies', 'id': 'cat-allies', 'battleScribeVersion': 2.03, 'revision': 1,
     'gameSystemId': GS, 'gameSystemRevision': 7, 'library': False, 'type': 'catalogue',
+    'catalogueLinks': [
+        {'name': 'Starfarers Library', 'id': 'cl-allies-lib', 'targetId': 'cat-star-lib', 'type': 'catalogue'},
+    ],
     'sharedSelectionEntries': [
         {'name': 'Ally Agent', 'id': 'u-agent', 'hidden': False, 'type': 'model',
          'categoryLinks': [cat_link('k-faction-allies', 'Faction: Allies'), cat_link('k-inf', 'Infantry')],
@@ -411,7 +421,8 @@ write('Imperium - Allies', {'catalogue': {
         detachment_entry('e-allies-det', 'g-allies-det', [
             ('d-task-force', 'Allied Task Force', 'Assigned', 'Agents can join any army.', 2, 'Disruption')]),
     ],
-    'entryLinks': [link('rl-ally-agent', 'Ally Agent', 'u-agent'), link('rl-allies-det', 'Detachment', 'e-allies-det')],
+    'entryLinks': [link('rl-ally-agent', 'Ally Agent', 'u-agent'), link('rl-allies-det', 'Detachment', 'e-allies-det'),
+                   link('rl-allies-troupe', 'Wandering Troupe', 'u-troupe')],
 }})
 
 write('Imperium - Empty Stub', {'catalogue': {

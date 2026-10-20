@@ -325,6 +325,17 @@
         return value ? [String(value)] : [];
     }
 
+    /**
+     * The saved unit among `units`: by its ID, else by name within its faction, else by name
+     * (scenarios saved before the ID). The same name can be in several factions (Harlequins).
+     */
+    function findSavedUnit(units, config) {
+        const named = (units || []).filter(u => u.name === config.unit_name);
+        return (units || []).find(u => config.unit_id != null && u.id === config.unit_id)
+            || named.find(u => config.faction_id != null && u.faction_id === config.faction_id)
+            || named[0] || null;
+    }
+
     /** "No detachment", one name, or "A + B" for the chosen detachments. */
     function detachmentSummary(detachments, chosenKeys) {
         const names = (detachments || []).filter(d => (chosenKeys || []).includes(d.key)).map(d => d.name);
@@ -683,7 +694,7 @@
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
-        detachmentPickerHtml, formatRuleLine, formatRuleText,
+        detachmentPickerHtml, findSavedUnit, formatRuleLine, formatRuleText,
         leaderBuffSummary, withLeaderWeapons, withLeaderEntries, withLoadout, attackerEntry, defenderEntry, activeEnhancements, enhancementRefs, armyPoints, armyDetachmentPoints,
         usedWeapons, weaponPayload, rulesForFilter, ruleRowTitle, rulesSelection, woundsMarker, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,

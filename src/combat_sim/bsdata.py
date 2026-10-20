@@ -12,7 +12,9 @@ How BattleScribe data maps onto the app:
 - **Factions** are the non-library catalogues. A faction's units are those it defines, plus
   root entries it links or imports (`importRootEntries`) that carry one of its own
   "Faction: X" categories (see home_categories), so Blood Angels get the Space Marines
-  units but not allied Agents of the Imperium or Imperial Knights. Library root entries no
+  units but not allied Agents of the Imperium or Imperial Knights. A unit it links whose
+  "Faction: X" is no catalogue's own is not an ally either: Aeldari and Drukhari both get
+  the Harlequins from the Aeldari Library. Library root entries no
   faction takes join the faction that took most of that library, or else form a faction
   named after it (Unaligned Forces). Catalogues left with no units are skipped.
 - **Points** are those of a lone unit: the surcharge for repeating a datasheet in an army
@@ -58,7 +60,7 @@ from pathlib import Path
 from .rules_text import tidy_text, plain_text, parse_leader_buffs, parse_enhancement  # noqa: F401 (also used by importers of bsdata)
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 8  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 9  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -937,7 +939,7 @@ def _leader_targets(line):
     text = m.group(1).split('\n\n')[0]
     names = []
     for part in re.split(r'[\n,■•▪]+', text):
-        part = part.strip(' .')
+        part = re.sub(r'^\s*-\s+', '', part).strip(' .')  # '- NAME' bullets (Yvraine)
         if part and not part.lower().startswith(('can ', 'this ', 'if ', 'note')):
             names.append(part)
     return names
@@ -993,17 +995,23 @@ def _name_match(cat, library, catalogues):
 def faction_members(catalogues, report):
     """[(faction catalogue, [unit entries])] following the rules in the module docstring."""
     own = {cid: root_entries(cat, report) for cid, cat in catalogues.items()}
+    imported, homes = {}, {}
+    for cid, cat in catalogues.items():
+        if not cat.is_library:
+            imported[cid] = [e for link in cat.links() if link.get('importRootEntries') and link['targetId'] in catalogues
+                             for e in own[link['targetId']]]
+            homes[cid] = home_categories(cat, own[cid], imported[cid], catalogues)
+    any_home = set().union(*homes.values())
     claimed = set()
     factions = []
     for cid, cat in catalogues.items():
         if cat.is_library:
             continue
-        imported = [e for link in cat.links() if link.get('importRootEntries') and link['targetId'] in catalogues
-                    for e in own[link['targetId']]]
-        candidates = own[cid] + imported
-        home = home_categories(cat, own[cid], imported, catalogues)
-        # Units it defines itself, plus linked and imported ones that belong to its army
-        members = _unique([e for e in candidates if e.cat is cat or faction_categories(e) & home])
+        home = homes[cid]
+        # Units it defines itself, plus linked and imported ones that belong to its army, plus
+        # those it links whose faction is no catalogue's own (Aeldari Harlequins and Ynnari)
+        members = _unique([e for e in own[cid] + imported[cid] if e.cat is cat or faction_categories(e) & home]
+                          + [e for e in own[cid] if faction_categories(e) and not faction_categories(e) & any_home])
         if not members:
             report.add('skipped_faction', faction_name(cat), None, 'no units of its own')
             continue

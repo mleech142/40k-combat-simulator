@@ -2832,6 +2832,14 @@
     "constraints": []
    },
    {
+    "name": "Wandering Troupe",
+    "id": "rl-troupe",
+    "hidden": false,
+    "targetId": "u-troupe",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
     "name": "Hidden Thing",
     "id": "rl-hidden",
     "hidden": true,

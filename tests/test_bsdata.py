@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from combat_sim.bsdata import BSDataError, import_folder
+from combat_sim.bsdata import BSDataError, _leader_targets, import_folder
 
 FIXTURES = Path(__file__).resolve().parent / 'fixtures' / 'bsdata'
 KNOWN = ['Pistol', 'Rapid Fire', 'Hazardous', 'Heavy', 'Anti', 'Lethal Hits', 'Sustained Hits', 'Torrent',
@@ -58,8 +58,16 @@ def test_factions_are_catalogues_named_without_their_prefix(result):
 def test_faction_takes_its_own_and_imported_units_but_not_allies(result):
     assert faction_units(result, 'Starfarers') == [
         'Beast Pack', 'Field Bunker', 'Field Medic', 'Gun Crew', 'Scout Drone', 'Star Captain', 'Star Lord',
-        'Star Walker [Legends]', 'Void Warriors']
-    assert faction_units(result, 'Allies') == ['Ally Agent']  # Linked from Starfarers, but not one of theirs
+        'Star Walker [Legends]', 'Void Warriors', 'Wandering Troupe']
+    # Ally Agent is linked from Starfarers, but not one of theirs
+    assert faction_units(result, 'Allies') == ['Ally Agent', 'Wandering Troupe']
+
+
+def test_linked_unit_of_no_catalogues_own_faction_joins_each_army_linking_it(result):
+    # Like Aeldari Harlequins: "Faction: Wanderers" is no catalogue's home, so it is not an ally
+    troupes = [u for u in result.data['units'] if u['name'] == 'Wandering Troupe']
+    assert sorted(u['faction_id'] for u in troupes) == sorted(
+        [faction(result, 'Starfarers')['id'], faction(result, 'Allies')['id']])
 
 
 def test_unclaimed_library_units_join_or_form_a_faction(result):
@@ -120,6 +128,13 @@ def test_abilities_text_lists_ability_profiles(result):
 def test_leader_targets_matched_to_faction_units(result):
     assert unit(result, 'Star Captain')['can_lead'] == ['Void Warriors']
     assert ('Starfarers', 'Star Captain', 'can lead "Missing Squad", which is not in this faction') in reported(result, 'leader')
+
+
+def test_leader_targets_listed_with_dash_bullets():
+    # Yvraine's Leader text in the Aeldari Library; hyphens inside a name stay
+    text = ('This model can be attached to the following units:\n- **GUARDIAN DEFENDERS**\n'
+            '- **YNNARI KABALITE WARRIORS**\n- **TERRAX-PATTERN TERMITE**')
+    assert _leader_targets(text) == ['GUARDIAN DEFENDERS', 'YNNARI KABALITE WARRIORS', 'TERRAX-PATTERN TERMITE']
 
 
 def test_mixed_stat_lines_use_the_most_numerous_model(result):
