@@ -72,6 +72,8 @@ def test_units_at_half_strength_take_a_battle_shock_roll_in_their_command_phase(
     state['turn']['step'] = 'consolidate'
     state, event = act(state, {'type': 'next_phase'}, 2, 3)  # Red's Command phase: 5 against Ld 6+: fails
     assert [(g['purpose'], g['total']) for g in event['rolls']] == [('battle-shock', 5)]
+    assert event['battle_shock'] == [{'unit': 'p1-squad', 'name': 'Squad', 'total': 5, 'leadership': 6,
+                                      'shocked': True, 'was_shocked': False, 'rolls': [0, 1]}]
     assert unit_by_id(state, 'p1-squad')['status'] == {'shocked': True}
     assert unit_by_id(state, 'p2-mob')['status'] == {'shocked': False}  # Not rolled: the other player's unit
     state = to_phase(state, 'command', 1)
@@ -107,6 +109,8 @@ def test_battle_shocked_units_fall_back_by_desperate_escape():
                            'models': [{'id': f'p1-squad-0-{i + 1}', 'x': x, 'y': y} for i, (x, y) in enumerate(through)]})
     state, event = act(state, {'type': 'next_phase'}, 1, 4, 6)
     assert [(g['purpose'], [d['face'] for d in g['dice']]) for g in event['rolls']] == [('hazard', [1, 4, 6])]
+    assert event['hazards'] == [{'unit': 'p1-squad', 'name': 'Squad', 'reason': 'Desperate Escape', 'fails': 1,
+                                 'mortal_wounds': 1, 'killed': [], 'rolls': [0, 1]}]
     assert [m['wounds_left'] for m in unit_by_id(state, 'p1-squad')['models']] == [2, 2, 1]
 
 

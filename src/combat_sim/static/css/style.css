@@ -3732,6 +3732,8 @@ h4 .fa-solid,
 .play-log-entry { border-top: 1px solid var(--border); padding: 0.35rem 0; }
 .play-log-entry summary { cursor: pointer; }
 .play-log-roll { display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+.play-shock-bad { color: var(--warning); }
+.play-shock-good { color: var(--success); }
 .play-move-modes .btn-small small { color: var(--text-muted); }
 .play-log-attack { margin: 0.35rem 0 0.35rem 1rem; }
 .play-dice-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.15rem; }

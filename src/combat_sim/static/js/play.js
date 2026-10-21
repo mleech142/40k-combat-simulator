@@ -759,7 +759,7 @@
         const ONE_LINE = ['charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
-                || (e.action.type === 'next_phase' && e.rolls.length)).reverse() : [];
+                || (['next_phase', 'end_deployment'].includes(e.action.type) && e.rolls.length)).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
             return;
@@ -802,8 +802,21 @@
             case 'accept':
             case 'decline':
                 return `Correction ${a.type === 'accept' ? 'accepted' : 'declined'}: ${escapeHtml(event.corrected || event.declined || '')}`;
-            default: {  // A phase change with battle-shock or hazard rolls
-                return event.rolls.map(r => r.purpose === 'battle-shock'
+            default: {  // A phase change with battle-shock or hazard rolls, unit by unit
+                const lines = [];
+                for (const b of event.battle_shock || []) {
+                    const outcome = b.shocked ? '<strong class="play-shock-bad">battle-shocked</strong>'
+                        : b.was_shocked ? '<strong class="play-shock-good">recovers</strong>' : '<strong class="play-shock-good">holds</strong>';
+                    lines.push(`<strong>${escapeHtml(b.name)}</strong> battle-shock test: ${dice(event.rolls[b.rolls[0]])}
+                        = ${b.total} (needs ${b.leadership}+): ${outcome}`);
+                }
+                for (const h of event.hazards || []) {
+                    const hurt = h.mortal_wounds ? `${h.mortal_wounds} mortal wound${h.mortal_wounds === 1 ? '' : 's'}` : 'no harm';
+                    const dead = h.killed.length ? `, ${h.killed.length} model${h.killed.length === 1 ? '' : 's'} lost` : '';
+                    lines.push(`<strong>${escapeHtml(h.name)}</strong> ${escapeHtml(h.reason)} hazard rolls: ${dice(event.rolls[h.rolls[0]])}: ${hurt}${dead}`);
+                }
+                if (lines.length) return lines.join('<br>');
+                return event.rolls.map(r => r.purpose === 'battle-shock'  // Games saved before units were recorded
                     ? `Battle-shock roll: ${dice(r)} = ${r.total}` : `Hazard rolls: ${dice(r)}`).join('<br>');
             }
         }
