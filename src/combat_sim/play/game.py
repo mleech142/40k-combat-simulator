@@ -36,6 +36,28 @@ DEFAULT_ORDERS = {'casualties': 'farthest'}  # Standing orders: which models are
 HAZARD_FAILS_ON = 2  # A hazard roll of this or less fails...
 HAZARD_MORTALS = 1  # ...and the unit suffers this many mortal wounds (3 if every model is a Monster or Vehicle)
 BATTLE_ROUNDS = 5
+DURATIONS = ('phase', 'turn', 'game')  # How long an effect lasts
+# Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
+MANUAL_EFFECTS = {
+    'hit_plus': ('+1 to hit', 'Attacker', 'Hit Modifier +1'),
+    'hit_minus': ('-1 to be hit', 'Target', 'Hit Modifier -1'),
+    'wound_plus': ('+1 to wound', 'Attacker', 'Wound Modifier +1'),
+    'wound_minus': ('-1 to be wounded', 'Target', 'Wound Modifier -1'),
+    'reroll_hit_ones': ('Re-roll hit rolls of 1', 'Attacker', 'Reroll Hits 1'),
+    'reroll_hits': ('Re-roll hit rolls', 'Attacker', 'Reroll Hits'),
+    'reroll_wound_ones': ('Re-roll wound rolls of 1', 'Attacker', 'Reroll Wounds 1'),
+    'reroll_wounds': ('Re-roll wound rolls', 'Attacker', 'Reroll Wounds'),
+    'ap_plus': ('Improve AP by 1', 'Attacker', 'AP Modifier -1'),
+    'damage_plus': ('+1 Damage', 'Attacker', 'Damage Modifier +1'),
+    'damage_minus': ('-1 Damage taken', 'Target', 'Damage Modifier -1'),
+    'fnp_4': ('Feel No Pain 4+', 'Target', 'Feel No Pain 4+'),
+    'fnp_5': ('Feel No Pain 5+', 'Target', 'Feel No Pain 5+'),
+    'fnp_6': ('Feel No Pain 6+', 'Target', 'Feel No Pain 6+'),
+    'cover': ('Benefit of cover', 'Target', 'Stealth'),
+    'lethal': ('Lethal Hits', 'Attacker', 'Lethal Hits'),
+    'sustained': ('Sustained Hits 1', 'Attacker', 'Sustained Hits 1'),
+    'devastating': ('Devastating Wounds', 'Attacker', 'Devastating Wounds'),
+}
 
 
 class ActionError(ValueError):
@@ -45,9 +67,11 @@ class ActionError(ValueError):
 def new_game(armies):
     """A game between frozen armies (snapshot.freeze_army), the first army's player going first."""
     state = {'version': STATE_VERSION, 'players': [], 'units': [],
-             'turn': {'phase': 'deployment', 'round': 0, 'player': 0}}
+             'turn': {'phase': 'deployment', 'round': 0, 'player': 0}, 'pending': None}
     for player, army in enumerate(armies):
-        state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0})
+        state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0,
+                                 'stratagems': copy.deepcopy(army.get('stratagems', []) + army.get('rules', [])),
+                                 'used': {}})
         for unit in army['units']:
             unit_id = f'p{player + 1}-{unit["uid"]}'
             models = [{'id': f'{unit_id}-{part_index}-{n + 1}', 'part': part_index,
@@ -57,7 +81,7 @@ def new_game(armies):
                       for part_index, part in enumerate(unit['parts']) for n in range(part['models'])]
             state['units'].append({'id': unit_id, 'player': player, 'name': unit['name'],
                                    'parts': copy.deepcopy(unit['parts']), 'models': models, 'activity': {},
-                                   'status': {'shocked': False}})
+                                   'status': {'shocked': False}, 'effects': []})
     return state
 
 
@@ -69,10 +93,11 @@ def _snapshot(state):
     """What events record: each model's MODEL_FIELDS, each unit's activity and status, players' orders
     and Command points, and the turn."""
     return {'models': {m['id']: {k: m[k] for k in MODEL_FIELDS} for u in state['units'] for m in u['models']},
-            'units': {u['id']: {'activity': u.get('activity', {}), 'status': u.get('status', {'shocked': False})}
-                      for u in state['units']},
-            'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0)} for p in state['players']],
-            'turn': state.get('turn')}
+            'units': {u['id']: {'activity': u.get('activity', {}), 'status': u.get('status', {'shocked': False}),
+                                'effects': u.get('effects', [])} for u in state['units']},
+            'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0), 'used': p.get('used', {})}
+                        for p in state['players']],
+            'turn': state.get('turn'), 'pending': state.get('pending')}
 
 
 def resolve_action(state, action, dice):
@@ -87,10 +112,17 @@ def resolve_action(state, action, dice):
                 'charge': lambda s: _charge(s, action, dice), 'charge_move': lambda s: _charge_move(s, action),
                 'pile_in': lambda s: _pile_in(s, action), 'fight': lambda s: _fight(s, action, dice),
                 'consolidate': lambda s: _consolidate(s, action),
-                'orders': lambda s: _orders(s, action)}
+                'orders': lambda s: _orders(s, action), 'stratagem': lambda s: _stratagem(s, action),
+                'rule': lambda s: _rule(s, action), 'effect': lambda s: _manual_effect(s, action),
+                'remove_effect': lambda s: _remove_effect(s, action), 'correction': lambda s: _correction(s, action),
+                'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
         raise ActionError(f'Unknown action: {kind}')
+    pending = state.get('pending')
+    if pending and kind not in ('accept', 'decline'):
+        other = state['players'][1 - pending['player']]['name']
+        raise ActionError(f'A correction is waiting for {other} to accept or decline it.')
     before = copy.deepcopy(_snapshot(state))
     state = copy.deepcopy(state)
     start = len(dice.log)
@@ -103,6 +135,8 @@ def resolve_action(state, action, dice):
         event['turn'] = after['turn']
     if after['players'] != before['players']:
         event['players'] = after['players']
+    if after['pending'] != before['pending']:
+        event['pending'] = after['pending']
     return event
 
 
@@ -120,6 +154,8 @@ def apply_event(state, event):
         player['orders'] = dict(orders)
     for player, changes in zip(state['players'], event.get('players', [])):
         player.update(copy.deepcopy(changes))
+    if 'pending' in event:
+        state['pending'] = copy.deepcopy(event['pending'])
     return state
 
 
@@ -143,10 +179,17 @@ def _end_deployment(state, dice):
     if _unplaced(state, 0) or _unplaced(state, 1):
         raise ActionError('Place every unit before deployment ends.')
     _start_turn(state, 1, 0, dice)
+    _prune_effects(state)
 
 
 def _next_phase(state, dice):
-    """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate)."""
+    """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate); effects that
+    lasted until then end."""
+    _change_phase(state, dice)
+    _prune_effects(state)
+
+
+def _change_phase(state, dice):
     turn = state['turn']
     if turn['phase'] == 'ended':
         raise ActionError('The battle is over.')
@@ -195,6 +238,110 @@ def _start_turn(state, round_number, player, dice):
         if unit['player'] == player and _placed_shapes(unit) and (status['shocked'] or half_strength(unit)):
             leadership = min(unit['parts'][m['part']]['stats'].get('leadership') or 7 for m in unit['models'] if m['alive'])
             status['shocked'] = dice.roll_value('2D6', 'battle-shock') < leadership
+
+
+def _phase_id(turn):
+    return f'{turn["round"]}.{turn["player"]}.{turn["phase"]}.{turn.get("step", "")}'
+
+
+def _turn_id(turn):
+    return f'{turn["round"]}.{turn["player"]}'
+
+
+def _prune_effects(state):
+    """Effects whose phase or turn is over end; those for the game stay."""
+    turn = state['turn']
+    for unit in state['units']:
+        unit['effects'] = [e for e in unit.get('effects', []) if e['until'] == 'game'
+                           or (e['until'] == 'turn' and e['turn_id'] == _turn_id(turn))
+                           or (e['until'] == 'phase' and e['phase_id'] == _phase_id(turn))]
+
+
+def _add_effect(state, unit, name, side, phase, modifier, until, source):
+    if until not in DURATIONS:
+        raise ActionError('Choose how long it lasts: this phase, this turn or the rest of the game.')
+    turn = state['turn']
+    unit.setdefault('effects', []).append({'name': name, 'side': side or 'Attacker', 'phase': phase or 'Both',
+                                           'modifier': modifier, 'until': until, 'source': source,
+                                           'phase_id': _phase_id(turn), 'turn_id': _turn_id(turn)})
+
+
+def _in_battle(state):
+    if state['turn']['phase'] not in PHASES:
+        raise ActionError('Stratagems, rules and effects are used during the battle.')
+
+
+def _player_entry(state, action, kind):
+    try:
+        player = int(action.get('player'))
+        entries = state['players'][player].get('stratagems', [])
+    except (TypeError, ValueError, IndexError):
+        raise ActionError('Say which player uses it.')
+    entry = next((e for e in entries if e['key'] == action.get('key') and e['kind'] == kind), None)
+    if entry is None:
+        raise ActionError(f'That {kind} isn\'t one of {state["players"][player]["name"]}\'s.')
+    unit = _unit_or_error(state, action.get('unit'))
+    if unit['player'] != player:
+        raise ActionError(f'Use it on one of your own units ({unit["name"]} is the other player\'s).')
+    return player, entry, unit
+
+
+def _stratagem(state, action):
+    """
+    Use a stratagem on one of the player's units (either player, any phase): it costs its CP, each
+    stratagem once per phase per player, and not on a battle-shocked unit. Its effect, if the app
+    reads one, lasts the phase; otherwise its text is logged for the players to apply.
+    """
+    _in_battle(state)
+    player, entry, unit = _player_entry(state, action, 'stratagem')
+    if unit.get('status', {}).get('shocked'):
+        raise ActionError(f'{unit["name"]} is battle-shocked: stratagems can\'t target it.')
+    owner = state['players'][player]
+    if owner.get('cp', 0) < entry['cp']:
+        raise ActionError(f'{entry["name"]} costs {entry["cp"]} CP; {owner["name"]} has {owner.get("cp", 0)} CP.')
+    used = owner.setdefault('used', {})
+    if used.get(entry['key']) == _phase_id(state['turn']):
+        raise ActionError(f'{entry["name"]} has already been used this phase (once per phase).')
+    owner['cp'] -= entry['cp']
+    used[entry['key']] = _phase_id(state['turn'])
+    if entry.get('modifier'):
+        _add_effect(state, unit, entry['name'], entry.get('applies_to'), entry.get('phase'), entry['modifier'], 'phase', 'stratagem')
+    return {'stratagem': entry['name'], 'cp': entry['cp'], 'player': player, 'unit': unit['id'], 'text': entry.get('text', '')}
+
+
+def _rule(state, action):
+    """Switch on one of the army's rules for a unit (free) for this phase, this turn or the rest of the game."""
+    _in_battle(state)
+    player, entry, unit = _player_entry(state, action, 'rule')
+    _add_effect(state, unit, entry['name'], entry.get('applies_to'), entry.get('phase'), entry.get('modifier') or '',
+                action.get('until') or 'phase', 'rule')  # With no modifier it's a reminder on the unit
+    return {'rule': entry['name'], 'player': player, 'unit': unit['id'], 'text': entry.get('text', '')}
+
+
+def _manual_effect(state, action):
+    """A manual effect on a unit (from MANUAL_EFFECTS), for this phase, this turn or the rest of the game."""
+    _in_battle(state)
+    unit = _unit_or_error(state, action.get('unit'))
+    if action.get('effect') not in MANUAL_EFFECTS:
+        raise ActionError(f'Unknown effect: {action.get("effect")}.')
+    name, side, modifier = MANUAL_EFFECTS[action['effect']]
+    _add_effect(state, unit, name, side, 'Both', modifier, action.get('until') or 'phase', 'manual')
+    return {'effect': name, 'unit': unit['id']}
+
+
+def _remove_effect(state, action):
+    unit = _unit_or_error(state, action.get('unit'))
+    try:
+        removed = unit['effects'].pop(int(action.get('index')))
+    except (TypeError, ValueError, IndexError, KeyError):
+        raise ActionError('That effect is not on the unit.')
+    return {'removed': removed['name'], 'unit': unit['id']}
+
+
+def _effect_modifiers(unit, side, kind):
+    """Modifier text from a unit's effects (stratagems, rules, manual) for one side and the weapon's phase."""
+    rows = [{'applies_to': e['side'], 'phase': e['phase'], 'modifier': e['modifier']} for e in unit.get('effects', [])]
+    return effects.leader_modifiers(rows, side, kind)
 
 
 def half_strength(unit):
@@ -511,7 +658,7 @@ def _attacker(unit, part_index, weapon_index, models):
     weapon = part['weapons'][weapon_index]
     kind = weapon['type']
     extra = _leader_effects(unit, 'Attacker', kind) + effects.enhancement_modifiers(
-        _carried(unit), 'Attacker', kind, leader_weapon=part['role'] == 'leader')
+        _carried(unit), 'Attacker', kind, leader_weapon=part['role'] == 'leader') + _effect_modifiers(unit, 'Attacker', kind)
     return AttackerProfile(weapon['attacks'], weapon['skill'], weapon['strength'], weapon['ap'], weapon['damage'],
                            list(weapon['abilities'] or []) + extra, models, kind)
 
@@ -520,7 +667,8 @@ def _defender(unit, part_index, kind='ranged'):
     """The DefenderProfile of one part of a unit, with the unit's leader and enhancement effects as a target."""
     part = unit['parts'][part_index]
     stats = part['stats']
-    extra = _leader_effects(unit, 'Target', kind) + effects.enhancement_modifiers(_carried(unit), 'Target', kind)
+    extra = (_leader_effects(unit, 'Target', kind) + effects.enhancement_modifiers(_carried(unit), 'Target', kind)
+             + _effect_modifiers(unit, 'Target', kind))
     alive = sum(m['alive'] for m in unit['models'])
     return DefenderProfile(stats['toughness'], stats['save'], stats['wounds'], stats['invulnerable_save'],
                            stats['feel_no_pain'], list(part['keywords']) + extra, alive)
@@ -1210,3 +1358,73 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
         raise ActionError(f'{unit["name"]} must end its {verb} move engaged with an enemy unit.')
     for mid, spot in spots.items():
         living[mid]['position'] = spot
+
+
+# --- Correcting the game ---------------------------------------------------------------------------------
+
+def _correction(state, action):
+    """
+    Propose a correction (either player, any time): models' wounds, whether they're alive and where
+    they are, and players' CP. Nothing else can happen until the other player accepts or declines it.
+    """
+    try:
+        player = int(action.get('player'))
+        state['players'][player]
+    except (TypeError, ValueError, IndexError):
+        raise ActionError('Say who proposes the correction.')
+    models = {m['id']: (u, m) for u in state['units'] for m in u['models']}
+    changes = {}
+    for model_id, change in (action.get('models') or {}).items():
+        if model_id not in models or not isinstance(change, dict):
+            raise ActionError(f'There is no model {model_id} in this game.')
+        unit, model = models[model_id]
+        clean = {}
+        if 'wounds_left' in change:
+            full = unit['parts'][model['part']]['stats']['wounds']
+            try:
+                wounds = int(change['wounds_left'])
+            except (TypeError, ValueError):
+                raise ActionError('Wounds must be a number.')
+            if not 0 <= wounds <= full:
+                raise ActionError(f'{unit["name"]} models have {full} wounds at most.')
+            clean['wounds_left'] = wounds
+        if 'alive' in change:
+            clean['alive'] = bool(change['alive'])
+        if 'position' in change:
+            pos = change['position']
+            clean['position'] = None if pos is None else {'x': float(pos['x']), 'y': float(pos['y']),
+                                                          'angle': float(pos.get('angle') or 0)}
+        if clean:
+            changes[model_id] = clean
+    cp = {}
+    for key, value in (action.get('cp') or {}).items():
+        if str(key) not in ('0', '1') or not isinstance(value, int) or value < 0:
+            raise ActionError('Command points are a whole number for player 0 or 1.')
+        cp[str(key)] = value
+    if not changes and not cp:
+        raise ActionError('A correction must change something.')
+    state['pending'] = {'player': player, 'note': str(action.get('note') or '')[:300], 'models': changes, 'cp': cp}
+
+
+def _answer(state, action, accept):
+    """The other player accepts (it's applied) or declines (it's dropped) the pending correction."""
+    pending = state.get('pending')
+    if not pending:
+        raise ActionError('There is no correction to answer.')
+    if action.get('player') != 1 - pending['player']:
+        raise ActionError('Only the other player can accept or decline a correction.')
+    state['pending'] = None
+    if not accept:
+        return {'declined': pending['note']}
+    for unit in state['units']:
+        for model in unit['models']:
+            change = pending['models'].get(model['id'])
+            if change:
+                model.update(copy.deepcopy(change))
+                if change.get('alive') is False:
+                    model['wounds_left'] = 0
+                elif change.get('alive') and model['wounds_left'] <= 0:
+                    model['wounds_left'] = unit['parts'][model['part']]['stats']['wounds']
+    for key, value in pending['cp'].items():
+        state['players'][int(key)]['cp'] = value
+    return {'corrected': pending['note']}

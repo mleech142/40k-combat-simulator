@@ -5,7 +5,8 @@ Needs an app context; everything else in the play package works on the plain dat
 """
 
 from .. import armies
-from ..models import Enhancement, Faction, MeleeWeapon, RangedWeapon, Unit, db
+from ..models import Enhancement, Faction, FactionRule, MeleeWeapon, RangedWeapon, Stratagem, Unit, db
+from ..rules_text import plain_text
 
 STATS = ('move', 'toughness', 'save', 'wounds', 'invulnerable_save', 'feel_no_pain', 'oc', 'leadership')
 WEAPON_FIELDS = ('name', 'type', 'attacks', 'skill', 'strength', 'ap', 'damage', 'range', 'abilities')
@@ -35,7 +36,35 @@ def freeze_army(army):
         parts = [_part(entry, role, catalogue, priced['warlord'])] + \
                 [_part(e, r, catalogue, priced['warlord']) for e, r in attached]
         units.append({'uid': entry['uid'], 'name': entry['name'], 'parts': parts})
-    return {'name': army['name'], 'faction': priced['faction'], 'units': units}
+    return {'name': army['name'], 'faction': priced['faction'], 'units': units,
+            'stratagems': _stratagems(army), 'rules': _rules(army)}
+
+
+def _offered(record, army):
+    return not record.superseded and (not record.detachment_key or record.detachment_key in army['detachment_keys'])
+
+
+def _entry(record, kind):
+    """A stratagem or rule as the game uses it: its effect (side, phase, modifier text) if the app reads one."""
+    try:
+        cp = int(str(record.cp or 0).strip()) if kind == 'stratagem' else 0
+    except ValueError:
+        cp = 0
+    return {'key': f'{kind}:{record.id}', 'kind': kind, 'name': record.name, 'cp': cp,
+            'applies_to': record.applies_to, 'phase': record.phase, 'modifier': record.modifier or '',
+            'detachment': record.detachment_name, 'text': plain_text(record.text or record.notes or '')}
+
+
+def _stratagems(army):
+    """Core stratagems, and the faction's for the whole faction or a chosen detachment."""
+    records = Stratagem.query.filter((Stratagem.faction_id.is_(None)) | (Stratagem.faction_id == army['faction_id']))
+    return [_entry(r, 'stratagem') for r in records.order_by(Stratagem.name) if _offered(r, army)]
+
+
+def _rules(army):
+    """The faction's army rules and the chosen detachments' rules."""
+    records = FactionRule.query.filter_by(faction_id=army['faction_id']).order_by(FactionRule.name)
+    return [_entry(r, 'rule') for r in records if _offered(r, army)]
 
 
 def _part(entry, role, catalogue, warlord):

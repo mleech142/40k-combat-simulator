@@ -235,3 +235,17 @@ def test_outline_in_inches_with_estimates_marked():
     assert outline(part('Tank', 1, 12, base={'shape': 'hull'})) == {
         'shape': 'rect', 'length': 5, 'width': 3.5, 'estimated': True}  # Up to 14 wounds
     assert outline(part('C', 1, 2)) == {'shape': 'round', 'length': 32 / 25.4, 'width': 32 / 25.4, 'estimated': True}
+
+
+def test_frozen_army_carries_its_stratagems_and_rules(make_client):
+    from conftest import WAHAPEDIA_FIXTURES
+    client = make_client(APP_DATA, bsdata=BSDATA_FIXTURES, wahapedia=WAHAPEDIA_FIXTURES)[0]
+    army_ = dict(patrol(client), detachment_keys=['d-vanguard'])
+    snapshot = frozen(client, army_)
+    names = sorted(s['name'] for s in snapshot['stratagems'])
+    assert 'Void Strike' in names and 'Redeploy' in names  # The chosen detachment's
+    assert 'Command Re-Roll' in names and 'Smokescreen' in names  # Core
+    assert 'Lost Signal' not in names and 'Combined Arms' not in names  # Another detachment's, another faction's
+    strike = next(s for s in snapshot['stratagems'] if s['name'] == 'Void Strike')
+    assert (strike['cp'], strike['kind'], strike['phase']) == (1, 'stratagem', 'Shooting')
+    assert all(r['kind'] == 'rule' and r['cp'] == 0 for r in snapshot['rules'])

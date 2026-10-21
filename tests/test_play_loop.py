@@ -144,3 +144,100 @@ def test_the_score_is_the_points_of_enemy_units_destroyed():
     assert score(state) == [60, 0]  # The Hero still stands
     kill(state, 'p1-squad', 3)  # Not destroyed: no points
     assert score(state) == [60, 0]
+
+
+# --- Stratagems, rules and manual effects ----------------------------------------------------------------------
+
+AIM = {'key': 'stratagem:1', 'kind': 'stratagem', 'name': 'Aim', 'cp': 1, 'applies_to': 'Attacker',
+       'phase': 'Shooting', 'modifier': 'Hit Modifier +1', 'detachment': None, 'text': 'Add 1 to the Hit roll.'}
+TRICK = {'key': 'stratagem:2', 'kind': 'stratagem', 'name': 'Trick', 'cp': 2, 'applies_to': None,
+         'phase': None, 'modifier': '', 'detachment': None, 'text': 'Something clever.'}
+OATH = {'key': 'rule:3', 'kind': 'rule', 'name': 'Oath', 'cp': 0, 'applies_to': 'Attacker',
+        'phase': 'Both', 'modifier': 'Reroll Hits', 'detachment': None, 'text': 'Re-roll hits.'}
+
+
+def shooting_game(cp=2):
+    """Red's Gunner (BS3+, one shot) facing Blue's Squad, Red's Shooting phase; Red has Aim, Trick and Oath."""
+    gunner = (model('Gunner', 1, 3, weapons=[gun(attacks='1', range=24)]), (11.5, 20))
+    squad = (model('Squad', 3), *row(10, 30))
+    state = battle([gunner], [squad], phase='shooting')
+    state['players'][0].update(cp=cp, stratagems=[AIM, TRICK, OATH])
+    return state
+
+
+def shoot_squad(state, *faces):
+    return act(state, {'type': 'shoot', 'unit': 'p1-gunner', 'target': 'p2-squad'}, *faces)
+
+
+def test_a_stratagem_spends_command_points_once_per_phase_and_its_effect_reaches_the_dice():
+    state, event = act(shooting_game(), {'type': 'stratagem', 'player': 0, 'key': 'stratagem:1', 'unit': 'p1-gunner'})
+    assert state['players'][0]['cp'] == 1 and event['stratagem'] == 'Aim'
+    assert 'once per phase' in refused(state, {'type': 'stratagem', 'player': 0, 'key': 'stratagem:1', 'unit': 'p1-gunner'})
+    _, shot = shoot_squad(state, 1)
+    assert shot['rolls'][0]['need'] == 2  # BS3+ improved by 1
+    state, _ = act(state, {'type': 'next_phase'})
+    assert unit_by_id(state, 'p1-gunner')['effects'] == []  # It lasted the phase
+
+
+def test_stratagems_need_the_command_points_and_cant_target_battle_shocked_units():
+    assert 'CP' in refused(shooting_game(cp=0), {'type': 'stratagem', 'player': 0, 'key': 'stratagem:1', 'unit': 'p1-gunner'})
+    state = shooting_game()
+    unit_by_id(state, 'p1-gunner')['status'] = {'shocked': True}
+    assert 'battle-shocked' in refused(state, {'type': 'stratagem', 'player': 0, 'key': 'stratagem:1', 'unit': 'p1-gunner'})
+    assert 'own' in refused(state, {'type': 'stratagem', 'player': 0, 'key': 'stratagem:1', 'unit': 'p2-squad'})
+
+
+def test_a_stratagem_the_game_cant_read_is_logged_with_its_text():
+    state, event = act(shooting_game(), {'type': 'stratagem', 'player': 0, 'key': 'stratagem:2', 'unit': 'p1-gunner'})
+    assert state['players'][0]['cp'] == 0 and event['text'] == 'Something clever.'
+    assert unit_by_id(state, 'p1-gunner')['effects'] == []
+
+
+def test_army_rules_are_switched_on_for_a_unit_at_no_cost():
+    state, _ = act(shooting_game(), {'type': 'rule', 'player': 0, 'key': 'rule:3', 'unit': 'p1-gunner', 'until': 'turn'})
+    assert state['players'][0]['cp'] == 2
+    _, shot = shoot_squad(state, 1, 6, 1)  # Missed, re-rolled to a 6
+    assert shot['rolls'][0]['dice'][0]['rerolled_from'] == 1
+    state, _ = act(state, {'type': 'next_phase'})
+    assert len(unit_by_id(state, 'p1-gunner')['effects']) == 1  # Until the end of the turn
+    state = to_phase(state, 'command', 1)
+    assert unit_by_id(state, 'p1-gunner')['effects'] == []
+
+
+def test_manual_effects_apply_to_the_dice_for_as_long_as_chosen():
+    state, event = act(shooting_game(), {'type': 'effect', 'unit': 'p2-squad', 'effect': 'cover', 'until': 'game'})
+    assert event['effect'] == 'Benefit of cover'
+    _, shot = shoot_squad(state, 1)
+    assert shot['rolls'][0]['need'] == 4  # BS3+ worsened by cover
+    state, _ = act(state, {'type': 'effect', 'unit': 'p1-gunner', 'effect': 'hit_plus', 'until': 'phase'})
+    _, shot = shoot_squad(state, 1)
+    assert shot['rolls'][0]['need'] == 3  # +1 and cover cancel out
+    state = to_phase(state, 'command', 1)
+    assert [e['name'] for e in unit_by_id(state, 'p2-squad')['effects']] == ['Benefit of cover']
+    state, _ = act(state, {'type': 'remove_effect', 'unit': 'p2-squad', 'index': 0})
+    assert unit_by_id(state, 'p2-squad')['effects'] == []
+    assert 'Unknown effect' in refused(state, {'type': 'effect', 'unit': 'p2-squad', 'effect': 'nonsense'})
+
+
+# --- Correcting the game ---------------------------------------------------------------------------------------
+
+def test_a_correction_needs_the_other_player_to_accept_it():
+    state = shooting_game()
+    fix = {'type': 'correction', 'player': 0, 'note': 'That model should have survived',
+           'models': {'p2-squad-0-1': {'wounds_left': 0, 'alive': False}}, 'cp': {'1': 0}}
+    state, event = act(state, fix)
+    assert state['pending'] == {'player': 0, 'note': 'That model should have survived',
+                                'models': {'p2-squad-0-1': {'wounds_left': 0, 'alive': False}}, 'cp': {'1': 0}}
+    assert 'correction' in refused(state, {'type': 'next_phase'})  # Everything waits for an answer
+    assert 'other player' in refused(state, {'type': 'accept', 'player': 0})
+    declined, _ = act(state, {'type': 'decline', 'player': 1})
+    assert declined['pending'] is None and unit_by_id(declined, 'p2-squad')['models'][0]['alive']
+    accepted, event = act(state, {'type': 'accept', 'player': 1})
+    assert accepted['pending'] is None and event['corrected'] == 'That model should have survived'
+    assert not unit_by_id(accepted, 'p2-squad')['models'][0]['alive'] and accepted['players'][1]['cp'] == 0
+
+
+def test_a_correction_can_only_change_what_exists():
+    assert 'model' in refused(shooting_game(), {'type': 'correction', 'player': 0, 'models': {'nobody': {'alive': False}}})
+    assert 'wounds' in refused(shooting_game(), {'type': 'correction', 'player': 0,
+                                                 'models': {'p2-squad-0-1': {'wounds_left': 9}}})
