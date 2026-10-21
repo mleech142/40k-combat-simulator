@@ -7,7 +7,7 @@ import math
 
 import pytest
 
-from combat_sim.play.battlefields import BUILTIN, central_points, inside, wholly_inside
+from combat_sim.play.battlefields import BUILTIN, MAPS, central_points, inside, wholly_inside
 from combat_sim.play.geometry import base_shape
 
 NAMES = ['Dawn of War', 'Tipping Point', 'Sweeping Engagement', 'Search and Destroy', 'Hammer and Anvil',
@@ -24,10 +24,10 @@ def area(polygon):
 
 
 def test_the_six_deployment_maps():
-    assert [b['name'] for b in BUILTIN.values()] == NAMES
+    assert [b['name'] for b in MAPS.values()] == NAMES
 
 
-@pytest.mark.parametrize('key', list(BUILTIN))
+@pytest.mark.parametrize('key', list(MAPS))
 def test_each_map_is_the_same_for_both_players_turned_half_way_round(key):
     """Every map is symmetric about the centre: a check on the transcription, not a copy of it."""
     battlefield = BUILTIN[key]
@@ -42,7 +42,7 @@ def test_each_map_is_the_same_for_both_players_turned_half_way_round(key):
     assert half_turn(a) == (round(b[0], 3), round(b[1], 3))  # The dashed line runs through the centre
 
 
-@pytest.mark.parametrize('key', list(BUILTIN))
+@pytest.mark.parametrize('key', list(MAPS))
 def test_home_objectives_sit_in_their_own_zone_and_zones_dont_overlap(key):
     battlefield = BUILTIN[key]
     for role in ('attacker', 'defender'):

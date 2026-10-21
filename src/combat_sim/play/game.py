@@ -85,8 +85,9 @@ def new_game(armies, battlefield=None, roles=None, setup=False):
     roles = dict(roles or {'attacker': 0, 'defender': 1})
     turn = {'phase': 'deployment', 'round': 0, 'player': 0}
     if setup:
-        single = sum(o['kind'] == 'central' for o in battlefield['objectives']) == 1
-        turn = {'phase': 'setup', 'round': 0, 'player': 0, 'step': 'objectives' if single else 'roll_off'}
+        # The central objective roll, unless the battlefield fixes its central objectives (an Event layout)
+        roll = sum(o['kind'] == 'central' for o in battlefield['objectives']) == 1 and not battlefield.get('fixed_objectives')
+        turn = {'phase': 'setup', 'round': 0, 'player': 0, 'step': 'objectives' if roll else 'roll_off'}
     state = {'version': STATE_VERSION, 'players': [], 'units': [], 'setup': bool(setup),
              'turn': turn, 'pending': None,
              'battlefield': {k: v for k, v in battlefield.items() if k != 'objectives'}, 'roles': roles,
@@ -1709,7 +1710,7 @@ def terrain_areas(state):
     """[(piece, shape)] for the battlefield's terrain: each piece one of the 5 footprints, with its category
     ('exposed', 'light' or 'dense') and height (inches)."""
     pieces = (state.get('battlefield') or {}).get('terrain') or []
-    return [(p, footprint_shape(p['footprint'], p['x'], p['y'], p.get('angle') or 0)) for p in pieces]
+    return [(p, footprint_shape(p['footprint'], p['x'], p['y'], p.get('angle') or 0, p.get('flip', False))) for p in pieces]
 
 
 def within(shape, area):

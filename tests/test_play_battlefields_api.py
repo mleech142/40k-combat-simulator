@@ -10,7 +10,7 @@ import pytest
 from conftest import BSDATA_FIXTURES
 from test_play_api import APP_DATA, saved_army
 
-from combat_sim.play.battlefields import BUILTIN
+from combat_sim.play.battlefields import BUILTIN, MAPS
 
 
 @pytest.fixture
@@ -30,12 +30,16 @@ def with_terrain(*pieces, name='My table'):
 
 def test_the_built_in_maps_are_listed_and_read_only(client):
     listed = client.get('/api/play/battlefields').get_json()
-    assert [b['key'] for b in listed][:6] == [f'builtin:{key}' for key in BUILTIN]
-    assert listed[0] == {'key': 'builtin:dawn-of-war', 'name': 'Dawn of War', 'source': 'builtin', 'terrain': 0}
+    assert [b['key'] for b in listed][:51] == [f'builtin:{key}' for key in BUILTIN]  # The 6 maps, then the 45 layouts
+    assert list(BUILTIN)[:6] == list(MAPS)
+    assert listed[0] == {'key': 'builtin:dawn-of-war', 'name': 'Dawn of War', 'source': 'builtin', 'kind': 'map', 'terrain': 0}
+    assert listed[6] == {'key': 'builtin:take-and-hold-vs-take-and-hold-a', 'name': 'Take and Hold vs Take and Hold: Layout A',
+                         'source': 'builtin', 'kind': 'layout', 'terrain': 16, 'dispositions': ['take-and-hold', 'take-and-hold']}
     dawn = client.get('/api/play/battlefields/builtin:dawn-of-war').get_json()
     assert dawn['zones']['attacker'] == [[0, 0], [60, 0], [60, 12], [0, 12]]
     assert client.put('/api/play/battlefields/builtin:dawn-of-war', json=with_terrain()).status_code == 403
-    assert client.get('/api/play/footprints').get_json()['medium'] == [6, 4]
+    shapes = client.get('/api/play/footprints').get_json()  # Each footprint's corners, from its own corner
+    assert shapes['medium'] == [[0, 0], [6, 0], [6, 4], [0, 4]] and shapes['polygon'] == [[0, 0], [11.5, 0], [11.5, 2], [0, 8]]
 
 
 def test_saving_editing_and_deleting_a_battlefield(client):

@@ -16,7 +16,7 @@
 
     const editor = {
         list: [],  // /api/play/battlefields
-        footprints: {},  // name -> [length, width]
+        footprints: {},  // name -> its corners from its own corner (/api/play/footprints)
         key: null,  // The battlefield open ('builtin:...' or 'saved:...')
         data: null,  // Its editable copy
         source: null,  // 'builtin' or 'custom'
@@ -49,9 +49,20 @@
 
     async function loadList() {
         editor.list = await fetch('/api/play/battlefields').then(r => r.json()).catch(() => []);
-        $('bf-list').innerHTML = editor.list.map(b => `
-            <button class="play-game-open ${b.key === editor.key ? 'active' : ''}" data-key="${b.key}">${escapeHtml(b.name)}
-                <small>${b.source === 'builtin' ? 'Deployment map' : 'Saved'}${b.terrain ? ` · ${b.terrain} terrain` : ''}</small></button>`).join('');
+        const groups = Core.playBattlefieldGroups(editor.list);
+        const button = b => `<button class="play-game-open ${b.key === editor.key ? 'active' : ''}" data-key="${b.key}">${escapeHtml(b.label)}
+            ${b.kind === 'saved' && b.terrain ? `<small>${b.terrain} terrain</small>` : ''}</button>`;
+        const layouts = groups.filter(g => g.kind === 'layout');
+        const expanded = layouts.some(g => g.items.some(b => b.key === editor.key));
+        const plain = kind => groups.filter(g => g.kind === kind).map(g =>
+            `<h4 class="play-bf-group">${escapeHtml(g.label)}</h4>${g.items.map(button).join('')}`).join('');
+        $('bf-list').innerHTML = plain('map')
+            + (layouts.length ? `<details class="play-bf-layouts" ${expanded ? 'open' : ''}><summary>Event Companion layouts</summary>
+                ${layouts.map(g => `<div class="play-bf-pairing"><span>${escapeHtml(g.label)}</span>
+                    <span class="play-bf-letters">${g.items.map(b => `<button class="btn-small ${b.key === editor.key ? 'active' : ''}"
+                        data-key="${b.key}" title="${escapeHtml(b.name)}">${escapeHtml(b.label.replace('Layout ', ''))}</button>`).join('')}</span></div>`).join('')}
+            </details>` : '')
+            + plain('saved');
         $('bf-list').querySelectorAll('[data-key]').forEach(b => b.addEventListener('click', () => open(b.dataset.key)));
         document.dispatchEvent(new CustomEvent('battlefields-changed', { detail: editor.list }));
     }
@@ -63,7 +74,8 @@
         const data = await resp.json();
         editor.key = key;
         editor.source = data.source;
-        editor.data = { name: data.name, zones: data.zones, divider: data.divider, objectives: data.objectives, terrain: data.terrain };
+        editor.data = { name: data.name, zones: data.zones, divider: data.divider, objectives: data.objectives, terrain: data.terrain,
+                        fixed_objectives: !!data.fixed_objectives };
         editor.dirty = false;
         editor.selected = null;
         message('');
@@ -144,9 +156,14 @@
         changed();
     }
 
+    /** A footprint's name ('triangle' is the polygon's name in battlefields saved before it). */
+    function shapeOf(name) {
+        return name === 'triangle' ? 'polygon' : name;
+    }
+
     function setPiece(field, value) {
         const piece = editor.data.terrain[editor.selected];
-        piece[field] = ['x', 'y', 'angle', 'height'].includes(field) ? Number(value) || 0 : value;
+        piece[field] = ['x', 'y', 'angle', 'height'].includes(field) ? Number(value) || 0 : field === 'flip' ? !!value : value;
         changed();
     }
 
@@ -196,6 +213,8 @@
             <div class="play-editor-row">
                 <button class="btn-small" data-turn="-15"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> 15°</button>
                 <button class="btn-small" data-turn="15"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> 15°</button>
+                ${shapeOf(piece.footprint) === 'polygon' ? `<button class="btn-small ${piece.flip ? 'active' : ''}" id="bf-flip"
+                    title="Turn the footprint over"><i class="fa-solid fa-arrows-up-down" aria-hidden="true"></i> Turn over</button>` : ''}
                 <button class="btn-small btn-danger" id="bf-remove">Remove</button>
             </div>` : '<p class="play-hint">Click a terrain piece to change it.</p>'}
             <p class="play-hint">${editor.data.terrain.length} terrain piece${editor.data.terrain.length === 1 ? '' : 's'} ·
@@ -209,6 +228,7 @@
         tools.querySelectorAll('[data-piece]').forEach(el => el.addEventListener('change', () => setPiece(el.dataset.piece, el.value)));
         tools.querySelectorAll('[data-turn]').forEach(b => b.addEventListener('click', () =>
             setPiece('angle', (editor.data.terrain[editor.selected].angle + Number(b.dataset.turn) + 360) % 360)));
+        if ($('bf-flip')) $('bf-flip').addEventListener('click', () => setPiece('flip', !piece.flip));
         if ($('bf-remove')) {
             $('bf-remove').addEventListener('click', () => {
                 editor.data.terrain.splice(editor.selected, 1);
@@ -242,8 +262,8 @@
         const [a, b] = data.divider;
         el('line', { x1: a[0], y1: D - a[1], x2: b[0], y2: D - b[1], class: 'play-divider' }, svg);
         data.terrain.forEach((piece, i) => {
-            const size = editor.footprints[piece.footprint] || [6, 4];
-            const points = Core.playFootprintPoints(piece.footprint, size, piece.x, piece.y, piece.angle);
+            const corners = editor.footprints[shapeOf(piece.footprint)] || [[0, 0], [6, 0], [6, 4], [0, 4]];
+            const points = Core.playFootprintPoints(corners, piece.x, piece.y, piece.angle, piece.flip);
             el('polygon', { points: points.map(flip).join(' '), class: `play-terrain ${piece.category} ${i === editor.selected ? 'selected' : ''}`,
                             'data-terrain': i }, svg);
         });

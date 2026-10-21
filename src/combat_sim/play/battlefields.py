@@ -2,10 +2,11 @@
 Battlefields: deployment zones, objectives and terrain, in board inches (60" wide, 44" deep, (0, 0) at
 the bottom-left; the attacker's zone is drawn at the bottom or left).
 
-BUILTIN holds the 11th edition Chapter Approved deployment maps, transcribed from their cards' printed
+MAPS holds the 11th edition Chapter Approved deployment maps, transcribed from their cards' printed
 measurements (the cards are portrait, 44" across and 60" down; a card point (across, down) is board
 point (down, across), turning the card a quarter turn). Each map is the same for both players turned
-half way round the centre; tests/test_play_battlefields.py checks that.
+half way round the centre; tests/test_play_battlefields.py checks that. BUILTIN is those maps and the
+Warhammer Event Companion's terrain layouts (layouts.py): a map's zones with fixed objectives and terrain.
 
 A battlefield: {'id', 'name', 'source' ('builtin' or 'custom'), 'zones': {'attacker', 'defender'}
 (polygons, [[x, y], ...]), 'divider' (the dashed line between the two territories: two points through
@@ -35,7 +36,7 @@ def _map(key, name, attacker, defender, divider, homes, expansions):
                  'divider': divider, 'objectives': objectives, 'terrain': []}
 
 
-BUILTIN = dict([
+MAPS = dict([
     # 12" deep along the long edges
     _map('dawn-of-war', 'Dawn of War',
          [(0, 0), (60, 0), (60, 12), (0, 12)], [(0, 32), (60, 32), (60, 44), (0, 44)],
@@ -65,6 +66,9 @@ BUILTIN = dict([
          [(45, 0), (15, 44)], [(12, 10), (48, 34)], [(15, 34), (45, 10)]),
 ])
 DEFAULT = 'dawn-of-war'
+LAYOUT_HEIGHTS = {'dense': 5, 'light': 2, 'exposed': 0}  # Inches: an Event Companion layout's dense features are tall ruins
+DISPOSITION_NAMES = {'take-and-hold': 'Take and Hold', 'purge-the-foe': 'Purge the Foe', 'priority-assets': 'Priority Assets',
+                     'reconnaissance': 'Reconnaissance', 'disruption': 'Disruption'}
 
 
 def central_points(battlefield, double):
@@ -145,7 +149,7 @@ def clean(data):
     'terrain'}. Objectives under a terrain piece become terrain objectives (as when terrain is set up over
     objective points). Raises BattlefieldError.
     """
-    from .geometry import FOOTPRINTS, footprint  # (geometry doesn't import this module)
+    from .geometry import FOOTPRINT_ALIASES, FOOTPRINTS, footprint  # (geometry doesn't import this module)
     if not isinstance(data, dict):
         raise BattlefieldError('Send the battlefield as a JSON object.')
     name = str(data.get('name') or '').strip()[:200]
@@ -165,7 +169,8 @@ def clean(data):
     for i, piece in enumerate(data.get('terrain') or []):
         if not isinstance(piece, dict):
             raise BattlefieldError('Each terrain piece must be an object.')
-        if piece.get('footprint') not in FOOTPRINTS:
+        kind = FOOTPRINT_ALIASES.get(piece.get('footprint'), piece.get('footprint'))
+        if kind not in FOOTPRINTS:
             raise BattlefieldError(f'Unknown terrain footprint: {piece.get("footprint")} (one of {", ".join(FOOTPRINTS)}).')
         if piece.get('category') not in CATEGORIES:
             raise BattlefieldError(f'Terrain category must be one of {", ".join(CATEGORIES)}.')
@@ -173,10 +178,11 @@ def clean(data):
         while id_ in ids:
             id_ += '+'
         ids.add(id_)
-        terrain.append({'id': id_, 'footprint': piece['footprint'], 'x': _number(piece.get('x'), 'Terrain x', 0, BOARD[0]),
+        terrain.append({'id': id_, 'footprint': kind, 'x': _number(piece.get('x'), 'Terrain x', 0, BOARD[0]),
                         'y': _number(piece.get('y'), 'Terrain y', 0, BOARD[1]),
                         'angle': _number(piece.get('angle') or 0, 'Terrain angle', -360, 360),
-                        'category': piece['category'], 'height': _number(piece.get('height') or 0, 'Terrain height', 0, 30)})
+                        'category': piece['category'], 'height': _number(piece.get('height') or 0, 'Terrain height', 0, 30),
+                        'flip': bool(piece.get('flip'))})
     objectives, seen = [], set()
     for i, objective in enumerate(data.get('objectives') or []):
         if not isinstance(objective, dict) or objective.get('kind') not in KINDS:
@@ -190,6 +196,40 @@ def clean(data):
         seen.add(id_)
         x, y = _point([objective.get('x'), objective.get('y')], 'An objective')
         under = next((t['id'] for t in terrain
-                      if inside((x, y), footprint(t['footprint'], t['x'], t['y'], t['angle']).points)), None)
+                      if inside((x, y), footprint(t['footprint'], t['x'], t['y'], t['angle'], t['flip']).points)), None)
         objectives.append({'id': id_, 'kind': objective['kind'], 'role': role, 'x': x, 'y': y, 'terrain': under})
-    return {'name': name, 'zones': zones, 'divider': divider, 'objectives': objectives, 'terrain': terrain}
+    cleaned = {'name': name, 'zones': zones, 'divider': divider, 'objectives': objectives, 'terrain': terrain}
+    if data.get('fixed_objectives'):  # A copy of an Event layout: its central objectives aren't rolled for
+        cleaned['fixed_objectives'] = True
+    return cleaned
+
+
+# --- The built-in battlefields: the deployment maps and the Event Companion's layouts --------------------------
+
+def _layout(entry):
+    """An Event Companion layout (layouts.LAYOUTS) as a battlefield: its map's zones, its objectives and
+    terrain (objectives under terrain are terrain objectives)."""
+    deployment = MAPS[entry['map']]
+    counts = {}
+    objectives = []
+    for kind, role, x, y in entry['objectives']:
+        counts[kind] = counts.get(kind, 0) + 1
+        objectives.append({'id': f'home-{role}' if kind == 'home' else f'{kind}-{counts[kind]}', 'kind': kind, 'role': role, 'x': x, 'y': y})
+    terrain = [{'id': f't{i + 1}', 'footprint': kind, 'x': x, 'y': y, 'angle': angle, 'flip': flip, 'category': category,
+                'height': LAYOUT_HEIGHTS[category]}
+               for i, (kind, x, y, angle, flip, category) in enumerate(entry['terrain'])]
+    first, second = (DISPOSITION_NAMES[d] for d in entry['dispositions'])
+    battlefield = clean({'name': f'{first} vs {second}: Layout {entry["layout"]}', 'zones': deployment['zones'],
+                         'divider': deployment['divider'], 'objectives': objectives, 'terrain': terrain})
+    return dict(battlefield, id=entry['id'], source='builtin', kind='layout', map=entry['map'],
+                dispositions=list(entry['dispositions']), missions=list(entry['missions']), layout=entry['layout'],
+                fixed_objectives=True)
+
+
+def _builtin():
+    from .layouts import LAYOUTS
+    maps = {key: dict(m, kind='map') for key, m in MAPS.items()}
+    return {**maps, **{entry['id']: _layout(entry) for entry in LAYOUTS}}
+
+
+BUILTIN = _builtin()

@@ -73,7 +73,8 @@
     function fillBattlefields(list) {
         const select = $('new-battlefield');
         const current = select.value;
-        select.innerHTML = list.map(b => `<option value="${b.key}">${escapeHtml(b.name)}${b.terrain ? ` (${b.terrain} terrain)` : ''}</option>`).join('');
+        select.innerHTML = Core.playBattlefieldGroups(list).map(g => `<optgroup label="${escapeHtml(g.label)}">${g.items.map(b =>
+            `<option value="${b.key}">${escapeHtml(g.kind === 'layout' ? b.name : b.label)}${g.kind === 'saved' && b.terrain ? ` (${b.terrain} terrain)` : ''}</option>`).join('')}</optgroup>`).join('');
         if (list.some(b => b.key === current)) select.value = current;
     }
 

@@ -652,9 +652,10 @@ test('playBounds is the box round some points', () => {
 
 test('playFootprintPoints places a footprint by its corner and turns it about that corner', () => {
     const round = pts => pts.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]);
-    assert.deepEqual(round(Core.playFootprintPoints('medium', [6, 4], 10, 10, 0)), [[10, 10], [16, 10], [16, 14], [10, 14]]);
-    assert.deepEqual(round(Core.playFootprintPoints('medium', [6, 4], 10, 10, 90)), [[10, 10], [10, 16], [6, 16], [6, 10]]);
-    assert.deepEqual(round(Core.playFootprintPoints('triangle', [11.5, 8], 0, 0, 0)), [[0, 0], [11.5, 0], [0, 8]]);
+    const medium = [[0, 0], [6, 0], [6, 4], [0, 4]], polygon = [[0, 0], [11.5, 0], [11.5, 2], [0, 8]];
+    assert.deepEqual(round(Core.playFootprintPoints(medium, 10, 10, 0)), [[10, 10], [16, 10], [16, 14], [10, 14]]);
+    assert.deepEqual(round(Core.playFootprintPoints(medium, 10, 10, 90)), [[10, 10], [10, 16], [6, 16], [6, 10]]);
+    assert.deepEqual(round(Core.playFootprintPoints(polygon, 0, 0, 0, true)), [[0, 0], [11.5, 0], [11.5, -2], [0, -8]]);
 });
 
 test('playSnap rounds to the nearest step', () => {
@@ -689,4 +690,22 @@ test('playPath gives a model its path this phase: start, waypoints, where it sta
     assert.deepEqual(Core.playPath(start, via, now), [start, ...via, now]);
     assert.equal(Core.playPathLength(Core.playPath(start, via, now)), 16);
     assert.deepEqual(Core.playPath(start, undefined, start), [start]);  // Not moved
+});
+
+test('playBattlefieldGroups groups maps, Event layouts by pairing, then saved battlefields', () => {
+    const list = [
+        { key: 'builtin:dawn-of-war', name: 'Dawn of War', kind: 'map' },
+        { key: 'builtin:th-a', name: 'Take and Hold vs Disruption: Layout A', kind: 'layout' },
+        { key: 'builtin:th-b', name: 'Take and Hold vs Disruption: Layout B', kind: 'layout' },
+        { key: 'builtin:pf-a', name: 'Purge the Foe vs Disruption: Layout A', kind: 'layout' },
+        { key: 'saved:3', name: 'My table', kind: 'saved' },
+    ];
+    const groups = Core.playBattlefieldGroups(list);
+    assert.deepEqual(groups.map(g => [g.label, g.kind, g.items.map(i => i.label)]), [
+        ['Deployment maps', 'map', ['Dawn of War']],
+        ['Take and Hold vs Disruption', 'layout', ['Layout A', 'Layout B']],
+        ['Purge the Foe vs Disruption', 'layout', ['Layout A']],
+        ['Saved battlefields', 'saved', ['My table']],
+    ]);
+    assert.equal(groups[1].items[0].key, 'builtin:th-a');
 });

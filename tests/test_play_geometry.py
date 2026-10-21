@@ -50,13 +50,16 @@ def corners(shape):
 
 def test_the_five_11th_edition_footprints():
     assert {name: size for name, size in FOOTPRINTS.items()} == {
-        'large': (11.5, 7), 'triangle': (11.5, 8), 'medium': (6, 4), 'long': (10, 2.5), 'short': (6, 2)}
+        'large': (11.5, 7), 'polygon': (11.5, 8), 'medium': (6, 4), 'long': (10, 2.5), 'short': (6, 2)}
 
 
 def test_footprint_placed_by_its_corner_and_turned_about_it():
     assert corners(footprint('medium', 10, 10)) == [(10, 10), (16, 10), (16, 14), (10, 14)]
     assert corners(footprint('medium', 10, 10, angle=90)) == [(10, 10), (10, 16), (6, 16), (6, 10)]
-    assert corners(footprint('triangle', 0, 0)) == [(0, 0), (11.5, 0), (0, 8)]  # The right angle at its corner
+    # The polygon: 11.5" long, 8" wide at its corner's end and 2" at the other (a corner cut off)
+    assert corners(footprint('polygon', 0, 0)) == [(0, 0), (11.5, 0), (11.5, 2), (0, 8)]
+    assert corners(footprint('polygon', 0, 0, flip=True)) == [(0, 0), (11.5, 0), (11.5, -2), (0, -8)]  # Turned over
+    assert corners(footprint('triangle', 0, 0)) == corners(footprint('polygon', 0, 0))  # Its old name
 
 
 # --- Lines of sight -------------------------------------------------------------------

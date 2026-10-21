@@ -13,7 +13,7 @@ from ..settings import update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
                    deployment_zone, fight_options, move_characteristic, objective_control, outline, ready_units, replay, resolve_action,
                    score, shooting_options, terrain_areas)
-from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS
+from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army
 
 
@@ -146,15 +146,16 @@ def register_play_routes(app):
 
     @app.route('/api/play/footprints')
     def api_footprints():
-        """The terrain footprints' sizes, [length, width] in inches (geometry.FOOTPRINTS)."""
-        return jsonify({name: list(size) for name, size in FOOTPRINTS.items()})
+        """Each terrain footprint's corners from its own corner, in inches (geometry.footprint_corners)."""
+        return jsonify({name: [list(p) for p in footprint_corners(name)] for name in FOOTPRINTS})
 
     @app.route('/api/play/battlefields')
     def api_list_battlefields():
-        """The built-in deployment maps, then saved battlefields."""
-        listed = [{'key': f'builtin:{k}', 'name': b['name'], 'source': 'builtin', 'terrain': len(b['terrain'])}
+        """The built-in deployment maps and Event Companion layouts, then saved battlefields."""
+        listed = [{'key': f'builtin:{k}', 'name': b['name'], 'source': 'builtin', 'kind': b['kind'], 'terrain': len(b['terrain']),
+                   **({'dispositions': b['dispositions']} if b['kind'] == 'layout' else {})}
                   for k, b in battlefields.BUILTIN.items()]
-        listed += [{'key': f'saved:{b.id}', 'name': b.name, 'source': 'custom', 'terrain': len(b.data.get('terrain') or [])}
+        listed += [{'key': f'saved:{b.id}', 'name': b.name, 'source': 'custom', 'kind': 'saved', 'terrain': len(b.data.get('terrain') or [])}
                    for b in SavedBattlefield.query.order_by(SavedBattlefield.id)]
         return jsonify(listed)
 

@@ -806,15 +806,36 @@
     }
 
     /**
-     * A terrain footprint's corners ([x, y], inches): `size` [length, width] with its corner (the triangle's
-     * right angle) at (x, y), its length along x before it is turned `angle` degrees anticlockwise about
-     * that corner. The same as the server's geometry.footprint (sizes come from the server).
+     * A terrain footprint's corners ([x, y], inches): its shape `corners` (from the server's
+     * /api/play/footprints, measured from its own corner) placed with that corner at (x, y), turned over
+     * first if `flip`, then turned `angle` degrees anticlockwise about the corner, as geometry.footprint does.
      */
-    function playFootprintPoints(kind, size, x, y, angle) {
-        const [length, width] = size;
-        const corners = kind === 'triangle' ? [[0, 0], [length, 0], [0, width]] : [[0, 0], [length, 0], [length, width], [0, width]];
+    function playFootprintPoints(corners, x, y, angle, flip = false) {
         const c = Math.cos(angle * Math.PI / 180), s = Math.sin(angle * Math.PI / 180);
-        return corners.map(([px, py]) => [x + px * c - py * s, y + px * s + py * c]);
+        return corners.map(([px, py]) => [px, flip ? -py : py]).map(([px, py]) => [x + px * c - py * s, y + px * s + py * c]);
+    }
+
+    /**
+     * Play: battlefields (/api/play/battlefields) in groups for lists: the deployment maps, the Event
+     * Companion layouts by pairing of dispositions ('X vs Y: Layout A' -> group 'X vs Y', item 'Layout A'),
+     * then saved battlefields. [{label, kind, items: [{...battlefield, label}]}]
+     */
+    function playBattlefieldGroups(list) {
+        const groups = [];
+        const group = (label, kind) => {
+            let found = groups.find(g => g.label === label && g.kind === kind);
+            if (!found) groups.push(found = { label, kind, items: [] });
+            return found;
+        };
+        group('Deployment maps', 'map');
+        for (const b of list.filter(b => b.kind === 'map')) group('Deployment maps', 'map').items.push({ ...b, label: b.name });
+        for (const b of list.filter(b => b.kind === 'layout')) {
+            const [pairing, letter] = b.name.split(': ');
+            group(pairing, 'layout').items.push({ ...b, label: letter || b.name });
+        }
+        const saved = list.filter(b => b.kind !== 'map' && b.kind !== 'layout');
+        if (saved.length) group('Saved battlefields', 'saved').items.push(...saved.map(b => ({ ...b, label: b.name })));
+        return groups.filter(g => g.items.length);
     }
 
     /** A value rounded to the nearest `step` (the editor's snapping). */
@@ -904,7 +925,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playSnap,
+        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

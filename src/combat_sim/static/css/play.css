@@ -29,3 +29,12 @@
 
 /* A unit's route by way of waypoints (Movement phase) */
 .play-path { fill: none; stroke: var(--player); stroke-opacity: 0.55; stroke-width: 0.06; stroke-dasharray: 0.3 0.2; }
+
+/* Battlefields list: maps, Event Companion layouts by pairing (A, B, C), saved */
+.play-bf-group { margin: 0.6rem 0 0.3rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.play-bf-layouts { margin: 0.6rem 0; }
+.play-bf-layouts summary { cursor: pointer; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.play-bf-pairing { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.2rem 0; font-size: 0.8rem; }
+.play-bf-letters { display: inline-flex; gap: 0.2rem; flex-shrink: 0; }
+.play-bf-letters .btn-small { min-width: 1.8rem; padding: 0.15rem 0.4rem; }
+.play-bf-letters .btn-small.active { border-color: var(--accent); background: var(--accent-tint); }

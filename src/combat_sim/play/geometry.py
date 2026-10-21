@@ -16,8 +16,11 @@ BOARD_WIDTH, BOARD_DEPTH = 60, 44
 OVAL_POINTS = 96  # An oval's edge as a polygon: within 0.002" of the true edge for the largest bases
 SIGHT_POINTS = 16  # Points around each base that lines of sight are drawn between
 
-# 11th edition's terrain footprints, (length, width) in inches: rectangles, and one right-angle triangle
-FOOTPRINTS = {'large': (11.5, 7), 'triangle': (11.5, 8), 'medium': (6, 4), 'long': (10, 2.5), 'short': (6, 2)}
+# 11th edition's terrain footprints, (length, width) in inches: rectangles, and a polygon (a rectangle with
+# a corner cut off: 8" wide at one end, POLYGON_CUT at the other), as the Event Companion draws them
+FOOTPRINTS = {'large': (11.5, 7), 'polygon': (11.5, 8), 'medium': (6, 4), 'long': (10, 2.5), 'short': (6, 2)}
+POLYGON_CUT = 2
+FOOTPRINT_ALIASES = {'triangle': 'polygon'}  # Battlefields saved before the polygon replaced a triangle
 
 
 @dataclass
@@ -41,11 +44,20 @@ def hull_shape(length, width, x, y, angle=0):
     return Shape(_place([(-half_l, -half_w), (half_l, -half_w), (half_l, half_w), (-half_l, half_w)], x, y, angle))
 
 
-def footprint(kind, x, y, angle=0):
-    """A terrain footprint (a FOOTPRINTS name) with its corner (the triangle's right angle) at (x, y),
-    its length along the x axis before it is turned `angle` degrees anticlockwise about that corner."""
+def footprint_corners(kind):
+    """A footprint's corners from its own corner (0, 0): its length along x, its width along y."""
+    kind = FOOTPRINT_ALIASES.get(kind, kind)
     length, width = FOOTPRINTS[kind]
-    points = [(0, 0), (length, 0), (0, width)] if kind == 'triangle' else [(0, 0), (length, 0), (length, width), (0, width)]
+    if kind == 'polygon':  # Full width at the corner's end, POLYGON_CUT at the far end
+        return [(0, 0), (length, 0), (length, POLYGON_CUT), (0, width)]
+    return [(0, 0), (length, 0), (length, width), (0, width)]
+
+
+def footprint(kind, x, y, angle=0, flip=False):
+    """A terrain footprint (a FOOTPRINTS name) with its corner at (x, y), its length along the x axis
+    before it is turned `angle` degrees anticlockwise about that corner; `flip` turns it over first
+    (across its length), as a polygon footprint can be."""
+    points = [(px, -py if flip else py) for px, py in footprint_corners(kind)]
     return Shape(_place(points, x, y, angle))
 
 
