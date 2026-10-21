@@ -850,6 +850,7 @@
         for (let x = 1; x < W; x++) svgEl('line', { x1: x, y1: 0, x2: x, y2: D, class: x % 6 ? '' : 'major' }, grid);
         for (let y = 1; y < D; y++) svgEl('line', { x1: 0, y1: y, x2: W, y2: y, class: y % 6 ? '' : 'major' }, grid);
         if (!game) return;
+        drawTerrain(svg, D);
         drawObjectives(svg, D);
         drawShotLines(svg, D);
 
@@ -895,6 +896,17 @@
         // Wounds badges on top of every model, so a neighbouring base never hides one
         const badges = svgEl('g', { class: 'play-badges' }, svg);
         svg.querySelectorAll('.play-wounds').forEach(b => badges.appendChild(b));
+    }
+
+    /** Terrain areas: each footprint shaded by category (Exposed, Light, Dense), its height on hover. */
+    function drawTerrain(svg, depth) {
+        const layer = svgEl('g', { class: 'play-terrain-layer' }, svg);
+        for (const piece of state.game.terrain || []) {
+            const poly = svgEl('polygon', { points: piece.points.map(([x, y]) => `${x},${depth - y}`).join(' '),
+                                            class: `play-terrain ${piece.category}` }, layer);
+            const title = svgEl('title', {}, poly);
+            title.textContent = `${piece.category[0].toUpperCase() + piece.category.slice(1)} terrain, ${piece.height}" high`;
+        }
     }
 
     /**

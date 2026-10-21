@@ -72,7 +72,7 @@ def test_deployment_ends_once_every_unit_is_placed():
     state = two_armies()
     assert 'every unit' in refused(state, {'type': 'end_deployment'})
     state = deployed()
-    assert state['turn'] == {'phase': 'command', 'round': 1, 'player': 0}
+    assert state['turn'] == {'phase': 'command', 'round': 1, 'player': 0, 'seq': 1}  # The battle's first turn
     assert 'deployment' in refused(state, at(state, 'p1-hero', (22, 6)))
 
 

@@ -155,7 +155,7 @@ def test_the_fight_phase_runs_pile_in_then_fights_then_consolidate():
     state, _ = act(state, {'type': 'next_phase'})
     assert state['turn']['step'] == 'consolidate'
     state, _ = act(state, {'type': 'next_phase'})
-    assert state['turn'] == {'phase': 'command', 'round': 1, 'player': 1}
+    assert state['turn'] == {'phase': 'command', 'round': 1, 'player': 1, 'seq': 1}
 
 
 def test_fights_first_units_fight_first_then_players_alternate():

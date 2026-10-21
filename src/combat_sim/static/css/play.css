@@ -1,0 +1,8 @@
+/* Play page: terrain and other board styles added for missions (loaded by templates/play.html only) */
+
+.play-terrain { stroke-width: 0.08; }
+.play-terrain.exposed { fill: #8c8262; fill-opacity: 0.18; stroke: #8c8262; stroke-opacity: 0.6; stroke-dasharray: 0.3 0.2; }
+.play-terrain.light { fill: #988f2a; fill-opacity: 0.28; stroke: #b5aa32; stroke-opacity: 0.8; }
+.play-terrain.dense { fill: #6a5837; fill-opacity: 0.55; stroke: #bdb48f; stroke-opacity: 0.9; }
+.play-terrain-label { fill: var(--text-secondary); font-size: 0.55px; text-anchor: middle; dominant-baseline: central;
+                      pointer-events: none; opacity: 0.8; }

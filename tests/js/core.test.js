@@ -585,6 +585,8 @@ test('playAttackSummary says what an attack did in one line', () => {
     assert.equal(Core.playAttackSummary({ name: 'Melta', models: 1, attacks: 1, hits: 1, wounds: 0, mortal: 1, killed: [], half_range: true }),
                  'Melta (1 model, half range): 1 attack, 1 hit, 0 wounds, 1 mortal wound, none killed');
     assert.equal(Core.playAttackSummary({ name: 'Hazardous', models: 2, killed: ['a'] }), 'Hazardous: 2 rolled, 1 model killed');
+    assert.equal(Core.playAttackSummary({ name: 'Rifle', models: 1, attacks: 1, hits: 0, wounds: 0, mortal: 0, killed: [], cover: true }),
+                 'Rifle (1 model, target in cover): 1 attack, 0 hits, 0 wounds, none killed');
 });
 
 test('playShotLines lists who shot (or fought) whom since the phase began, one line per shooter and target', () => {

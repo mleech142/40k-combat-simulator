@@ -17,6 +17,8 @@ from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
 from . import battlefields
+from .geometry import clear_line
+from .geometry import footprint as footprint_shape
 from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, hull_shape,
                        overlaps)
 
@@ -39,6 +41,10 @@ HAZARD_MORTALS = 1  # ...and the unit suffers this many mortal wounds (3 if ever
 BATTLE_ROUNDS = 5
 OBJECTIVE_RANGE = 3  # Inches from an objective marker's edge (11th edition; 5" vertically, ignored on a flat board)
 MARKER_MM = 40  # An objective marker's diameter
+DETECTION_RANGE = 15  # A hidden model can only be seen from this close...
+GONE_TO_GROUND = 3  # ...or this much closer when it has gone to ground behind dense terrain
+DENSE_CLIMB = 2  # Models that aren't Infantry, Beasts, Swarm, Mobile or Fly cross Dense terrain only this high or lower
+SNEAKY = ('Infantry', 'Beasts', 'Swarm')  # Keywords that take cover inside terrain areas and can be hidden
 DURATIONS = ('phase', 'turn', 'game')  # How long an effect lasts
 # Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
 MANUAL_EFFECTS = {
@@ -78,7 +84,8 @@ def new_game(armies, battlefield=None, roles=None):
              'turn': {'phase': 'deployment', 'round': 0, 'player': 0}, 'pending': None,
              'battlefield': {k: v for k, v in battlefield.items() if k != 'objectives'}, 'roles': roles,
              'objectives': [{'id': o['id'], 'kind': o['kind'], 'owner': roles[o['role']] if o.get('role') else None,
-                             'x': o['x'], 'y': o['y'], 'controller': None} for o in battlefield['objectives']]}
+                             'x': o['x'], 'y': o['y'], 'terrain': o.get('terrain'), 'controller': None}
+                            for o in battlefield['objectives']]}
     for player, army in enumerate(armies):
         state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0,
                                  'stratagems': copy.deepcopy(army.get('stratagems', []) + army.get('rules', [])),
@@ -252,7 +259,8 @@ def _start_turn(state, round_number, player, dice, report):
     players gain 1 Command point, and the player makes a battle-shock roll for each of their units
     that is battle-shocked or at or below half strength.
     """
-    state['turn'] = {'phase': 'command', 'round': round_number, 'player': player}
+    seq = (state.get('turn') or {}).get('seq', 0) + 1  # Turns played so far, counting this one
+    state['turn'] = {'phase': 'command', 'round': round_number, 'player': player, 'seq': seq}
     for unit in state['units']:
         unit['activity'] = {}
     for each in state['players']:
@@ -533,16 +541,26 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
         raise ActionError(f'Blast weapons can\'t target an engaged unit ({target["name"]}).')
     reach = weapon.get('range') or 0
     targets = _placed_models(target)
-    near, far = [], []
+    near, far, covered, hidden = [], [], set(), False
     for model, shape in _placed_models(shooter):
         if model['part'] != int(part_index) or int(weapon_index) not in model['weapons']:
             continue
-        seen = [base_distance(shape, other) for _, other in targets if can_see(shape, other, [])]
+        seen = []
+        for target_model, other in targets:
+            visible, why = sees(state, shape, other, target, target_model)
+            hidden = hidden or why == 'hidden'
+            if visible:
+                seen.append(base_distance(shape, other))
         if seen and min(seen) <= reach + 1e-9:
             (near if min(seen) <= reach / 2 + 1e-9 else far).append(model)
+            if has_cover(state, shape, target):
+                covered.add(model['id'])
     if not near and not far:
+        if hidden:
+            raise ActionError(f'{target["name"]} is hidden in terrain: no model carrying {weapon["name"]} is close '
+                              f'enough to see it (within {DETECTION_RANGE}", or less if it has gone to ground).')
         raise ActionError(f'No model carrying {weapon["name"]} has {target["name"]} in range ({reach}") and in sight.')
-    return near, far, extra
+    return near, far, extra, covered
 
 
 def shooting_options(state, unit_id):
@@ -565,7 +583,7 @@ def shooting_options(state, unit_id):
             targets = {}
             for target in enemies:
                 try:
-                    near, far, _ = _weapon_plan(state, shooter, part_index, weapon_index, target)
+                    near, far, _, _ = _weapon_plan(state, shooter, part_index, weapon_index, target)
                     targets[target['id']] = {'ok': True, 'models': len(near) + len(far), 'reason': None}
                 except ActionError as error:
                     targets[target['id']] = {'ok': False, 'models': 0, 'reason': str(error)}
@@ -596,7 +614,7 @@ def _shoot(state, action, dice):
         if not isinstance(pick, dict) or 'part' not in pick or 'weapon' not in pick:
             raise ActionError('Choose weapons the unit has.')
         target = _unit_or_error(state, pick.get('target') or action.get('target'))
-        near, far, extra = _weapon_plan(state, shooter, pick['part'], pick['weapon'], target)
+        near, far, extra, covered = _weapon_plan(state, shooter, pick['part'], pick['weapon'], target)
         part_index, weapon_index = int(pick['part']), int(pick['weapon'])
         if not _big(shooter):  # Each model fires either its Close-Quarters weapons or its others
             for model in shooter['models']:
@@ -605,22 +623,26 @@ def _shoot(state, action, dice):
                 if any(_close_quarters(w) for w in chosen) and not all(_close_quarters(w) for w in chosen):
                     raise ActionError('Each model fires either its Close-Quarters weapons (Pistols) or its other '
                                       'ranged weapons, not both.')
-        plans.append((part_index, weapon_index, shooter['parts'][part_index]['weapons'][weapon_index], target, near, far, extra))
+        plans.append((part_index, weapon_index, shooter['parts'][part_index]['weapons'][weapon_index], target, near, far,
+                      extra, covered))
 
     attacks, hazardous = [], []
-    for part_index, weapon_index, weapon, target, near, far, extra in plans:
-        for models, half in ((near, True), (far, False)):
+    for part_index, weapon_index, weapon, target, near, far, extra, covered in plans:
+        # Within half range or not, and with the target in cover from it or not: each its own roll
+        groups = [([m for m in models if (m['id'] in covered) == cover], half, cover)
+                  for models, half in ((near, True), (far, False)) for cover in (False, True)]
+        for models, half, cover in groups:
             if not models or not any(m['alive'] for m in target['models']):
                 continue
             attacker = _attacker(shooter, part_index, weapon_index, len(models))
             attacker.abilities += extra
-            conditions = BattleConditions(half_range=half, stationary=stationary)
+            conditions = BattleConditions(half_range=half, stationary=stationary, cover=cover)
             first = len(dice.log)
             pool = roll_attack(attacker, _defender(target, _first_alive(target)['part']), conditions, dice)
             killed = _resolve_wounds(state, shooter, target, attacker, conditions, pool, dice)
             attacks.append({'part': part_index, 'weapon': weapon_index, 'name': weapon['name'], 'target': target['id'],
-                            'models': len(models), 'half_range': half, **asdict(pool), 'killed': killed,
-                            'rolls': [first, len(dice.log)]})
+                            'models': len(models), 'half_range': half, 'cover': cover, **asdict(pool),
+                            'killed': killed, 'rolls': [first, len(dice.log)]})
         if _has(weapon['abilities'], 'Hazardous'):
             hazardous += near + far
     if hazardous:  # A hazard roll for each Hazardous weapon fired
@@ -629,6 +651,7 @@ def _shoot(state, action, dice):
         attacks.append({'name': 'Hazardous', 'target': shooter['id'], 'models': len(hazardous),
                         'killed': killed, 'rolls': [first, len(dice.log)]})
     activity['shot'] = True
+    shooter.setdefault('status', {'shocked': False})['shot_seq'] = state['turn'].get('seq', 0)  # No longer hidden
     return {'attacks': attacks}
 
 
@@ -1027,6 +1050,8 @@ def _charge_move(state, action):
                     'angle': spot['angle']}
             if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
                 raise ActionError(f'{part["name"]} can\'t move through enemy models.')
+            if _dense_in_the_way(state, part, model_shape(part, here)):
+                raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         shapes[mid] = model_shape(part, spot)
         if distance > 1e-6:
             before = min(base_distance(model_shape(part, start), t) for t in target_shapes)
@@ -1108,6 +1133,8 @@ def _move(state, action):
                     'angle': spot['angle']}
             if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
                 raise ActionError(f'{part["name"]} can\'t move through enemy models.')
+            if _dense_in_the_way(state, part, model_shape(part, here)):
+                raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         shapes[mid] = model_shape(part, spot)
 
     for shape in shapes.values():
@@ -1391,6 +1418,8 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
                     'angle': spot['angle']}
             if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
                 raise ActionError(f'{part["name"]} can\'t move through enemy models.')
+            if _dense_in_the_way(state, part, model_shape(part, here)):
+                raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         if target_shapes:
             before = min(base_distance(start_shape, t) for t in target_shapes)
             if min(base_distance(shapes[mid], t) for t in target_shapes) >= before - 1e-9:
@@ -1536,8 +1565,13 @@ def objective_shape(objective):
     return base_shape({'length_mm': MARKER_MM, 'width_mm': MARKER_MM}, objective['x'], objective['y'])
 
 
-def in_range(model_shape_, objective):
-    """Whether a model (its base) is within range of an objective marker: 3" from its edge."""
+def in_range(model_shape_, objective, state=None):
+    """Whether a model (its base) is within range of an objective: 3" from a marker's edge, or within the
+    terrain area of a terrain objective."""
+    if objective.get('terrain') and state is not None:
+        area = next((a for piece, a in terrain_areas(state) if piece['id'] == objective['terrain']), None)
+        if area is not None:
+            return within(model_shape_, area)
     return base_distance(model_shape_, objective_shape(objective)) <= OBJECTIVE_RANGE + 1e-9
 
 
@@ -1548,7 +1582,7 @@ def objective_control(state, objective):
         if unit.get('status', {}).get('shocked'):
             continue
         for model, shape in _placed_models(unit):
-            if in_range(shape, objective):
+            if in_range(shape, objective, state):
                 totals[unit['player']] += unit['parts'][model['part']]['stats'].get('oc') or 0
     return totals
 
@@ -1558,3 +1592,81 @@ def update_control(state):
     for objective in state.get('objectives', []):
         red, blue = objective_control(state, objective)
         objective['controller'] = 0 if red > blue else 1 if blue > red else None
+
+
+# --- Terrain (11th edition, ground level) ---------------------------------------------------------------------
+
+def terrain_areas(state):
+    """[(piece, shape)] for the battlefield's terrain: each piece one of the 5 footprints, with its category
+    ('exposed', 'light' or 'dense') and height (inches)."""
+    pieces = (state.get('battlefield') or {}).get('terrain') or []
+    return [(p, footprint_shape(p['footprint'], p['x'], p['y'], p.get('angle') or 0)) for p in pieces]
+
+
+def within(shape, area):
+    """Whether a model (any part of its base) is within a terrain area."""
+    return overlaps(shape, area) or base_distance(shape, area) <= 1e-9
+
+
+def _keyword(part, names):
+    return any(_has(part['keywords'], name) for name in names)
+
+
+def _view_blockers(state, a, b, categories=('light', 'dense')):
+    """Obscuring areas between two models: those of `categories` that neither model is within."""
+    return [area for piece, area in terrain_areas(state)
+            if piece['category'] in categories and not within(a, area) and not within(b, area)]
+
+
+def fully_visible(a, b, blockers):
+    """Whether every part of model `b` can be seen from model `a`'s centre past `blockers`."""
+    eye = _centre(a)
+    return all(clear_line(eye, point, blockers) for point in battlefields.outline_points(b) + [_centre(b)])
+
+
+def _centre(shape):
+    return (sum(x for x, _ in shape.points) / len(shape.points), sum(y for _, y in shape.points) / len(shape.points))
+
+
+def sees(state, a, b, unit_b, model_b):
+    """
+    (visible, why not) for a model `a` looking at `model_b` of `unit_b`: a line not crossing obscuring
+    terrain (light or dense areas neither model is in), and, if the target is hidden (Infantry, Beasts or
+    Swarm within a light or dense area, its unit not having shot this turn or last), within 15" (12" if it
+    has gone to ground: not fully visible past dense terrain).
+    """
+    if not can_see(a, b, _view_blockers(state, a, b)):
+        return False, 'sight'
+    part = unit_b['parts'][model_b['part']]
+    in_cover = any(within(b, area) for piece, area in terrain_areas(state) if piece['category'] in ('light', 'dense'))
+    shot = (unit_b.get('status') or {}).get('shot_seq')
+    recently_shot = shot is not None and state['turn'].get('seq', 0) - shot <= 1
+    if _keyword(part, SNEAKY) and in_cover and not recently_shot:
+        detection = DETECTION_RANGE
+        if not fully_visible(a, b, _view_blockers(state, a, b, ('dense',))):
+            detection -= GONE_TO_GROUND
+        if base_distance(a, b) > detection + 1e-9:
+            return False, 'hidden'
+    return True, None
+
+
+def has_cover(state, a, unit):
+    """Whether a unit has the benefit of cover against a ranged attack from model `a`: every model is
+    Infantry, Beasts or Swarm within a terrain area, or not fully visible past terrain."""
+    areas = [area for _, area in terrain_areas(state)]
+    for model, shape in _placed_models(unit):
+        part = unit['parts'][model['part']]
+        if _keyword(part, SNEAKY) and any(within(shape, area) for area in areas):
+            continue
+        if not fully_visible(a, shape, _view_blockers(state, a, shape)):
+            continue
+        return False
+    return bool(_placed_models(unit))
+
+
+def _dense_in_the_way(state, part, shape):
+    """Whether a model (not Infantry, Beasts, Swarm, Mobile or Fly) is crossing Dense terrain over 2" high."""
+    if _keyword(part, SNEAKY + ('Mobile', 'Fly')):
+        return False
+    return any(piece['category'] == 'dense' and (piece.get('height') or 0) > DENSE_CLIMB and overlaps(shape, area)
+               for piece, area in terrain_areas(state))

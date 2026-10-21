@@ -11,7 +11,7 @@ from .dice import Dice
 from ..settings import update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
                    deployment_zone, fight_options, move_characteristic, objective_control, outline, ready_units, replay, resolve_action,
-                   score, shooting_options)
+                   score, shooting_options, terrain_areas)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH
 from .snapshot import freeze_army
 
@@ -22,6 +22,7 @@ def game_response(saved):
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
                     'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH},
                     'zones': [deployment_zone(state, p) for p in (0, 1)],
+                    'terrain': [{**piece, 'points': [list(pt) for pt in shape.points]} for piece, shape in terrain_areas(state)],
                     'outlines': {u['id']: [outline(p) for p in u['parts']] for u in state['units']},
                     'moves': {u['id']: [move_characteristic(p) for p in u['parts']] for u in state['units']},
                     'score': score(state),

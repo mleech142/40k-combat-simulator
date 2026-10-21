@@ -772,7 +772,7 @@
         const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
         const killed = attack.killed.length ? count(attack.killed.length, 'model') + ' killed' : 'none killed';
         if (attack.name === 'Hazardous') return `Hazardous: ${attack.models} rolled, ${killed}`;
-        const who = `${count(attack.models, 'model')}${attack.half_range ? ', half range' : ''}`;
+        const who = `${count(attack.models, 'model')}${attack.half_range ? ', half range' : ''}${attack.cover ? ', target in cover' : ''}`;
         const parts = [count(attack.attacks, 'attack'), count(attack.hits, 'hit'), count(attack.wounds, 'wound')];
         if (attack.mortal) parts.push(count(attack.mortal, 'mortal wound'));
         return `${attack.name} (${who}): ${parts.join(', ')}, ${killed}`;
