@@ -8,6 +8,7 @@
                       pointer-events: none; opacity: 0.8; }
 
 /* Games / Battlefields tabs */
+.play-layout[hidden] { display: none; }
 .page-header .play-tabs { display: flex; gap: 0.3rem; margin-left: auto; }
 .play-tabs .btn-small.active { border-color: var(--accent); background: var(--accent-tint); color: var(--text-primary); }
 
