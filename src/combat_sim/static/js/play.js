@@ -25,6 +25,7 @@
         view: null,  // The board's viewBox, in SVG units (inches, y down)
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
         moveMode: 'normal',  // How the selected unit will move (Movement phase)
+        waypoint: false,  // Its next move carries on from where it stands (Movement phase)
         shooting: null,  // /api/play/games/<id>/shooting/<unit> for the selected unit (Shooting phase)
         targets: {},  // The target chosen for each weapon, 'part:weapon' -> unit id
         fire: {},  // Whether each weapon is ticked to fire, 'part:weapon' -> bool
@@ -177,7 +178,16 @@
     /** The Movement phase buttons: choose a move, roll to Advance, or remain stationary. */
     async function movementChoice(choice) {
         const unit = unitById(state.selected);
+        if (choice === 'waypoint') {
+            state.waypoint = !state.waypoint;
+            message(state.waypoint ? `Drag ${unit.name} on from where it stands: the whole path counts against its Move.`
+                : `Moves of ${unit.name} are measured in a straight line from where it started the phase.`);
+            renderUnits();
+            drawBoard();
+            return;
+        }
         if (choice === 'stationary' || choice === 'reset') {
+            state.waypoint = false;
             if (await send({ type: choice === 'reset' ? 'reset_move' : 'stationary', unit: unit.id })) {
                 message(choice === 'reset' ? `${unit.name} is back where it started the phase.` : `${unit.name} remains stationary.`);
             }
@@ -212,6 +222,16 @@
         const turn = state.game.state.turn;
         return { movement: 'start', charge: 'charge_start' }[turn.phase]
             || { pile_in: 'pile_start', consolidate: 'consolidate_start' }[turn.step] || 'start';
+    }
+
+    /** Whether the unit's next move carries on from where it stands (Movement phase, Waypoint ticked). */
+    function waypointing(unit) {
+        return state.waypoint && state.selected === unit.id && state.game.state.turn.phase === 'movement';
+    }
+
+    /** A model's path this Movement phase: where it started, its waypoints, where it stands. */
+    function pathOf(unit, model) {
+        return Core.playPath(startOf(unit, model), (unit.activity.via || {})[model.id], model.position);
     }
 
     /** Where a model started this phase's (or step's) moves: they are measured from there until it ends. */
@@ -390,6 +410,7 @@
         const changed = state.selected !== unitId;
         state.selected = changed ? unitId : null;
         if (changed) {
+            state.waypoint = false;
             const activity = unitById(unitId).activity;
             state.moveMode = activity.advance_roll != null ? 'advance'
                 : ['normal', 'fall_back'].includes(activity.moved) ? activity.moved : 'normal';
@@ -423,8 +444,12 @@
                 <button class="btn-small ${state.moveMode === mode ? 'active' : ''}" data-mode="${mode}"
                     ${rolled && mode !== 'advance' ? 'disabled' : ''}>${label}${mode === 'advance' && rolled ? ` (+${unit.activity.advance_roll}")` : ''}</button>`).join('')}
                 <button class="btn-small ${moved === 'stationary' ? 'active' : ''}" data-mode="stationary" ${rolled ? 'disabled' : ''}>Remain stationary</button>
+                ${moved && moved !== 'stationary' ? `<button class="btn-small ${state.waypoint ? 'active' : ''}" data-mode="waypoint"
+                    title="The next move carries on from here, so the unit can go round terrain"><i class="fa-solid fa-route" aria-hidden="true"></i> Waypoint</button>` : ''}
                 ${moved ? '<button class="btn-small" data-mode="reset">Reset move</button>' : ''}
             </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]}.
+                ${state.waypoint ? 'Waypoint: the next drag carries on from where it stands, and the whole path counts.'
+                    : 'Each drag is measured in a straight line from where it started; Waypoint carries on from where it stands instead.'}
                 You can move it again or reset it until the Movement phase ends; then moves are locked.</p>`;
         }
         if (turn.phase === 'shooting' && unit.player === turn.player && state.shooting && state.shooting.unit === unit.id) {
@@ -924,6 +949,9 @@
                     if (from.x === model.position.x && from.y === model.position.y) continue;
                     const o = game.outlines[unit.id][model.part];
                     svgEl('ellipse', { cx: from.x, cy: D - from.y, rx: o.length / 2, ry: o.width / 2, class: 'play-ghost' }, g);
+                    if (game.state.turn.phase === 'movement' && (unit.activity.via || {})[model.id]) {  // Its route by way of waypoints
+                        svgEl('polyline', { points: pathOf(unit, model).map(p => `${p.x},${D - p.y}`).join(' '), class: 'play-path' }, g);
+                    }
                 }
             }
             if (state.selected === unit.id) {
@@ -931,8 +959,11 @@
                     const reach = allowance(unit, model);
                     if (reach == null) continue;
                     const o = game.outlines[unit.id][model.part];
-                    const from = startOf(unit, model);
-                    svgEl('circle', { cx: from.x, cy: D - from.y, r: reach + Math.max(o.length, o.width) / 2,
+                    // How far it can go: from where it started, or (Waypoint) what's left of its Move from here
+                    const onward = waypointing(unit);
+                    const from = onward ? model.position : startOf(unit, model);
+                    const left = onward ? Math.max(0, reach - Core.playPathLength(pathOf(unit, model))) : reach;
+                    svgEl('circle', { cx: from.x, cy: D - from.y, r: left + Math.max(o.length, o.width) / 2,
                                       class: 'play-move-ring' }, g);
                 }
             }
@@ -1092,8 +1123,10 @@
             const model = unit.models.find(m => m.id === id);
             const reach = allowance(unit, model);
             if (reach == null) continue;
-            const from = startOf(unit, model);
-            const here = Core.playMoveLabel(model.position.x + state.drag.dx - from.x, model.position.y + state.drag.dy - from.y, reach);
+            const onward = waypointing(unit);  // Measured along the path so far, then on from here
+            const from = onward ? model.position : startOf(unit, model);
+            const before = onward ? Core.playPathLength(pathOf(unit, model)) : 0;
+            const here = Core.playMoveLabel(model.position.x + state.drag.dx - from.x, model.position.y + state.drag.dy - from.y, reach, before);
             if (!label || parseFloat(here.text) > parseFloat(label.text) || here.over) label = here;
         }
         showReadout(event, label);
@@ -1149,7 +1182,7 @@
             }));
             if (turn.phase === 'movement') {
                 const mode = state.selected === unit.id ? state.moveMode : 'normal';
-                await send({ type: 'move', unit: unit.id, mode, models });
+                await send(Object.assign({ type: 'move', unit: unit.id, mode, models }, waypointing(unit) ? { waypoint: true } : {}));
             } else if (turn.phase === 'charge') {
                 const targets = state.charge && state.charge.unit === unit.id ? state.chargeTargets : [];
                 if (await send({ type: 'charge_move', unit: unit.id, targets, models })) loadOptions();

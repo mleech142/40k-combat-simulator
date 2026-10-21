@@ -559,10 +559,21 @@ def _is_engaged(state, unit):
 
 
 def moved_distance(unit):
-    """The farthest any model of the unit has moved from where it started this turn's Movement phase."""
+    """The farthest any model of the unit has moved in this turn's Movement phase, along its path (from
+    where it started, by way of any waypoints)."""
     start = unit['activity'].get('start') or {}
-    return max((math.dist((start[m['id']]['x'], start[m['id']]['y']), (m['position']['x'], m['position']['y']))
+    via = unit['activity'].get('via') or {}
+    return max((path_length([start[m['id']], *via.get(m['id'], []), m['position']])
                 for m in unit['models'] if m['alive'] and m['position'] and start.get(m['id'])), default=0)
+
+
+def path_length(points):
+    """The length of a path through positions ({'x', 'y'}), in order."""
+    return sum(math.dist(_xy(a), _xy(b)) for a, b in zip(points, points[1:]))
+
+
+def _xy(position):
+    return position['x'], position['y']
 
 
 def _engaged_units(state, unit):
@@ -1033,7 +1044,7 @@ def _reset_move(state, action):
                           '(or the pile in and consolidate steps).')
     activity = _ready_to_move(state, unit, phase)
     _back_to_start(unit, START_KEYS[phase])
-    for key in ('moved',) if phase == 'movement' else ('charged', 'charge_targets'):
+    for key in ('moved', 'via') if phase == 'movement' else ('charged', 'charge_targets'):
         activity.pop(key, None)
 
 
@@ -1180,6 +1191,9 @@ def _move(state, action):
     phase, up to its Move (+ the Advance roll), not through enemy models, ending wholly on the board,
     overlapping no model, in coherency and out of engagement range. Only a unit that started the
     phase engaged Falls Back, and it can do nothing else.
+
+    With 'waypoint', the move carries on from where the unit stands, which becomes a waypoint (activity
+    'via'): the whole path counts against its Move, and every leg is checked.
     """
     unit = _unit_or_error(state, action.get('unit'))
     activity = _ready_to_move(state, unit)
@@ -1205,23 +1219,30 @@ def _move(state, action):
 
     living = {m['id']: m for m in unit['models'] if m['alive']}
     spots = _spots(unit, action, 'Move')
-    shapes = {}
+    shapes, via = {}, {}
     for mid, spot in spots.items():
         model, part = living[mid], unit['parts'][living[mid]['part']]
         start = activity['start'].get(mid) or model['position']
+        via[mid] = []
+        if action.get('waypoint'):  # Where the model stands becomes a waypoint (unless it hasn't moved)
+            via[mid] = list((activity.get('via') or {}).get(mid, []))
+            here = model['position']
+            if _xy(here) not in (_xy(start), _xy(spot)) and not (via[mid] and _xy(via[mid][-1]) == _xy(here)):
+                via[mid].append(dict(here))
+        path = [start, *via[mid], spot]
         allowance = move_characteristic(part) + (activity.get('advance_roll', 0) if mode == 'advance' else 0)
-        distance = math.dist((start['x'], start['y']), (spot['x'], spot['y']))
+        distance = path_length(path)
         if distance > allowance + 1e-6:
             raise ActionError(f'{part["name"]} can move at most {allowance}" ({distance:.1f}" asked).')
-        steps = max(1, math.ceil(distance / PATH_STEP))
-        for i in range(1, steps):
-            t = i / steps
-            here = {'x': start['x'] + t * (spot['x'] - start['x']), 'y': start['y'] + t * (spot['y'] - start['y']),
-                    'angle': spot['angle']}
-            if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
-                raise ActionError(f'{part["name"]} can\'t move through enemy models.')
-            if _dense_in_the_way(state, part, model_shape(part, here)):
-                raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
+        for a, b in zip(path, path[1:]):  # Every leg, waypoints included
+            steps = max(1, math.ceil(math.dist(_xy(a), _xy(b)) / PATH_STEP))
+            for i in range(1, steps + (b is not spot)):
+                t = i / steps
+                here = {'x': a['x'] + t * (b['x'] - a['x']), 'y': a['y'] + t * (b['y'] - a['y']), 'angle': spot['angle']}
+                if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
+                    raise ActionError(f'{part["name"]} can\'t move through enemy models.')
+                if _dense_in_the_way(state, part, model_shape(part, here)):
+                    raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         shapes[mid] = model_shape(part, spot)
 
     for shape in shapes.values():
@@ -1242,6 +1263,7 @@ def _move(state, action):
         raise ActionError(problem)
     for mid, spot in spots.items():
         living[mid]['position'] = spot
+    activity['via'] = {mid: points for mid, points in via.items() if points}
     activity['moved'] = mode
     if mode == 'fall_back' and unit.get('status', {}).get('shocked'):
         activity['desperate'] = True  # Hazard rolls when the Movement phase ends

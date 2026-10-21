@@ -26,3 +26,6 @@
 #bf-list .play-game-open { display: block; width: 100%; margin-bottom: 0.25rem; }
 #bf-list .play-game-open.active { border-color: var(--accent); background: var(--accent-tint); }
 #bf-tools h3 { margin-top: 0.75rem; }
+
+/* A unit's route by way of waypoints (Movement phase) */
+.play-path { fill: none; stroke: var(--player); stroke-opacity: 0.55; stroke-width: 0.06; stroke-dasharray: 0.3 0.2; }

@@ -734,9 +734,21 @@
     }
 
     /** The distance a model has been dragged ({text: '5.0" of 6"', over}), against how far it may move. */
-    function playMoveLabel(dx, dy, allowance) {
-        const distance = Math.hypot(dx, dy);
+    function playMoveLabel(dx, dy, allowance, before = 0) {
+        const distance = before + Math.hypot(dx, dy);
         return { text: `${distance.toFixed(1)}" of ${allowance}"`, over: distance > allowance + 1e-6 };
+    }
+
+    /** Play: a model's path this phase, from where it started by way of its waypoints to where it stands. */
+    function playPath(start, via, now) {
+        const points = [start, ...(via || [])];
+        const last = points[points.length - 1];
+        return last.x === now.x && last.y === now.y ? points : [...points, now];
+    }
+
+    /** Play: how long a path ([{x, y}, ...]) is, in inches. */
+    function playPathLength(points) {
+        return points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - points[i].x, p.y - points[i].y), 0);
     }
 
     /**
@@ -892,7 +904,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playSnap,
+        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

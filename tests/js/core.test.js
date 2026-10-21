@@ -678,3 +678,15 @@ test('playRollOff writes a roll-off and its re-rolls as one line', () => {
     const players = [{ name: 'Red' }, { name: 'Blue' }];
     assert.equal(Core.playRollOff({ rolls: [[3, 3], [2, 5]], winner: 1 }, players), 'Red 3, Blue 3 (tie), then Red 2, Blue 5: Blue wins');
 });
+
+test('playMoveLabel adds the path already travelled (waypoints) to the new leg', () => {
+    assert.deepEqual(Core.playMoveLabel(3, 4, 12, 6), { text: '11.0" of 12"', over: false });
+    assert.deepEqual(Core.playMoveLabel(3, 4, 10, 6), { text: '11.0" of 10"', over: true });
+});
+
+test('playPath gives a model its path this phase: start, waypoints, where it stands', () => {
+    const start = { x: 10, y: 14 }, via = [{ x: 14, y: 17 }, { x: 14, y: 23 }], now = { x: 10, y: 26 };
+    assert.deepEqual(Core.playPath(start, via, now), [start, ...via, now]);
+    assert.equal(Core.playPathLength(Core.playPath(start, via, now)), 16);
+    assert.deepEqual(Core.playPath(start, undefined, start), [start]);  // Not moved
+});
