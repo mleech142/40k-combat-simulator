@@ -45,7 +45,7 @@ The v2 workbook `40KCombatSimulator_v2.xlsx` is frozen; it is now only the simul
 - `/` - Single combat simulator
 - `/analytics` - Attacker units × defender units matrix + Army Analysis
 - `/scenarios` - Saved scenarios
-- `/armies` - Army lists: build, save, copy, export as text, send to Analytics (`/analytics?army=<id>&side=attacker|defender`). Pricing and checks are in `armies.py` (`POST /api/armies/price` on every change): points, detachments' DP and Unique Tags, copies of a datasheet (`Unit.max_in_army`, else the core rule), leaders and support units (`Unit.can_support`), the Warlord and enhancements. Lists are `SavedArmy` rows (database only, not the app data JSON)
+- `/armies` - Army lists: build, save, copy, export as text, share as a code another install imports (`army_share.py`: BSData IDs only, wargear included; lists with custom units are refused), send to Analytics (`/analytics?army=<id>&side=attacker|defender`). Pricing and checks are in `armies.py` (`POST /api/armies/price` on every change): points, detachments' DP and Unique Tags, copies of a datasheet (`Unit.max_in_army`, else the core rule), leaders and support units (`Unit.can_support`), the Warlord and enhancements. Lists are `SavedArmy` rows (database only, not the app data JSON)
 - `/setup` - Choose, download or re-import the BSData folder; download Wahapedia's rules and stratagems; import notes. `/` redirects here until BSData loads or setup is skipped
 - `/data` - BSData import status; factions (with rules and stratagems), units and weapons (BSData read-only, custom editable); read-only Keywords and Target Profiles
 
