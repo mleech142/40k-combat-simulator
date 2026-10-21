@@ -193,6 +193,7 @@ Version 1 is hot-seat play (two players on one PC).
    - **Hazardous:** after the attacks, a D6 for each model that fired one; on a 1 that model suffers 3 mortal wounds.
    - The event lists each `attacks` entry (weapon, target, models, half range, the wound pool, models killed, and its slice of `rolls`). `game.shooting_options` (`GET /api/play/games/<id>/shooting/<unit>`) tells the page which weapons can fire at which units, and why not.
    - The page: weapons with a target each (click an enemy unit to target it with everything), Fire, a dice log under the board (`Core.playDiceGroups`, `Core.playAttackSummary`) and each player's casualty order.
+   - On the board: dashed arrows from shooter to target, red while targets are being chosen and faint for shots fired this phase (`Core.playShotLines`); a small badge with the wounds left on any damaged model.
    - Cover from terrain comes with terrain.
 4. **Charge and Fight:** charge roll, engagement, fights-first order, pile-in and consolidate.
 5. **Full game loop:** Command phase CP, battle rounds, kill points, manual effects, the "correct the game" request, stratagems.

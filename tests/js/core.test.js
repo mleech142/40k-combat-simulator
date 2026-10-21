@@ -586,3 +586,21 @@ test('playAttackSummary says what an attack did in one line', () => {
                  'Melta (1 model, half range): 1 attack, 1 hit, 0 wounds, 1 mortal wound, none killed');
     assert.equal(Core.playAttackSummary({ name: 'Hazardous', models: 2, killed: ['a'] }), 'Hazardous: 2 rolled, 1 model killed');
 });
+
+test('playShotLines lists who shot whom since the phase began, one line per shooter and target', () => {
+    const events = [
+        { action: { type: 'shoot', unit: 'old' }, attacks: [{ name: 'Gun', target: 'x' }] },  // An earlier phase
+        { action: { type: 'next_phase' }, turn: { phase: 'shooting' }, attacks: undefined },
+        { action: { type: 'shoot', unit: 'a' }, attacks: [{ name: 'Gun', target: 'x' }, { name: 'Gun', target: 'x' },
+                                                         { name: 'Cannon', target: 'y' }, { name: 'Hazardous', target: 'a' }] },
+        { action: { type: 'orders' } },
+        { action: { type: 'shoot', unit: 'b' }, attacks: [{ name: 'Gun', target: 'x' }] },
+    ];
+    assert.deepEqual(Core.playShotLines(events), [{ from: 'a', to: 'x' }, { from: 'a', to: 'y' }, { from: 'b', to: 'x' }]);
+    assert.deepEqual(Core.playShotLines(events.slice(0, 2)), []);
+});
+
+test('playCentre is the middle of a unit\'s placed models', () => {
+    assert.deepEqual(Core.playCentre([{ x: 10, y: 6 }, { x: 14, y: 8 }]), { x: 12, y: 7 });
+    assert.equal(Core.playCentre([]), null);
+});

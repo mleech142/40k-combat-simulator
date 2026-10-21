@@ -308,11 +308,13 @@
         $('unit-detail').querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => movementChoice(b.dataset.mode)));
         $('unit-detail').querySelectorAll('[data-fire]').forEach(c => c.addEventListener('change', () => {
             state.fire[c.dataset.fire] = c.checked;
+            drawBoard();
         }));
         $('unit-detail').querySelectorAll('[data-target]').forEach(s => s.addEventListener('change', () => {
             state.targets[s.dataset.target] = s.value;
             state.fire[s.dataset.target] = true;
             renderDetail();
+            drawBoard();
         }));
         const fire = $('fire-btn');
         if (fire) fire.addEventListener('click', fireSelected);
@@ -438,11 +440,13 @@
         for (let x = 1; x < W; x++) svgEl('line', { x1: x, y1: 0, x2: x, y2: D, class: x % 6 ? '' : 'major' }, grid);
         for (let y = 1; y < D; y++) svgEl('line', { x1: 0, y1: y, x2: W, y2: y, class: y % 6 ? '' : 'major' }, grid);
         if (!game) return;
+        drawShotLines(svg, D);
 
         for (const unit of game.state.units) {
             const placed = unit.models.filter(m => m.alive && m.position);
             if (!placed.length) continue;
-            const targeted = Object.values(state.targets).includes(unit.id) && game.state.turn.phase === 'shooting';
+            const targeted = game.state.turn.phase === 'shooting'
+                && Object.entries(state.targets).some(([key, id]) => id === unit.id && state.fire[key]);
             const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
@@ -465,6 +469,54 @@
             const label = svgEl('text', { x: (left + right) / 2, y: top - 0.3, class: 'play-label' }, g);
             label.textContent = unit.name;
         }
+        // Wounds badges on top of every model, so a neighbouring base never hides one
+        const badges = svgEl('g', { class: 'play-badges' }, svg);
+        svg.querySelectorAll('.play-wounds').forEach(b => badges.appendChild(b));
+    }
+
+    /**
+     * Dashed arrows from shooter to target: red for the targets being chosen, faint for the shots
+     * already fired this phase. Each runs between the two units' nearest models, edge to edge.
+     */
+    function drawShotLines(svg, depth) {
+        const game = state.game;
+        const turn = game.state.turn;
+        const lines = Core.playShotLines(game.events).map(l => ({ ...l, kind: 'fired' }));
+        const shooter = state.selected && unitById(state.selected);
+        if (turn.phase === 'shooting' && shooter && shooter.player === turn.player && !shooter.activity.shot) {
+            const planned = new Set(Object.entries(state.targets).filter(([key, id]) => id && state.fire[key]).map(([, id]) => id));
+            planned.forEach(to => lines.push({ from: shooter.id, to, kind: 'planned' }));
+        }
+        if (!lines.length) return;
+        const defs = svgEl('defs', {}, svg);
+        for (const kind of ['planned', 'fired']) {
+            const marker = svgEl('marker', { id: `arrow-${kind}`, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 5,
+                                             markerHeight: 5, orient: 'auto-start-reverse' }, defs);
+            svgEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', class: `play-arrow ${kind}` }, marker);
+        }
+        const layer = svgEl('g', { class: 'play-shots' }, svg);
+        for (const line of lines) {
+            const from = unitById(line.from), to = unitById(line.to);
+            const a = nearestEdge(from, to), b = nearestEdge(to, from);
+            if (!a || !b) continue;
+            svgEl('line', { x1: a.x, y1: depth - a.y, x2: b.x, y2: depth - b.y, class: `play-shot ${line.kind}`,
+                            'marker-end': `url(#arrow-${line.kind})` }, layer);
+        }
+    }
+
+    /** The point on `unit`'s model nearest the other unit's centre, on that model's edge (board inches). */
+    function nearestEdge(unit, other) {
+        const placed = m => m.alive && m.position;
+        const centre = Core.playCentre(other.models.filter(placed).map(m => m.position));
+        const models = unit.models.filter(placed);
+        if (!centre || !models.length) return null;
+        const model = models.reduce((best, m) => Math.hypot(m.position.x - centre.x, m.position.y - centre.y)
+            < Math.hypot(best.position.x - centre.x, best.position.y - centre.y) ? m : best);
+        const outline = state.game.outlines[unit.id][model.part];
+        const reach = Math.min(outline.length, outline.width) / 2;
+        const dx = centre.x - model.position.x, dy = centre.y - model.position.y;
+        const length = Math.hypot(dx, dy) || 1;
+        return { x: model.position.x + dx / length * reach, y: model.position.y + dy / length * reach };
     }
 
     function drawModel(g, unit, model, depth) {
@@ -477,6 +529,17 @@
             svgEl('rect', { ...attrs, x: -outline.length / 2, y: -outline.width / 2, width: outline.length, height: outline.width }, g);
         } else {
             svgEl('ellipse', { ...attrs, rx: outline.length / 2, ry: outline.width / 2 }, g);
+        }
+        const full = unit.parts[model.part].stats.wounds;
+        if (model.wounds_left < full) {
+            // Wounds left, on the base's top-right edge (only once the model is damaged)
+            const badge = svgEl('g', { class: 'play-wounds', 'data-badge': model.id,
+                                       transform: `translate(${x + outline.length * 0.36} ${y - outline.width * 0.36})` }, g);
+            svgEl('circle', { r: 0.34 }, badge);
+            const text = svgEl('text', { y: 0.01 }, badge);
+            text.textContent = model.wounds_left;
+            const title = svgEl('title', {}, badge);
+            title.textContent = `${model.wounds_left} of ${full} wounds left`;
         }
     }
 
@@ -524,6 +587,11 @@
             const model = unitById(state.drag.unitId).models.find(m => m.id === id);
             const x = model.position.x + state.drag.dx, y = state.game.board.depth - (model.position.y + state.drag.dy);
             el.setAttribute('transform', `translate(${x} ${y}) rotate(${-(model.position.angle || 0)})`);
+            const badge = $('play-board').querySelector(`[data-badge="${id}"]`);
+            if (badge) {
+                const o = state.game.outlines[unit.id][model.part];
+                badge.setAttribute('transform', `translate(${x + o.length * 0.36} ${y - o.width * 0.36})`);
+            }
         }
     }
 

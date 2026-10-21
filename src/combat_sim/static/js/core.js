@@ -776,6 +776,28 @@
         return `${attack.name} (${who}): ${parts.join(', ')}, ${killed}`;
     }
 
+    /**
+     * Who shot whom since the current phase began (the last event that changed the turn): one
+     * {from, to} per shooting unit and target, in order. Hazardous rolls aren't shots.
+     */
+    function playShotLines(events) {
+        const lines = [];
+        for (let i = events.length - 1; i >= 0 && !events[i].turn; i--) {
+            const event = events[i];
+            if (event.action.type !== 'shoot') continue;
+            const targets = [...new Set((event.attacks || []).filter(a => a.name !== 'Hazardous').map(a => a.target))];
+            lines.unshift(...targets.map(to => ({ from: event.action.unit, to })));
+        }
+        return lines;
+    }
+
+    /** The middle of some positions ({x, y}), or null when there are none. */
+    function playCentre(positions) {
+        if (!positions.length) return null;
+        return { x: positions.reduce((n, p) => n + p.x, 0) / positions.length,
+                 y: positions.reduce((n, p) => n + p.y, 0) / positions.length };
+    }
+
     /** The board view ({x, y, w, h} in inches) zoomed by `factor` about the point (px, py), 10" to 72" wide. */
     function playZoom(view, factor, px, py) {
         const w = Math.min(72, Math.max(10, view.w * factor));
@@ -784,7 +806,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom, playDiceGroups, playAttackSummary,
+        playFormation, playFit, playMoveLabel, playZoom, playDiceGroups, playAttackSummary, playShotLines, playCentre,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
