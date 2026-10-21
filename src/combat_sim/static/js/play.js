@@ -270,12 +270,30 @@
             $('phase-btn').querySelector('span').textContent = turn.phase === 'deployment' ? 'Deployment done'
                 : turn.phase === 'fight' ? (turn.step === 'consolidate' ? 'End turn' : 'Next step') : 'Next phase';
         }
+        renderPhaseTrack();
         renderUnits();
         drawBoard();
         renderLog();
         renderPending();
         renderCorrection();
         renderStratagems();
+    }
+
+    /** The squares above the board: this turn's phases, the current one lit in the active player's colour. */
+    function renderPhaseTrack() {
+        const game = state.game;
+        const track = $('phase-track');
+        const turn = game && game.state.turn;
+        track.hidden = !game || turn.phase === 'deployment';
+        if (track.hidden) return;
+        track.className = `play-phases ${PLAYER_CLASSES[turn.player]}`;
+        track.innerHTML = Core.playPhaseTrack(turn).map(p => `
+            <div class="play-phase ${p.state}" title="${p.label} phase${p.state === 'current' ? ' (now)' : ''}"
+                 ${p.state === 'current' ? 'aria-current="step"' : ''}>
+                <span class="play-phase-box"><i class="fa-solid fa-${p.icon}" aria-hidden="true"></i>
+                    ${p.state === 'done' ? '<i class="fa-solid fa-check play-phase-done" aria-hidden="true"></i>' : ''}</span>
+                <span class="play-phase-label">${p.label}${p.step ? `<small>${p.step}</small>` : ''}</span>
+            </div>`).join('<span class="play-phase-link" aria-hidden="true"></span>');
     }
 
     function unitById(id) {

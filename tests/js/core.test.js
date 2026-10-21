@@ -629,3 +629,16 @@ test('playResult says who won once the battle is over', () => {
     assert.equal(Core.playResult(players, [30, 30], { phase: 'ended' }), 'Game over: a draw, 30 each');
     assert.equal(Core.playResult(players, [30, 0], { phase: 'shooting' }), null);
 });
+
+test('playPhaseTrack marks the phases done, current and to come this turn', () => {
+    const states = turn => Core.playPhaseTrack(turn).map(p => `${p.key}:${p.state}`);
+    assert.deepEqual(states({ phase: 'shooting' }),
+        ['command:done', 'movement:done', 'shooting:current', 'charge:next', 'fight:next']);
+    const fight = Core.playPhaseTrack({ phase: 'fight', step: 'consolidate' });
+    assert.equal(fight[4].state, 'current');
+    assert.equal(fight[4].step, 'Consolidate');
+    assert.deepEqual(states({ phase: 'deployment' }).every(s => s.endsWith(':next')), true);
+    assert.deepEqual(states({ phase: 'ended' }).every(s => s.endsWith(':done')), true);
+    assert.deepEqual(Core.playPhaseTrack({ phase: 'command' }).map(p => p.label),
+        ['Command', 'Movement', 'Shooting', 'Charge', 'Fight']);
+});

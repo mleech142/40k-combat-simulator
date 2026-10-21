@@ -811,6 +811,22 @@
         return entries.filter(e => !e.phase || fits.includes(e.phase));
     }
 
+    /**
+     * The phase track above the board: each phase of a player's turn with its icon and whether it is
+     * 'done', 'current' or 'next' this turn ('step' names the Fight phase's step while in it).
+     */
+    function playPhaseTrack(turn) {
+        const PHASES = [['command', 'Command', 'crown'], ['movement', 'Movement', 'person-running'],
+                        ['shooting', 'Shooting', 'crosshairs'], ['charge', 'Charge', 'bolt'], ['fight', 'Fight', 'hand-fist']];
+        const STEPS = { pile_in: 'Pile in', fight: 'Fights', consolidate: 'Consolidate' };
+        const at = PHASES.findIndex(([key]) => key === turn.phase);
+        return PHASES.map(([key, label, icon], i) => ({
+            key, label, icon,
+            state: turn.phase === 'ended' ? 'done' : at < 0 ? 'next' : i < at ? 'done' : i === at ? 'current' : 'next',
+            step: i === at && turn.step ? STEPS[turn.step] : null,
+        }));
+    }
+
     /** 'Game over: Blue wins, 120 to 60' once the battle has ended, else null. */
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
@@ -827,7 +843,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playDiceGroups, playAttackSummary, playShotLines, playCentre,
+        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

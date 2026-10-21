@@ -3742,6 +3742,25 @@ h4 .fa-solid,
 .play-die.critical { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .play-die.fail { opacity: 0.55; }
 .play-die.value { border-color: var(--text-secondary); color: var(--text-primary); }
+.play-phases { --player: var(--play-p1); display: flex; align-items: flex-start; justify-content: center; gap: 0;
+               margin: 0 0 0.6rem; }
+.play-phases.play-p2 { --player: var(--play-p2); }
+.play-phase { display: flex; flex-direction: column; align-items: center; width: 4.5rem; }
+.play-phase-box {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    width: 2.4rem; height: 2.4rem; border-radius: 6px; font-size: 1rem;
+    background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-muted);
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.play-phase-label { margin-top: 0.2rem; font-size: 0.72rem; color: var(--text-muted); text-align: center; line-height: 1.15; }
+.play-phase-label small { display: block; color: var(--player); font-weight: 600; }
+.play-phase.done .play-phase-box { color: var(--text-secondary); border-color: var(--accent-dim); opacity: 0.7; }
+.play-phase-done { position: absolute; right: -0.3rem; bottom: -0.3rem; font-size: 0.6rem; padding: 0.12rem;
+                   border-radius: 50%; background: var(--bg-secondary); color: var(--success); }
+.play-phase.current .play-phase-box { background: var(--player); border-color: var(--player); color: var(--on-accent);
+                                      box-shadow: 0 0 0 3px color-mix(in srgb, var(--player) 30%, transparent); }
+.play-phase.current .play-phase-label { color: var(--text-primary); font-weight: 600; }
+.play-phase-link { width: 1.2rem; height: 2px; margin-top: 1.2rem; background: var(--border); }
 .play-scoreboard { display: flex; gap: 0.75rem; font-size: 0.85rem; color: var(--text-secondary); }
 .play-scoreboard .play-p1 { border-bottom: 2px solid var(--play-p1); }
 .play-scoreboard .play-p2 { border-bottom: 2px solid var(--play-p2); }
