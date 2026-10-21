@@ -36,7 +36,7 @@ The app assists with the rules but doesn't automate everything. The split:
 
 | The app controls (no override) | Players control |
 | --- | --- |
-| Every dice roll. Rolls are random, made through `simulation.py` so keywords and modifiers set what each roll needs, and shown as dice in hit / wound / save / damage groups. | Choices the rules give them: what to move, shoot, charge, which stratagem to use. |
+| Every dice roll. Rolls are random, using `simulation.resolve()` so keywords and modifiers set what each roll needs, and shown as dice in hit / wound / save / damage groups. Game dice are the game's own: the simulator's analytical and Monte Carlo functions never use them. | Choices the rules give them: what to move, shoot, charge, which stratagem to use. |
 | Measuring: distances, ranges, engagement range, coherency. | **Manual effects** for abilities the engine can't read (see below). |
 | Line of sight and cover, from terrain footprints. | Standing orders for decisions made during the opponent's turn. |
 | Phase order and CP tracking. | |
@@ -140,7 +140,7 @@ Version 1 is hot-seat play (two players on one PC).
   - Most are clean values: `32mm`, `40mm`, `120x92mm` (ovals), `60mm Flying`.
   - Some are approximate (`~40mm`).
   - About 230 are `Hull`: vehicles with no base and no dimensions in BSData.
-- **Dice.** The Monte Carlo engine rolls with the global `random` and doesn't keep individual dice.
+- **Dice.** The Monte Carlo engine rolls with the global `random` and doesn't keep individual dice. It stays that way: game dice are separate (see step 0).
 - **Damage.** The engine treats the target as identical models with damage spread across them, not as individual models.
 - **Geometry.** There is no geometry code yet.
 
@@ -161,7 +161,7 @@ Version 1 is hot-seat play (two players on one PC).
 
 0. **Groundwork, with no page yet:**
    - ~~The importer reads base sizes~~ (done: `Unit.base`, also returned by `/api/units/<id>`).
-   - A dice recorder in `simulation.py`: it gets its random numbers from the caller and records each die, while the Excel parity and analytical/Monte Carlo agreement tests stay green.
+   - Game dice in the `play` package, **not** in `simulation.py`. The game asks `simulation.resolve()` what each roll needs, then rolls and records its own dice step by step (hit, wound, save, damage), stopping where the defender decides. The existing analytical and Monte Carlo functions are not changed and never use game dice.
    - A pure-Python `play` package: frozen army snapshot, game state, action log, `apply(action)`.
    - A geometry module: base-to-base distance (circles and ovals), line of sight against footprints.
 1. **Board:** the Play page. Create a hot-seat game from two saved armies, place bases by dragging, save and reload.

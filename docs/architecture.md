@@ -116,7 +116,7 @@ Line coverage (`python -m coverage run --source=src/combat_sim,scripts -m pytest
 A Play page for full games between friends, on a top-down board, played live or asynchronously. It isn't built yet. The agreed design is in [play-mode-design.md](play-mode-design.md). Several decisions there affect the existing code:
 
 - Game rules stay in Python. The board page asks the API about distances, line of sight and attack resolution.
-- Dice rolls go through `simulation.py`, including attached units.
+- Game dice are separate from the engine: they use `simulation.resolve()` for what each roll needs, and the analytical and Monte Carlo functions stay unchanged and never use them. Attached units must work as in the simulator.
 - Armies are frozen into each game by BSData ID, never by database ID.
 - Game state is plain JSON that doesn't depend on Flask, so it can later run under Pyodide.
 
