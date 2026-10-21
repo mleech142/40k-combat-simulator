@@ -3774,6 +3774,16 @@ h4 .fa-solid,
               margin-left: 0.4rem; padding: 0 0.3rem; border-radius: 3px; vertical-align: middle;
               background: var(--success); color: var(--on-accent); }
 .play-unit.acted { opacity: 0.55; }
+.play-objective { --owner: var(--text-muted); }
+.play-objective.play-p1 { --owner: var(--play-p1); }
+.play-objective.play-p2 { --owner: var(--play-p2); }
+.play-objective-range { fill: var(--owner); fill-opacity: 0.06; stroke: var(--owner); stroke-opacity: 0.45; stroke-width: 0.06;
+                        stroke-dasharray: 0.35 0.2; }
+.play-objective-marker { fill: var(--bg-tertiary); stroke: var(--owner); stroke-width: 0.12; }
+.play-objective.neutral .play-objective-marker { stroke: var(--text-secondary); }
+.play-objective-letter { fill: var(--owner); font-size: 0.6px; font-weight: 700; text-anchor: middle; dominant-baseline: central;
+                         pointer-events: none; }
+.play-objective.neutral .play-objective-letter { fill: var(--text-secondary); }
 .play-scoreboard { display: flex; gap: 0.75rem; font-size: 0.85rem; color: var(--text-secondary); }
 .play-scoreboard .play-p1 { border-bottom: 2px solid var(--play-p1); }
 .play-scoreboard .play-p2 { border-bottom: 2px solid var(--play-p2); }

@@ -9,8 +9,9 @@ from .. import armies
 from ..models import SavedArmy, SavedGame, db
 from .dice import Dice
 from ..settings import update_settings
-from .game import (DEPLOYMENT_DEPTH, MANUAL_EFFECTS, ActionError, charge_options, fight_options, move_characteristic,
-                   outline, ready_units, replay, resolve_action, score, shooting_options)
+from .game import (DEPLOYMENT_DEPTH, MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
+                   fight_options, move_characteristic, objective_control, outline, ready_units, replay, resolve_action,
+                   score, shooting_options)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH
 from .snapshot import freeze_army
 
@@ -24,6 +25,8 @@ def game_response(saved):
                     'moves': {u['id']: [move_characteristic(p) for p in u['parts']] for u in state['units']},
                     'score': score(state),
                     'ready': ready_units(state),
+                    'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
+                    'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},
                     'manual_effects': [{'key': k, 'name': n, 'side': side} for k, (n, side, _) in MANUAL_EFFECTS.items()]})
 
 

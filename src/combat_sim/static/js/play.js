@@ -850,6 +850,7 @@
         for (let x = 1; x < W; x++) svgEl('line', { x1: x, y1: 0, x2: x, y2: D, class: x % 6 ? '' : 'major' }, grid);
         for (let y = 1; y < D; y++) svgEl('line', { x1: 0, y1: y, x2: W, y2: y, class: y % 6 ? '' : 'major' }, grid);
         if (!game) return;
+        drawObjectives(svg, D);
         drawShotLines(svg, D);
 
         for (const unit of game.state.units) {
@@ -894,6 +895,30 @@
         // Wounds badges on top of every model, so a neighbouring base never hides one
         const badges = svgEl('g', { class: 'play-badges' }, svg);
         svg.querySelectorAll('.play-wounds').forEach(b => badges.appendChild(b));
+    }
+
+    /**
+     * Objectives under the units: the 40mm marker, a faint ring at its range, coloured by whoever controls it
+     * (as settled at the end of the last phase), lettered H (home), C (central) or E (expansion).
+     */
+    function drawObjectives(svg, depth) {
+        const game = state.game;
+        const r = game.objective_size.marker_mm / 25.4 / 2;
+        const layer = svgEl('g', { class: 'play-objectives' }, svg);
+        for (const o of game.state.objectives) {
+            const owner = o.controller == null ? 'neutral' : PLAYER_CLASSES[o.controller];
+            const g = svgEl('g', { class: `play-objective ${owner}`, transform: `translate(${o.x} ${depth - o.y})` }, layer);
+            svgEl('circle', { r: r + game.objective_size.range, class: 'play-objective-range' }, g);
+            svgEl('circle', { r, class: 'play-objective-marker' }, g);
+            const letter = svgEl('text', { class: 'play-objective-letter', y: 0.02 }, g);
+            letter.textContent = { home: 'H', central: 'C', expansion: 'E' }[o.kind] || 'O';
+            const oc = game.objective_oc[o.id] || [0, 0];
+            const players = game.state.players;
+            const title = svgEl('title', {}, g);
+            title.textContent = `${o.kind === 'home' ? `${players[o.owner].name}'s home` : o.kind[0].toUpperCase() + o.kind.slice(1)} objective`
+                + ` · ${o.controller == null ? 'not controlled' : `held by ${players[o.controller].name}`}`
+                + ` · OC in range now: ${players[0].name} ${oc[0]}, ${players[1].name} ${oc[1]}`;
+        }
     }
 
     /**

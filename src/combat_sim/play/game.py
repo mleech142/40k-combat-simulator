@@ -36,6 +36,17 @@ DEFAULT_ORDERS = {'casualties': 'farthest'}  # Standing orders: which models are
 HAZARD_FAILS_ON = 2  # A hazard roll of this or less fails...
 HAZARD_MORTALS = 1  # ...and the unit suffers this many mortal wounds (3 if every model is a Monster or Vehicle)
 BATTLE_ROUNDS = 5
+OBJECTIVE_RANGE = 3  # Inches from an objective marker's edge (11th edition; 5" vertically, ignored on a flat board)
+MARKER_MM = 40  # An objective marker's diameter
+# Until battlefields come in: a home objective in the middle of each deployment zone, one central and two
+# expansion objectives on the centre line
+DEFAULT_OBJECTIVES = [
+    {'id': 'home-1', 'kind': 'home', 'owner': 0, 'x': 30, 'y': 6},
+    {'id': 'home-2', 'kind': 'home', 'owner': 1, 'x': 30, 'y': 38},
+    {'id': 'central-1', 'kind': 'central', 'owner': None, 'x': 30, 'y': 22},
+    {'id': 'expansion-1', 'kind': 'expansion', 'owner': None, 'x': 12, 'y': 22},
+    {'id': 'expansion-2', 'kind': 'expansion', 'owner': None, 'x': 48, 'y': 22},
+]
 DURATIONS = ('phase', 'turn', 'game')  # How long an effect lasts
 # Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
 MANUAL_EFFECTS = {
@@ -67,7 +78,8 @@ class ActionError(ValueError):
 def new_game(armies):
     """A game between frozen armies (snapshot.freeze_army), the first army's player going first."""
     state = {'version': STATE_VERSION, 'players': [], 'units': [],
-             'turn': {'phase': 'deployment', 'round': 0, 'player': 0}, 'pending': None}
+             'turn': {'phase': 'deployment', 'round': 0, 'player': 0}, 'pending': None,
+             'objectives': [dict(o, controller=None) for o in DEFAULT_OBJECTIVES]}
     for player, army in enumerate(armies):
         state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0,
                                  'stratagems': copy.deepcopy(army.get('stratagems', []) + army.get('rules', [])),
@@ -97,7 +109,8 @@ def _snapshot(state):
                                 'effects': u.get('effects', [])} for u in state['units']},
             'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0), 'used': p.get('used', {})}
                         for p in state['players']],
-            'turn': state.get('turn'), 'pending': state.get('pending')}
+            'turn': state.get('turn'), 'pending': state.get('pending'),
+            'objectives': {o['id']: o.get('controller') for o in state.get('objectives', [])}}
 
 
 def resolve_action(state, action, dice):
@@ -137,6 +150,9 @@ def resolve_action(state, action, dice):
         event['players'] = after['players']
     if after['pending'] != before['pending']:
         event['pending'] = after['pending']
+    changed = {k: v for k, v in after['objectives'].items() if before['objectives'].get(k) != v}
+    if changed:
+        event['objectives'] = changed
     return event
 
 
@@ -156,6 +172,9 @@ def apply_event(state, event):
         player.update(copy.deepcopy(changes))
     if 'pending' in event:
         state['pending'] = copy.deepcopy(event['pending'])
+    for objective in state.get('objectives', []):
+        if objective['id'] in event.get('objectives', {}):
+            objective['controller'] = event['objectives'][objective['id']]
     return state
 
 
@@ -188,6 +207,8 @@ def _next_phase(state, dice):
     """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate); effects that
     lasted until then end."""
     report = {'battle_shock': [], 'hazards': []}  # Which units rolled, for the log
+    if state['turn']['phase'] in PHASES:
+        update_control(state)  # The end of this phase (and, after the Fight phase, of the turn)
     _change_phase(state, dice, report)
     _prune_effects(state)
     return {k: v for k, v in report.items() if v}
@@ -1497,3 +1518,33 @@ def ready_units(state):
         return [u['id'] for u in on_board if u['activity'].get('fought') and 'consolidate_start' not in u['activity']
                 and can_consolidate(u)]
     return []
+
+
+# --- Objectives ----------------------------------------------------------------------------------------------
+
+def objective_shape(objective):
+    return base_shape({'length_mm': MARKER_MM, 'width_mm': MARKER_MM}, objective['x'], objective['y'])
+
+
+def in_range(model_shape_, objective):
+    """Whether a model (its base) is within range of an objective marker: 3" from its edge."""
+    return base_distance(model_shape_, objective_shape(objective)) <= OBJECTIVE_RANGE + 1e-9
+
+
+def objective_control(state, objective):
+    """[player 0's, player 1's] Objective Control within range of an objective (battle-shocked units add nothing)."""
+    totals = [0, 0]
+    for unit in state['units']:
+        if unit.get('status', {}).get('shocked'):
+            continue
+        for model, shape in _placed_models(unit):
+            if in_range(shape, objective):
+                totals[unit['player']] += unit['parts'][model['part']]['stats'].get('oc') or 0
+    return totals
+
+
+def update_control(state):
+    """Settle who controls each objective: the player with more OC in range; a tie is nobody's."""
+    for objective in state.get('objectives', []):
+        red, blue = objective_control(state, objective)
+        objective['controller'] = 0 if red > blue else 1 if blue > red else None
