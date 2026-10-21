@@ -167,7 +167,14 @@ Version 1 is hot-seat play (two players on one PC).
      - `game.new_game(armies)` creates every model with full wounds. The first `qty` models of a part carry each weapon.
      - `game.resolve_action(state, action, dice)` returns an event (the action, every dice group, each target model's wounds and whether it's alive, a summary per weapon) without changing the state. `game.apply_event` applies it, and `game.replay(armies, events)` rebuilds a game with no dice. The first action is `shoot`, with no range or line-of-sight checks yet.
      - Leader and enhancement effects come from `effects.py`, shared with the Simulator's routes.
-   - A geometry module: base-to-base distance (circles and ovals), line of sight against footprints.
+   - *Done:* `play/geometry.py`, pure maths in inches with (0, 0) at the board's bottom-left and models placed by their base's centre.
+     - `base_shape` (round and oval bases, ovals turned by a facing angle) and `hull_shape` (a rectangle).
+     - `base_distance`: closest edge to edge, 0 when touching or overlapping. Exact for round bases and rectangles; ovals within 0.01″.
+     - `footprint`: the five 11th edition footprints (`FOOTPRINTS`), placed by a corner (the triangle's right angle) and turned about it.
+     - `clear_line`: a line is blocked only by passing through a shape's inside, not by grazing a corner or running along an edge.
+     - `can_see`: any clear line between 16 points around each base, plus the centres.
+
+     Which terrain blocks sight or gives cover is decided with terrain categories later. Shooting doesn't check range or sight until the board places models (step 3).
 1. **Board:** the Play page. Create a hot-seat game from two saved armies, place bases by dragging, save and reload.
 2. **Movement:** normal move, Advance and Fall Back, with move distance, coherency and engagement range enforced.
 3. **Shooting:**
