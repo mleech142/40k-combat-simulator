@@ -587,7 +587,7 @@ test('playAttackSummary says what an attack did in one line', () => {
     assert.equal(Core.playAttackSummary({ name: 'Hazardous', models: 2, killed: ['a'] }), 'Hazardous: 2 rolled, 1 model killed');
 });
 
-test('playShotLines lists who shot whom since the phase began, one line per shooter and target', () => {
+test('playShotLines lists who shot (or fought) whom since the phase began, one line per shooter and target', () => {
     const events = [
         { action: { type: 'shoot', unit: 'old' }, attacks: [{ name: 'Gun', target: 'x' }] },  // An earlier phase
         { action: { type: 'next_phase' }, turn: { phase: 'shooting' }, attacks: undefined },
@@ -595,8 +595,10 @@ test('playShotLines lists who shot whom since the phase began, one line per shoo
                                                          { name: 'Cannon', target: 'y' }, { name: 'Hazardous', target: 'a' }] },
         { action: { type: 'orders' } },
         { action: { type: 'shoot', unit: 'b' }, attacks: [{ name: 'Gun', target: 'x' }] },
+        { action: { type: 'fight', unit: 'c' }, attacks: [{ name: 'Sword', target: 'z' }] },
     ];
-    assert.deepEqual(Core.playShotLines(events), [{ from: 'a', to: 'x' }, { from: 'a', to: 'y' }, { from: 'b', to: 'x' }]);
+    assert.deepEqual(Core.playShotLines(events), [{ from: 'a', to: 'x' }, { from: 'a', to: 'y' }, { from: 'b', to: 'x' },
+                                                  { from: 'c', to: 'z' }]);
     assert.deepEqual(Core.playShotLines(events.slice(0, 2)), []);
 });
 

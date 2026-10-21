@@ -16,6 +16,8 @@
                           charge: 'Charge', fight: 'Fight' };
     const MOVE_MODES = [['normal', 'Normal move'], ['advance', 'Advance'], ['fall_back', 'Fall Back']];
     const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary' };
+    const STEP_NAMES = { pile_in: 'Pile in', fight: 'Fight', consolidate: 'Consolidate' };
+    const SHORT_MOVE = 3;  // Pile-in and consolidation moves, as the server sends them in errors
 
     const state = {
         game: null,  // /api/play/games/<id> answer
@@ -26,6 +28,11 @@
         shooting: null,  // /api/play/games/<id>/shooting/<unit> for the selected unit (Shooting phase)
         targets: {},  // The target chosen for each weapon, 'part:weapon' -> unit id
         fire: {},  // Whether each weapon is ticked to fire, 'part:weapon' -> bool
+        charge: null,  // /api/play/games/<id>/charge/<unit> for the selected unit (Charge phase)
+        chargeTargets: [],  // Enemy units picked as charge targets
+        fight: null,  // /api/play/games/<id>/fight/<unit> for the selected unit (Fight step)
+        fightWeapon: {},  // The melee weapon chosen for each part, part -> weapon
+        fightTarget: {},  // The enemy unit each part attacks, part -> unit id
     };
     const $ = id => document.getElementById(id);
 
@@ -148,12 +155,10 @@
         const turn = state.game.state.turn;
         if (await send({ type: turn.phase === 'deployment' ? 'end_deployment' : 'next_phase' })) {
             state.moveMode = 'normal';
-            state.shooting = null;
-            state.targets = {};
-            state.fire = {};
-            loadShooting();
+            clearOptions();
+            loadOptions();
             const now = state.game.state.turn;
-            message(`${state.game.state.players[now.player].name}: ${PHASE_NAMES[now.phase]} phase.`);
+            message(`${state.game.state.players[now.player].name}: ${PHASE_NAMES[now.phase]} phase${now.step ? ' · ' + STEP_NAMES[now.step] : ''}.`);
         }
     }
 
@@ -175,17 +180,43 @@
         drawBoard();
     }
 
-    /** How far a model may move now (its Move, plus the Advance roll when advancing), or null if it can't. */
+    /**
+     * How far a model may move now, or null if it can't: its Move (+ the Advance roll) in the Movement
+     * phase, the charge roll in the Charge phase, 3" when piling in or consolidating (either player).
+     */
     function allowance(unit, model) {
         const turn = state.game.state.turn;
-        if (turn.phase !== 'movement' || unit.player !== turn.player) return null;
-        const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
-        return state.game.moves[unit.id][model.part] + roll;
+        if (turn.phase === 'movement' && unit.player === turn.player) {
+            const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
+            return state.game.moves[unit.id][model.part] + roll;
+        }
+        if (turn.phase === 'charge' && unit.player === turn.player) return unit.activity.charge_roll ?? null;
+        if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) return SHORT_MOVE;
+        return null;
     }
 
-    /** Where a model started the Movement phase (moves are measured from there until the phase ends). */
+    /** Where a unit's moves this phase (or step) are measured from, in its activity. */
+    function startKey() {
+        const turn = state.game.state.turn;
+        return { movement: 'start', charge: 'charge_start' }[turn.phase]
+            || { pile_in: 'pile_start', consolidate: 'consolidate_start' }[turn.step] || 'start';
+    }
+
+    /** Where a model started this phase's (or step's) moves: they are measured from there until it ends. */
     function startOf(unit, model) {
-        return (unit.activity.start && unit.activity.start[model.id]) || model.position;
+        const starts = unit.activity[startKey()];
+        return (starts && starts[model.id]) || model.position;
+    }
+
+    function clearOptions() {
+        state.shooting = null;
+        state.targets = {};
+        state.fire = {};
+        state.charge = null;
+        state.chargeTargets = [];
+        state.fight = null;
+        state.fightWeapon = {};
+        state.fightTarget = {};
     }
 
     /** Place the selected unit in formation, centred on a board point. */
@@ -213,14 +244,24 @@
         $('undo-btn').disabled = !game || !game.events.length || game.events[game.events.length - 1].rolls.length > 0;
         const turn = game && game.state.turn;
         const allPlaced = game && game.state.units.every(u => u.models.every(m => !m.alive || m.position));
-        $('turn-banner').textContent = !turn ? '' : turn.phase === 'deployment'
-            ? (allPlaced ? 'Deployment · every unit placed: press Deployment done' : `Deployment · ${game.state.players[turn.player].name} to place`)
-            : `Round ${turn.round} · ${game.state.players[turn.player].name} · ${PHASE_NAMES[turn.phase]} phase`;
-        $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.player] : ''}`;
+        let banner = '';
+        if (turn && turn.phase === 'deployment') {
+            banner = allPlaced ? 'Deployment · every unit placed: press Deployment done' : `Deployment · ${game.state.players[turn.player].name} to place`;
+        } else if (turn) {
+            banner = `Round ${turn.round} · ${game.state.players[turn.player].name} · ${PHASE_NAMES[turn.phase]} phase`;
+            if (turn.step) banner += ` · ${STEP_NAMES[turn.step]}`;
+            if (turn.step === 'fight' && turn.fight) {
+                banner += turn.fight.picker == null ? ': every unit has fought'
+                    : ` (${turn.fight.stage === 'fights_first' ? 'Fights First' : 'remaining combats'}): ${game.state.players[turn.fight.picker].name} to pick`;
+            }
+            if (turn.step === 'pile_in' || turn.step === 'consolidate') banner += ': both players';
+        }
+        $('turn-banner').textContent = banner;
+        $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player] : ''}`;
         $('phase-btn').hidden = !game;
         if (turn) {
             $('phase-btn').querySelector('span').textContent = turn.phase === 'deployment' ? 'Deployment done'
-                : turn.phase === 'fight' ? 'End turn' : 'Next phase';
+                : turn.phase === 'fight' ? (turn.step === 'consolidate' ? 'End turn' : 'Next step') : 'Next phase';
         }
         renderUnits();
         drawBoard();
@@ -251,7 +292,9 @@
                 const placed = living.length && living.every(m => m.position);
                 const done = game.state.turn.phase === 'deployment' ? (placed ? 'placed' : 'not placed')
                     : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
-                       u.activity.shot ? 'shot' : '']
+                       u.activity.shot ? 'shot' : '',
+                       u.activity.charge_roll != null ? `charge roll ${u.activity.charge_roll}${u.activity.charged ? ', charged' : ''}` : '',
+                       u.activity.fought ? 'fought' : '']
                         .filter(Boolean).join(' · ');
                 return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''}" data-unit="${u.id}">
                     <span>${escapeHtml(u.name)}</span>
@@ -278,10 +321,8 @@
         else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone.`);
         else message('');
         if (changed) {
-            state.shooting = null;
-            state.targets = {};
-            state.fire = {};
-            loadShooting();
+            clearOptions();
+            loadOptions();
         }
         renderUnits();
         drawBoard();
@@ -309,6 +350,19 @@
         if (turn.phase === 'shooting' && unit.player === turn.player && state.shooting && state.shooting.unit === unit.id) {
             controls = shootingControls(unit);
         }
+        if (turn.phase === 'charge' && unit.player === turn.player && state.charge && state.charge.unit === unit.id) {
+            controls = chargeControls(unit);
+        }
+        if (turn.phase === 'fight' && turn.step === 'fight' && state.fight && state.fight.unit === unit.id) {
+            controls = fightControls(unit);
+        }
+        if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) {
+            const verb = turn.step === 'pile_in' ? 'pile in' : 'consolidate';
+            const moved = unit.activity[startKey()];
+            controls = `<p class="play-hint">Drag the unit to ${verb} (up to 3", each model ending closer to the enemy).
+                Both players can move units now; moves lock when the step ends.</p>
+                ${moved ? '<div class="play-move-modes"><button class="btn-small" data-reset>Reset move</button></div>' : ''}`;
+        }
         $('unit-detail').innerHTML = controls + unit.parts.map((part, i) => {
             const s = part.stats;
             const outline = state.game.outlines[unit.id][i];
@@ -332,19 +386,129 @@
         }));
         const fire = $('fire-btn');
         if (fire) fire.addEventListener('click', fireSelected);
+        $('unit-detail').querySelectorAll('[data-reset]').forEach(b => b.addEventListener('click', async () => {
+            if (await send({ type: 'reset_move', unit: unit.id })) message(`${unit.name} is back where it started.`);
+        }));
+        const roll = $('charge-btn');
+        if (roll) roll.addEventListener('click', declareCharge);
+        $('unit-detail').querySelectorAll('[data-charge-target]').forEach(b => b.addEventListener('click', () => toggleChargeTarget(b.dataset.chargeTarget)));
+        $('unit-detail').querySelectorAll('[data-fight-weapon]').forEach(s => s.addEventListener('change', () => {
+            state.fightWeapon[s.dataset.fightWeapon] = Number(s.value);
+        }));
+        $('unit-detail').querySelectorAll('[data-fight-target]').forEach(s => s.addEventListener('change', () => {
+            state.fightTarget[s.dataset.fightTarget] = s.value;
+            drawBoard();
+        }));
+        const strike = $('fight-btn');
+        if (strike) strike.addEventListener('click', fightSelected);
+    }
+
+    // --- Options for the selected unit (Shooting, Charge, Fight) ----------------------------
+
+    async function loadOptions() {
+        const unit = state.selected && unitById(state.selected);
+        if (!unit) return;
+        const turn = state.game.state.turn;
+        const kind = turn.phase === 'shooting' && unit.player === turn.player ? 'shooting'
+            : turn.phase === 'charge' && unit.player === turn.player ? 'charge'
+            : turn.phase === 'fight' && turn.step === 'fight' ? 'fight' : null;
+        if (!kind) return;
+        const resp = await fetch(`/api/play/games/${state.game.id}/${kind}/${unit.id}`);
+        if (!resp.ok || state.selected !== unit.id) return;
+        const options = { unit: unit.id, ...(await resp.json()) };
+        if (kind === 'shooting') state.shooting = options;
+        if (kind === 'charge') {
+            state.charge = options;
+            state.chargeTargets = state.chargeTargets.filter(id => options.targets[id])
+                .concat((unit.activity.charge_targets || []).filter(id => !state.chargeTargets.includes(id)));
+        }
+        if (kind === 'fight') {
+            state.fight = options;
+            for (const part of options.parts) {
+                if (state.fightWeapon[part.part] == null && part.choice != null) state.fightWeapon[part.part] = part.choice;
+                if (!state.fightTarget[part.part] && options.targets.length) state.fightTarget[part.part] = options.targets[0];
+            }
+        }
+        renderDetail();
+        drawBoard();
+    }
+
+    // --- Charges --------------------------------------------------------------------------
+
+    function chargeControls(unit) {
+        const options = state.charge;
+        if (options.roll == null) {
+            if (options.reason) return `<p class="play-hint">${escapeHtml(options.reason)}</p>`;
+            return `<div class="play-shooting"><button class="btn btn-primary" id="charge-btn">
+                <i class="fa-solid fa-bolt" aria-hidden="true"></i> Declare charge (roll 2D6)</button></div>`;
+        }
+        const reachable = Object.keys(options.targets);
+        if (!reachable.length) {
+            return `<p class="play-hint">Charge roll ${options.roll}: no enemy unit is within reach, so the charge fails.</p>`;
+        }
+        const chips = reachable.map(id => `<button class="btn-small ${state.chargeTargets.includes(id) ? 'active' : ''}"
+            data-charge-target="${id}">${escapeHtml(unitById(id).name)} <small>${options.targets[id].distance}"</small></button>`).join('');
+        return `<p class="play-hint">Charge roll <strong>${options.roll}"</strong>. Pick the units to charge (or click them on
+            the board), then drag the unit so it ends engaged with every one of them and no other.
+            You can redo the move until the Charge phase ends.</p>
+            <div class="play-move-modes">${chips}
+            ${unit.activity.charged ? '<button class="btn-small" data-reset>Reset charge</button>' : ''}</div>`;
+    }
+
+    async function declareCharge() {
+        const unit = unitById(state.selected);
+        if (await send({ type: 'charge', unit: unit.id })) {
+            message(`${unit.name} charge roll: ${unitById(unit.id).activity.charge_roll}".`);
+            state.charge = null;
+            loadOptions();
+        }
+    }
+
+    function toggleChargeTarget(id) {
+        if (!state.charge || !state.charge.targets[id]) return;
+        state.chargeTargets = state.chargeTargets.includes(id) ? state.chargeTargets.filter(t => t !== id) : [...state.chargeTargets, id];
+        renderDetail();
+        drawBoard();
+    }
+
+    // --- Fighting ---------------------------------------------------------------------------
+
+    function fightControls(unit) {
+        const options = state.fight;
+        if (options.reason) return `<p class="play-hint">${escapeHtml(options.reason)}</p>`;
+        const targetSelect = part => `<select class="filter-select" data-fight-target="${part}">
+            ${options.targets.map(id => `<option value="${id}" ${state.fightTarget[part] === id ? 'selected' : ''}>${escapeHtml(unitById(id).name)}</option>`).join('')}
+        </select>`;
+        const rows = options.parts.map(part => {
+            const plain = part.weapons.filter(w => !w.extra);
+            const extra = part.weapons.filter(w => w.extra);
+            return `<div class="play-weapon"><strong>${escapeHtml(part.name)}</strong>
+                ${plain.length ? `<select class="filter-select" data-fight-weapon="${part.part}">
+                    ${plain.map(w => `<option value="${w.weapon}" ${state.fightWeapon[part.part] === w.weapon ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
+                </select>` : ''}
+                ${extra.length ? `<small>+ ${extra.map(w => escapeHtml(w.name)).join(', ')} (Extra Attacks)</small>` : ''}
+                ${targetSelect(part.part)}</div>`;
+        }).join('');
+        return `<div class="play-shooting">${rows}
+            <button class="btn btn-primary" id="fight-btn"><i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Fight</button></div>`;
+    }
+
+    async function fightSelected() {
+        const options = state.fight;
+        const weapons = options.parts.filter(p => state.fightWeapon[p.part] != null)
+            .map(p => ({ part: p.part, weapon: state.fightWeapon[p.part], target: state.fightTarget[p.part] }));
+        const name = unitById(state.selected).name;
+        if (await send({ type: 'fight', unit: state.selected, weapons, target: options.targets[0] })) {
+            const event = state.game.events[state.game.events.length - 1];
+            const killed = event.attacks.reduce((n, a) => n + a.killed.length, 0);
+            message(`${name} fought: ${killed} model${killed === 1 ? '' : 's'} killed.`);
+            clearOptions();
+            loadOptions();
+        }
     }
 
     // --- Shooting -----------------------------------------------------------------------
 
-    async function loadShooting() {
-        const unit = state.selected && unitById(state.selected);
-        const turn = state.game.state.turn;
-        if (!unit || turn.phase !== 'shooting' || unit.player !== turn.player) return;
-        const resp = await fetch(`/api/play/games/${state.game.id}/shooting/${unit.id}`);
-        if (!resp.ok || state.selected !== unit.id) return;
-        state.shooting = { unit: unit.id, ...(await resp.json()) };
-        renderDetail();
-    }
 
     /** Point every weapon that can fire at an enemy unit (clicked on the board). */
     function targetAll(enemyId) {
@@ -395,8 +559,8 @@
             const event = state.game.events[state.game.events.length - 1];
             const killed = event.attacks.reduce((n, a) => n + a.killed.length, 0);
             message(`${unitById(state.selected).name} fired: ${killed} model${killed === 1 ? '' : 's'} killed.`);
-            state.shooting = null;
-            loadShooting();
+            clearOptions();
+            loadOptions();
         }
     }
 
@@ -404,16 +568,23 @@
 
     function renderLog() {
         const game = state.game;
-        const shots = game ? game.events.map((e, i) => [e, i]).filter(([e]) => e.attacks && e.attacks.length).reverse() : [];
+        const shots = game ? game.events.map((e, i) => [e, i])
+            .filter(([e]) => (e.attacks && e.attacks.length) || ['charge', 'advance'].includes(e.action.type)).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
             return;
         }
         const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
         $('dice-log').innerHTML = shots.map(([event, i], n) => {
+            if (!event.attacks) {  // A charge or Advance roll
+                const roll = event.rolls[0];
+                const what = event.action.type === 'charge' ? 'charge roll' : 'Advance roll';
+                return `<div class="play-log-entry play-log-roll">${escapeHtml(name(event.action.unit))} ${what}:
+                    ${roll.dice.map(d => `<span class="play-die value">${d.face}</span>`).join('')} = <strong>${roll.total}"</strong></div>`;
+            }
             const targets = [...new Set(event.attacks.filter(a => a.name !== 'Hazardous').map(a => name(a.target)))];
             return `<details class="play-log-entry" ${n === 0 ? 'open' : ''}>
-                <summary>${escapeHtml(name(event.action.unit))} shoots ${escapeHtml(targets.join(', '))}</summary>
+                <summary>${escapeHtml(name(event.action.unit))} ${event.action.type === 'fight' ? 'fights' : 'shoots'} ${escapeHtml(targets.join(', '))}</summary>
                 ${event.attacks.map(a => `<div class="play-log-attack">
                     <div>${escapeHtml(Core.playAttackSummary(a))}${a.name !== 'Hazardous' && targets.length > 1 ? ` at ${escapeHtml(name(a.target))}` : ''}</div>
                     ${Core.playDiceGroups(event.rolls, a.rolls).map(g => `<div class="play-dice-row">
@@ -459,8 +630,9 @@
         for (const unit of game.state.units) {
             const placed = unit.models.filter(m => m.alive && m.position);
             if (!placed.length) continue;
-            const targeted = game.state.turn.phase === 'shooting'
-                && Object.entries(state.targets).some(([key, id]) => id === unit.id && state.fire[key]);
+            const targeted = (game.state.turn.phase === 'shooting'
+                && Object.entries(state.targets).some(([key, id]) => id === unit.id && state.fire[key]))
+                || (game.state.turn.phase === 'charge' && state.charge && state.chargeTargets.includes(unit.id));
             const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
@@ -470,8 +642,7 @@
             const top = Math.min(...placed.map(m => D - m.position.y - reach(m)));
             const bottom = Math.max(...placed.map(m => D - m.position.y + reach(m)));
             svgEl('rect', { x: left, y: top, width: right - left, height: bottom - top, rx: 0.6, class: 'play-unit-outline' }, g);
-            const movingNow = game.state.turn.phase === 'movement' && unit.player === game.state.turn.player;
-            if (movingNow && unit.activity.start) {
+            if (unit.activity[startKey()] && allowance(unit, placed[0]) != null) {
                 for (const model of placed) {  // Where it started the phase, until moves lock
                     const from = startOf(unit, model);
                     if (from.x === model.position.x && from.y === model.position.y) continue;
@@ -510,6 +681,12 @@
         if (turn.phase === 'shooting' && shooter && shooter.player === turn.player && !shooter.activity.shot) {
             const planned = new Set(Object.entries(state.targets).filter(([key, id]) => id && state.fire[key]).map(([, id]) => id));
             planned.forEach(to => lines.push({ from: shooter.id, to, kind: 'planned' }));
+        }
+        if (turn.phase === 'charge' && shooter && state.charge && state.charge.unit === shooter.id) {
+            state.chargeTargets.forEach(to => lines.push({ from: shooter.id, to, kind: 'planned' }));
+        }
+        if (turn.phase === 'fight' && turn.step === 'fight' && shooter && state.fight && !state.fight.reason) {
+            new Set(Object.values(state.fightTarget)).forEach(to => lines.push({ from: shooter.id, to, kind: 'planned' }));
         }
         if (!lines.length) return;
         const defs = svgEl('defs', {}, svg);
@@ -639,6 +816,12 @@
             const mine = state.selected && unitById(state.selected);
             if (turn.phase === 'shooting' && mine && mine.player === turn.player && unit.player !== turn.player) {
                 targetAll(unit.id);
+            } else if (turn.phase === 'charge' && mine && state.charge && state.charge.targets[unit.id]) {
+                toggleChargeTarget(unit.id);
+            } else if (turn.phase === 'fight' && turn.step === 'fight' && mine && state.fight && state.fight.targets.includes(unit.id)) {
+                state.fight.parts.forEach(p => { state.fightTarget[p.part] = unit.id; });
+                renderDetail();
+                drawBoard();
             } else if (state.selected !== unit.id) {
                 select(unit.id);
             }
@@ -647,17 +830,24 @@
         showReadout(null, null);
         const round = v => Math.round(v * 100) / 100;
         const moved = new Set(drag.modelIds);
-        if (state.game.state.turn.phase !== 'deployment') {
-            if (state.game.state.turn.phase !== 'movement') {
-                message('Models only move in the Movement phase (for now).', true);
-                render();
-                return;
-            }
-            const mode = state.selected === unit.id ? state.moveMode : 'normal';
-            await send({ type: 'move', unit: unit.id, mode, models: unit.models.filter(m => m.alive).map(m => ({
+        const turn = state.game.state.turn;
+        if (turn.phase !== 'deployment') {
+            const models = unit.models.filter(m => m.alive).map(m => ({
                 id: m.id, x: round(m.position.x + (moved.has(m.id) ? drag.dx : 0)),
                 y: round(m.position.y + (moved.has(m.id) ? drag.dy : 0)), angle: m.position.angle || 0,
-            })) });
+            }));
+            if (turn.phase === 'movement') {
+                const mode = state.selected === unit.id ? state.moveMode : 'normal';
+                await send({ type: 'move', unit: unit.id, mode, models });
+            } else if (turn.phase === 'charge') {
+                const targets = state.charge && state.charge.unit === unit.id ? state.chargeTargets : [];
+                if (await send({ type: 'charge_move', unit: unit.id, targets, models })) loadOptions();
+            } else if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) {
+                await send({ type: turn.step, unit: unit.id, models });
+            } else {
+                message('Models move in the Movement and Charge phases and the Fight phase\'s Pile in and Consolidate steps.', true);
+                render();
+            }
             return;
         }
         await place(unit.id, unit.models.filter(m => m.alive).map(m => ({

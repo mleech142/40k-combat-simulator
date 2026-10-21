@@ -109,6 +109,7 @@ def test_a_charge_can_be_reset_until_the_phase_ends_but_the_roll_stands():
 # --- The Fight phase: pile in, fight, consolidate ------------------------------------------------------
 
 SWORD = gun('Sword', attacks='2', skill=3, strength=4, kind='melee', range=None)
+BOLTER_RANGED = gun('Bolter', attacks='1', qty=3)
 
 
 def fighters(weapons=None):
@@ -235,3 +236,45 @@ def test_units_that_fought_consolidate_up_to_3_inches():
     after, event = act(state, move_guard(16))
     assert positions(after, 'p1-guard') == [(40, 16)] and event['rolls'] == []
     assert 'closer' in refused(state, move_guard(14))
+
+
+# --- What the page offers ---------------------------------------------------------------------------------
+
+def test_charge_options_say_whether_a_unit_can_charge_and_what_it_can_reach():
+    from combat_sim.play.game import charge_options
+    other = (model('Other', 1), (40, 30))  # 22" away
+    state = battle([SQUAD], [MOB, other])
+    assert charge_options(state, 'p1-squad') == {'reason': None, 'roll': None, 'targets': {}}
+    state, _ = act(state, {'type': 'charge', 'unit': 'p1-squad'}, 3, 5)
+    options = charge_options(state, 'p1-squad')
+    assert options['roll'] == 8 and options['targets'] == {'p2-mob': {'ok': True, 'distance': 6.74}}
+    unit_by_id(state, 'p1-squad')['activity'] = {'moved': 'advance'}
+    assert 'Advanced' in charge_options(state, 'p1-squad')['reason']
+
+
+def test_fight_options_list_each_parts_melee_weapons_and_the_enemies_it_can_hit():
+    from combat_sim.play.game import fight_options
+    knife = gun('Knife', attacks='1', kind='melee', range=None, abilities=['Extra Attacks'], qty=3)
+    state = to_step(fighters(weapons=[dict(SWORD, qty=3), knife, BOLTER_RANGED]), 'fight')
+    options = fight_options(state, 'p1-squad')
+    assert options['reason'] is None and options['targets'] == ['p2-mob']
+    assert options['parts'] == [{'part': 0, 'name': 'Squad', 'choice': 0,
+                                 'weapons': [{'weapon': 0, 'name': 'Sword', 'extra': False},
+                                             {'weapon': 1, 'name': 'Knife', 'extra': True}]}]
+    assert 'pick' in fight_options(state, 'p2-mob')['reason']
+
+
+def test_a_part_with_no_model_engaged_just_doesnt_attack():
+    # The Squad's leader stands back, out of engagement: picking its weapon doesn't stop the Squad fighting
+    squad = (model('Squad', 3, weapons=[dict(SWORD, qty=3)], role='bodyguard'), *row(10, 15.5))
+    state = battle([squad], [(model('Mob', 3, weapons=[dict(SWORD, qty=3)]), *row(10, 18))], phase='charge')
+    unit = unit_by_id(state, 'p1-squad')
+    leader = model('Boss', 1, weapons=[gun('Fist', attacks='1', kind='melee', range=None)], role='leader')
+    unit['parts'].append(leader)
+    unit['models'].append({'id': 'p1-squad-1-1', 'part': 1, 'wounds_left': 1, 'alive': True, 'weapons': [0],
+                           'position': {'x': 11.5, 'y': 11, 'angle': 0}})
+    unit['activity'] = {'charge_roll': 8, 'charged': True, 'charge_targets': ['p2-mob']}
+    state = to_step(state, 'fight')
+    _, event = act(state, fight('p1-squad', 'p2-mob', [{'part': 0, 'weapon': 0, 'target': 'p2-mob'},
+                                                        {'part': 1, 'weapon': 0, 'target': 'p2-mob'}]), *MISS * 3)
+    assert [a['name'] for a in event['attacks']] == ['Sword']

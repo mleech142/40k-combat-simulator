@@ -779,14 +779,14 @@
     }
 
     /**
-     * Who shot whom since the current phase began (the last event that changed the turn): one
+     * Who shot (or fought) whom since the current phase began (the last event that changed the turn): one
      * {from, to} per shooting unit and target, in order. Hazardous rolls aren't shots.
      */
     function playShotLines(events) {
         const lines = [];
         for (let i = events.length - 1; i >= 0 && !events[i].turn; i--) {
             const event = events[i];
-            if (event.action.type !== 'shoot') continue;
+            if (event.action.type !== 'shoot' && event.action.type !== 'fight') continue;
             const targets = [...new Set((event.attacks || []).filter(a => a.name !== 'Hazardous').map(a => a.target))];
             lines.unshift(...targets.map(to => ({ from: event.action.unit, to })));
         }

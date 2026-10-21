@@ -673,6 +673,12 @@ def _unit_distance(shapes, others):
 def _charge(state, action, dice):
     """Declare a charge: roll 2D6 for the most the unit can move; its targets are chosen when it moves."""
     unit = _unit_or_error(state, action.get('unit'))
+    _charge_checks(state, unit)
+    unit['activity']['charge_roll'] = dice.roll_value('2D6', 'charge')
+
+
+def _charge_checks(state, unit):
+    """Refuse a unit that can't declare a charge now."""
     _require(state, 'charge', unit)
     activity = unit['activity']
     if activity.get('moved') in ('advance', 'fall_back'):
@@ -688,7 +694,30 @@ def _charge(state, action, dice):
     if not any(_unit_distance(mine, _placed_shapes(u)) <= CHARGE_REACH + 1e-9
                for u in state['units'] if u['player'] != unit['player'] and _placed_shapes(u)):
         raise ActionError(f'{unit["name"]} has no enemy unit within {CHARGE_REACH}" to charge.')
-    activity['charge_roll'] = dice.roll_value('2D6', 'charge')
+
+
+def charge_options(state, unit_id):
+    """
+    For the page: why a unit can't declare a charge ('reason', None if it can or has), its charge roll,
+    and once rolled, the enemy units it can charge: {id: {'ok': True, 'distance'}}.
+    """
+    unit = _unit_or_error(state, unit_id)
+    roll = unit['activity'].get('charge_roll')
+    reason = None
+    if roll is None:
+        try:
+            _charge_checks(state, unit)
+        except ActionError as error:
+            reason = str(error)
+    targets = {}
+    if roll is not None:
+        start = _start_shapes(unit, 'charge_start')
+        for other in state['units']:
+            if other['player'] != unit['player'] and _placed_shapes(other):
+                gap = _unit_distance(start, _placed_shapes(other))
+                if gap <= min(CHARGE_REACH, roll) + 1e-9:
+                    targets[other['id']] = {'ok': True, 'distance': round(gap, 2)}
+    return {'reason': reason, 'roll': roll, 'targets': targets}
 
 
 def _charge_move(state, action):
@@ -906,6 +935,30 @@ def _fight(state, action, dice):
     orders; Hazardous weapons roll afterwards.
     """
     unit = _unit_or_error(state, action.get('unit'))
+    _fight_checks(state, unit)
+    fight = state['turn']['fight']
+    engaged_with = _engaged_units(state, unit)
+    default_target = action.get('target') or engaged_with[0]['id']
+    picks = action.get('weapons')
+    explicit = picks is not None
+    if not explicit:  # The first ticked melee weapon of each part
+        picks = [{'part': p, 'weapon': w} for p, w in _default_melee(unit)]
+    return _fight_with(state, unit, picks, explicit, default_target, engaged_with, fight, dice)
+
+
+def _default_melee(unit):
+    """(part, weapon) for the first ticked plain melee weapon of each part (not Extra Attacks ones)."""
+    out = []
+    for p, part in enumerate(unit['parts']):
+        plain = [w for pp, w in _melee_weapons(unit) if pp == p and not _has(part['weapons'][w]['abilities'], 'Extra Attacks')]
+        ticked = [w for w in plain if part['weapons'][w]['default_use']] or plain
+        if ticked:
+            out.append((p, ticked[0]))
+    return out
+
+
+def _fight_checks(state, unit):
+    """Refuse a unit that can't be picked to fight now."""
     _require_step(state, 'fight')
     fight = state['turn']['fight']
     if unit['activity'].get('fought'):
@@ -919,17 +972,31 @@ def _fight(state, action, dice):
     if fight['stage'] == 'fights_first' and not _fights_first(unit):
         raise ActionError('Only Fights First units (those that charged this turn) fight now.')
 
-    engaged_with = _engaged_units(state, unit)
-    default_target = action.get('target') or engaged_with[0]['id']
-    picks = action.get('weapons')
-    explicit = picks is not None
-    if not explicit:  # The first ticked melee weapon of each part
-        picks = []
-        for p, part in enumerate(unit['parts']):
-            plain = [w for pp, w in _melee_weapons(unit) if pp == p and not _has(part['weapons'][w]['abilities'], 'Extra Attacks')]
-            ticked = [w for w in plain if part['weapons'][w]['default_use']] or plain
-            if ticked:
-                picks.append({'part': p, 'weapon': ticked[0]})
+
+def fight_options(state, unit_id):
+    """
+    For the page: why a unit can't fight now ('reason', None if it can), the enemy units it is engaged
+    with ('targets'), and each part's melee weapons ('parts': {'part', 'name', 'choice' (the default
+    plain weapon), 'weapons': [{'weapon', 'name', 'extra' (Extra Attacks: used as well)}]}).
+    """
+    unit = _unit_or_error(state, unit_id)
+    try:
+        _fight_checks(state, unit)
+        reason = None
+    except ActionError as error:
+        reason = str(error)
+    defaults = dict(_default_melee(unit))
+    parts = []
+    for p, part in enumerate(unit['parts']):
+        weapons = [{'weapon': w, 'name': part['weapons'][w]['name'], 'extra': _has(part['weapons'][w]['abilities'], 'Extra Attacks')}
+                   for pp, w in _melee_weapons(unit) if pp == p]
+        if weapons:
+            parts.append({'part': p, 'name': part['name'], 'choice': defaults.get(p), 'weapons': weapons})
+    return {'reason': reason, 'targets': [u['id'] for u in _engaged_units(state, unit)], 'parts': parts}
+
+
+def _fight_with(state, unit, picks, explicit, default_target, engaged_with, fight, dice):
+    """Roll a unit's fight (see _fight) with the weapons picked."""
     chosen = []
     for pick in picks:
         try:
@@ -958,9 +1025,7 @@ def _fight(state, action, dice):
         target_shapes = _placed_shapes(target)
         models = [m for m, shape in _placed_models(unit) if m['part'] == p and w in m['weapons']
                   and any(base_distance(shape, t) <= ENGAGEMENT_RANGE + 1e-9 for t in target_shapes)]
-        if not models:
-            if explicit:
-                raise ActionError(f'No model with {unit["parts"][p]["weapons"][w]["name"]} is engaged with {target["name"]}.')
+        if not models:  # No model with it is engaged with the target: it doesn't attack
             continue
         plans.append((p, w, target, models))
     if not plans:

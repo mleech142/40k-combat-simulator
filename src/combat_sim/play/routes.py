@@ -9,7 +9,8 @@ from .. import armies
 from ..models import SavedArmy, SavedGame, db
 from .dice import Dice
 from ..settings import update_settings
-from .game import DEPLOYMENT_DEPTH, ActionError, move_characteristic, outline, replay, resolve_action, shooting_options
+from .game import (DEPLOYMENT_DEPTH, ActionError, charge_options, fight_options, move_characteristic, outline, replay,
+                   resolve_action, shooting_options)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH
 from .snapshot import freeze_army
 
@@ -105,11 +106,13 @@ def register_play_routes(app):
         db.session.commit()
         return game_response(saved)
 
-    @app.route('/api/play/games/<int:game_id>/shooting/<unit_id>')
-    def api_shooting_options(game_id, unit_id):
-        """Which of a unit's weapons can fire at which enemy units now, and why not."""
+    OPTIONS = {'shooting': shooting_options, 'charge': charge_options, 'fight': fight_options}
+
+    @app.route('/api/play/games/<int:game_id>/<any(shooting, charge, fight):kind>/<unit_id>')
+    def api_options(game_id, kind, unit_id):
+        """What a unit can do now in the Shooting, Charge or Fight phase, and why not."""
         saved = db.get_or_404(SavedGame, game_id)
         try:
-            return jsonify(shooting_options(replay(saved.armies, saved.events or []), unit_id))
+            return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or []), unit_id))
         except ActionError as error:
             return jsonify({'error': str(error)}), 404
