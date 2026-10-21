@@ -3647,6 +3647,8 @@ h4 .fa-solid,
 .play-turn.play-p2 { border-left-color: var(--play-p2); }
 .play-move-modes { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0 0.4rem; }
 .play-move-modes .btn-small.active { border-color: var(--accent); background: var(--accent-tint); color: var(--text-primary); }
+.play-ghost { fill: none; stroke: var(--player); stroke-opacity: 0.5; stroke-width: 0.05; stroke-dasharray: 0.15 0.12;
+              pointer-events: none; }
 .play-move-ring { fill: var(--player); fill-opacity: 0.05; stroke: var(--player); stroke-opacity: 0.35; stroke-width: 0.05;
                   stroke-dasharray: 0.3 0.2; pointer-events: none; }
 .play-readout {

@@ -160,8 +160,10 @@
     /** The Movement phase buttons: choose a move, roll to Advance, or remain stationary. */
     async function movementChoice(choice) {
         const unit = unitById(state.selected);
-        if (choice === 'stationary') {
-            await send({ type: 'stationary', unit: unit.id });
+        if (choice === 'stationary' || choice === 'reset') {
+            if (await send({ type: choice === 'reset' ? 'reset_move' : 'stationary', unit: unit.id })) {
+                message(choice === 'reset' ? `${unit.name} is back where it started the phase.` : `${unit.name} remains stationary.`);
+            }
             return;
         }
         if (choice === 'advance' && unit.activity.advance_roll == null) {
@@ -176,9 +178,14 @@
     /** How far a model may move now (its Move, plus the Advance roll when advancing), or null if it can't. */
     function allowance(unit, model) {
         const turn = state.game.state.turn;
-        if (turn.phase !== 'movement' || unit.player !== turn.player || unit.activity.moved) return null;
+        if (turn.phase !== 'movement' || unit.player !== turn.player) return null;
         const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
         return state.game.moves[unit.id][model.part] + roll;
+    }
+
+    /** Where a model started the Movement phase (moves are measured from there until the phase ends). */
+    function startOf(unit, model) {
+        return (unit.activity.start && unit.activity.start[model.id]) || model.position;
     }
 
     /** Place the selected unit in formation, centred on a board point. */
@@ -261,7 +268,11 @@
     function select(unitId) {
         const changed = state.selected !== unitId;
         state.selected = changed ? unitId : null;
-        if (changed) state.moveMode = unitById(unitId).activity.advance_roll != null ? 'advance' : 'normal';
+        if (changed) {
+            const activity = unitById(unitId).activity;
+            state.moveMode = activity.advance_roll != null ? 'advance'
+                : ['normal', 'fall_back'].includes(activity.moved) ? activity.moved : 'normal';
+        }
         const turn = state.game.state.turn;
         if (!state.selected) message('');
         else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone.`);
@@ -284,13 +295,16 @@
         }
         const turn = state.game.state.turn;
         let controls = '';
-        if (turn.phase === 'movement' && unit.player === turn.player && !unit.activity.moved) {
+        if (turn.phase === 'movement' && unit.player === turn.player) {
             const rolled = unit.activity.advance_roll != null;
+            const moved = unit.activity.moved;
             controls = `<div class="play-move-modes">${MOVE_MODES.map(([mode, label]) => `
                 <button class="btn-small ${state.moveMode === mode ? 'active' : ''}" data-mode="${mode}"
                     ${rolled && mode !== 'advance' ? 'disabled' : ''}>${label}${mode === 'advance' && rolled ? ` (+${unit.activity.advance_roll}")` : ''}</button>`).join('')}
-                <button class="btn-small" data-mode="stationary" ${rolled ? 'disabled' : ''}>Remain stationary</button>
-            </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]}.</p>`;
+                <button class="btn-small ${moved === 'stationary' ? 'active' : ''}" data-mode="stationary" ${rolled ? 'disabled' : ''}>Remain stationary</button>
+                ${moved ? '<button class="btn-small" data-mode="reset">Reset move</button>' : ''}
+            </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]}.
+                You can move it again or reset it until the Movement phase ends; then moves are locked.</p>`;
         }
         if (turn.phase === 'shooting' && unit.player === turn.player && state.shooting && state.shooting.unit === unit.id) {
             controls = shootingControls(unit);
@@ -456,12 +470,22 @@
             const top = Math.min(...placed.map(m => D - m.position.y - reach(m)));
             const bottom = Math.max(...placed.map(m => D - m.position.y + reach(m)));
             svgEl('rect', { x: left, y: top, width: right - left, height: bottom - top, rx: 0.6, class: 'play-unit-outline' }, g);
+            const movingNow = game.state.turn.phase === 'movement' && unit.player === game.state.turn.player;
+            if (movingNow && unit.activity.start) {
+                for (const model of placed) {  // Where it started the phase, until moves lock
+                    const from = startOf(unit, model);
+                    if (from.x === model.position.x && from.y === model.position.y) continue;
+                    const o = game.outlines[unit.id][model.part];
+                    svgEl('ellipse', { cx: from.x, cy: D - from.y, rx: o.length / 2, ry: o.width / 2, class: 'play-ghost' }, g);
+                }
+            }
             if (state.selected === unit.id) {
                 for (const model of placed) {
                     const reach = allowance(unit, model);
                     if (reach == null) continue;
                     const o = game.outlines[unit.id][model.part];
-                    svgEl('circle', { cx: model.position.x, cy: D - model.position.y, r: reach + Math.max(o.length, o.width) / 2,
+                    const from = startOf(unit, model);
+                    svgEl('circle', { cx: from.x, cy: D - from.y, r: reach + Math.max(o.length, o.width) / 2,
                                       class: 'play-move-ring' }, g);
                 }
             }
@@ -574,8 +598,17 @@
         state.drag.dx = p.x - state.drag.start.x;
         state.drag.dy = p.y - state.drag.start.y;
         const unit = unitById(state.drag.unitId);
-        const limits = state.drag.modelIds.map(id => allowance(unit, unit.models.find(m => m.id === id))).filter(v => v != null);
-        showReadout(event, limits.length ? Core.playMoveLabel(state.drag.dx, state.drag.dy, Math.min(...limits)) : null);
+        // The farthest any dragged model has come from where it started the phase, against its allowance
+        let label = null;
+        for (const id of state.drag.modelIds) {
+            const model = unit.models.find(m => m.id === id);
+            const reach = allowance(unit, model);
+            if (reach == null) continue;
+            const from = startOf(unit, model);
+            const here = Core.playMoveLabel(model.position.x + state.drag.dx - from.x, model.position.y + state.drag.dy - from.y, reach);
+            if (!label || parseFloat(here.text) > parseFloat(label.text) || here.over) label = here;
+        }
+        showReadout(event, label);
         if (state.drag.modelIds.length === unit.models.filter(m => m.alive && m.position).length) {
             // The whole unit: its outline and name go with it (SVG y runs down)
             const group = $('play-board').querySelector(`.play-unit-group[data-unit="${unit.id}"]`);

@@ -144,7 +144,8 @@ def test_an_advance_roll_stands_but_the_move_after_it_can_be_undone(client, game
                  'models': [{'id': m, 'x': x, 'y': y + 1} for m, (x, y) in zip(models, ROW)]})
     assert moved.status_code == 200, moved.get_json()
     undone = client.post(f'/api/play/games/{game["id"]}/undo').get_json()
-    assert undone['state']['units'][0]['activity'] == {'advance_roll': roll}  # The move is gone, the roll stays
+    activity = undone['state']['units'][0]['activity']
+    assert activity['advance_roll'] == roll and 'moved' not in activity  # The move is gone, the roll stays
     assert client.post(f'/api/play/games/{game["id"]}/undo').status_code == 400
 
 

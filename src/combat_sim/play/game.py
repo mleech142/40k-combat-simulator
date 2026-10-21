@@ -71,7 +71,8 @@ def resolve_action(state, action, dice):
     handlers = {'shoot': lambda s: _shoot(s, action, dice), 'place': lambda s: _place(s, action),
                 'end_deployment': _end_deployment, 'next_phase': _next_phase,
                 'move': lambda s: _move(s, action), 'advance': lambda s: _advance(s, action, dice),
-                'stationary': lambda s: _stationary(s, action), 'orders': lambda s: _orders(s, action)}
+                'stationary': lambda s: _stationary(s, action), 'reset_move': lambda s: _reset_move(s, action),
+                'orders': lambda s: _orders(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
         raise ActionError(f'Unknown action: {kind}')
@@ -534,39 +535,67 @@ def move_characteristic(part):
 
 
 def _ready_to_move(state, unit):
+    """
+    The unit's activity, once it is the unit's Movement phase. A unit can be moved, reset and moved
+    again as often as its player likes during the phase: every move is measured from where it
+    started the phase (`activity['start']`, kept from its first move), and moves lock when the phase
+    ends.
+    """
     _require(state, 'movement', unit)
     activity = unit['activity']
-    if activity.get('moved') == 'stationary':
-        raise ActionError(f'{unit["name"]} has already remained stationary this phase.')
-    if 'moved' in activity:
-        raise ActionError(f'{unit["name"]} has already moved this phase.')
+    if 'start' not in activity:
+        activity['start'] = {m['id']: m['position'] for m in unit['models'] if m['alive']}
     return activity
 
 
+def _start_shapes(unit):
+    """The unit's models where they started the Movement phase."""
+    start = unit['activity'].get('start') or {}
+    return [model_shape(unit['parts'][m['part']], start.get(m['id']) or m['position'])
+            for m in unit['models'] if m['alive'] and (start.get(m['id']) or m['position'])]
+
+
+def _back_to_start(unit):
+    for model in unit['models']:
+        if model['alive'] and model['id'] in unit['activity'].get('start', {}):
+            model['position'] = unit['activity']['start'][model['id']]
+
+
 def _advance(state, action, dice):
-    """Roll to Advance: D6 inches added to the unit's next move (an Advance), and the roll stands."""
+    """Roll to Advance: D6 inches added to the unit's moves this phase (as Advances); the roll stands."""
     unit = _unit_or_error(state, action.get('unit'))
     activity = _ready_to_move(state, unit)
     if 'advance_roll' in activity:
         raise ActionError(f'{unit["name"]} has already rolled to Advance.')
-    if _engaged(_placed_shapes(unit), _enemy_shapes(state, unit)):
+    if _engaged(_start_shapes(unit), _enemy_shapes(state, unit)):
         raise ActionError(f'{unit["name"]} is in engagement range: it can only Fall Back.')
     activity['advance_roll'] = dice.roll_value('D6', 'advance')
 
 
 def _stationary(state, action):
+    """Remain stationary: back where the unit started the phase, if it had moved."""
     unit = _unit_or_error(state, action.get('unit'))
     activity = _ready_to_move(state, unit)
     if 'advance_roll' in activity:
         raise ActionError(f'{unit["name"]} rolled to Advance: it must make an Advance move.')
+    _back_to_start(unit)
     activity['moved'] = 'stationary'
+
+
+def _reset_move(state, action):
+    """Take a unit back to where it started the phase, not yet moved (an Advance roll stands)."""
+    unit = _unit_or_error(state, action.get('unit'))
+    activity = _ready_to_move(state, unit)
+    _back_to_start(unit)
+    activity.pop('moved', None)
 
 
 def _move(state, action):
     """
-    A Normal move, Advance or Fall Back: each model in a straight line up to its Move (+ the Advance
-    roll), not through enemy models, ending wholly on the board, overlapping no model, in coherency
-    and out of engagement range. Only an engaged unit Falls Back; an engaged unit can do nothing else.
+    A Normal move, Advance or Fall Back: each model in a straight line from where it started the
+    phase, up to its Move (+ the Advance roll), not through enemy models, ending wholly on the board,
+    overlapping no model, in coherency and out of engagement range. Only a unit that started the
+    phase engaged Falls Back, and it can do nothing else.
     """
     unit = _unit_or_error(state, action.get('unit'))
     activity = _ready_to_move(state, unit)
@@ -574,7 +603,7 @@ def _move(state, action):
     if mode not in MOVE_MODES:
         raise ActionError('Choose a Normal move, Advance or Fall Back.')
     enemies = _enemy_shapes(state, unit)
-    engaged = _engaged(_placed_shapes(unit), enemies)
+    engaged = _engaged(_start_shapes(unit), enemies)  # Where it started the phase decides
     if mode == 'fall_back' and not engaged:
         raise ActionError('Only a unit in engagement range can Fall Back.')
     if mode != 'fall_back' and engaged:
@@ -589,7 +618,7 @@ def _move(state, action):
     shapes = {}
     for mid, spot in spots.items():
         model, part = living[mid], unit['parts'][living[mid]['part']]
-        start = model['position']
+        start = activity['start'].get(mid) or model['position']
         allowance = move_characteristic(part) + (activity.get('advance_roll', 0) if mode == 'advance' else 0)
         distance = math.dist((start['x'], start['y']), (spot['x'], spot['y']))
         if distance > allowance + 1e-6:

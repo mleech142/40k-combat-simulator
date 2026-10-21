@@ -115,7 +115,7 @@ def move(unit_id, mode, *spots, state):
 def test_a_normal_move_goes_up_to_the_move_characteristic():
     state = movement()
     after, event = act(state, move('p1-squad', 'normal', *row(10, 12, 3), state=state))
-    assert unit_by_id(after, 'p1-squad')['activity'] == {'moved': 'normal'} and event['rolls'] == []
+    assert unit_by_id(after, 'p1-squad')['activity']['moved'] == 'normal' and event['rolls'] == []
     assert 'at most 6"' in refused(state, move('p1-squad', 'normal', *row(10, 12.1, 3), state=state))
 
 
@@ -126,10 +126,57 @@ def test_only_the_active_player_moves_and_only_in_the_movement_phase():
     assert 'movement phase' in refused(command, move('p1-squad', 'normal', *row(10, 8, 3), state=command))
 
 
-def test_each_unit_moves_once_per_movement_phase():
+def positions(state, unit_id):
+    return [(m['position']['x'], m['position']['y']) for m in unit_by_id(state, unit_id)['models'] if m['alive']]
+
+
+def test_a_unit_can_move_again_measured_from_where_it_started_the_phase():
     state = movement()
-    state, _ = act(state, move('p1-squad', 'normal', *row(10, 8, 3), state=state))
-    assert 'already' in refused(state, move('p1-squad', 'normal', *row(10, 9, 3), state=state))
+    state, _ = act(state, move('p1-squad', 'normal', *row(10, 10, 3), state=state))  # 4"
+    state, _ = act(state, move('p1-squad', 'normal', *row(10, 12, 3), state=state))  # 6" from the start
+    assert positions(state, 'p1-squad') == row(10, 12, 3)
+    assert 'at most 6"' in refused(state, move('p1-squad', 'normal', *row(10, 12.5, 3), state=state))  # 6.5"
+
+
+def test_reset_puts_a_unit_back_where_it_started_the_phase():
+    state = movement()
+    state, _ = act(state, move('p1-squad', 'normal', *row(10, 10, 3), state=state))
+    state, event = act(state, {'type': 'reset_move', 'unit': 'p1-squad'})
+    assert positions(state, 'p1-squad') == row(10, 6, 3) and event['rolls'] == []
+    assert 'moved' not in unit_by_id(state, 'p1-squad')['activity']
+    # Remaining stationary after a move puts it back too
+    state, _ = act(state, move('p1-squad', 'normal', *row(10, 10, 3), state=state))
+    state, _ = act(state, {'type': 'stationary', 'unit': 'p1-squad'})
+    assert positions(state, 'p1-squad') == row(10, 6, 3)
+    assert unit_by_id(state, 'p1-squad')['activity']['moved'] == 'stationary'
+    state, _ = act(state, move('p1-squad', 'normal', *row(10, 9, 3), state=state))  # And it can still move after all
+    assert unit_by_id(state, 'p1-squad')['activity']['moved'] == 'normal'
+
+
+def test_moves_lock_when_the_movement_phase_ends():
+    state = movement()
+    state, _ = act(state, move('p1-squad', 'normal', *row(10, 10, 3), state=state))
+    state, _ = act(state, {'type': 'next_phase'})
+    assert 'movement phase' in refused(state, move('p1-squad', 'normal', *row(10, 11, 3), state=state))
+    assert 'movement phase' in refused(state, {'type': 'reset_move', 'unit': 'p1-squad'})
+    assert positions(state, 'p1-squad') == row(10, 10, 3)
+
+
+def test_whether_a_unit_must_fall_back_is_judged_where_it_started():
+    state = put(movement(), 'p2-mob', (10, 7.8), (11.5, 7.8), (13, 7.8))  # Engaged at the start of the phase
+    state, _ = act(state, move('p1-squad', 'fall_back', *row(10, 4, 3), state=state))
+    assert 'Fall Back' in refused(state, move('p1-squad', 'normal', *row(10, 3, 3), state=state))
+    state, _ = act(state, move('p1-squad', 'fall_back', *row(10, 3, 3), state=state))
+
+
+def test_an_advance_roll_survives_a_reset():
+    state = movement()
+    state, _ = act(state, {'type': 'advance', 'unit': 'p1-squad'}, 3)
+    state, _ = act(state, move('p1-squad', 'advance', *row(10, 14, 3), state=state))
+    state, _ = act(state, {'type': 'reset_move', 'unit': 'p1-squad'})
+    assert unit_by_id(state, 'p1-squad')['activity']['advance_roll'] == 3
+    assert 'Advance' in refused(state, move('p1-squad', 'normal', *row(10, 8, 3), state=state))
+    assert 'already rolled' in refused(state, {'type': 'advance', 'unit': 'p1-squad'}, 5)
 
 
 def test_advance_rolls_a_d6_and_adds_it_to_the_move():
@@ -137,11 +184,11 @@ def test_advance_rolls_a_d6_and_adds_it_to_the_move():
     assert 'Advance' in refused(state, move('p1-squad', 'advance', *row(10, 14, 3), state=state))  # Roll first
     state, event = act(state, {'type': 'advance', 'unit': 'p1-squad'}, 4)
     assert [(g['purpose'], [d['face'] for d in g['dice']]) for g in event['rolls']] == [('advance', [4])]
-    assert unit_by_id(state, 'p1-squad')['activity'] == {'advance_roll': 4}
+    assert unit_by_id(state, 'p1-squad')['activity']['advance_roll'] == 4
     assert 'at most 10"' in refused(state, move('p1-squad', 'advance', *row(10, 16.1, 3), state=state))
     assert 'Advance' in refused(state, move('p1-squad', 'normal', *row(10, 8, 3), state=state))  # Rolled: it advances
     state, _ = act(state, move('p1-squad', 'advance', *row(10, 16, 3), state=state))
-    assert unit_by_id(state, 'p1-squad')['activity'] == {'advance_roll': 4, 'moved': 'advance'}
+    assert unit_by_id(state, 'p1-squad')['activity']['moved'] == 'advance'
 
 
 def test_a_unit_must_end_its_move_in_coherency():
@@ -166,7 +213,7 @@ def test_moves_dont_end_in_engagement_range_and_engaged_units_fall_back():
     assert 'Fall Back' in refused(engaged, move('p1-squad', 'normal', *row(10, 4, 3), state=engaged))
     assert 'engagement range' in refused(engaged, move('p1-squad', 'fall_back', *row(10, 5.8, 3), state=engaged))
     after, _ = act(engaged, move('p1-squad', 'fall_back', *row(10, 4, 3), state=engaged))
-    assert unit_by_id(after, 'p1-squad')['activity'] == {'moved': 'fall_back'}
+    assert unit_by_id(after, 'p1-squad')['activity']['moved'] == 'fall_back'
 
 
 def test_models_cant_move_through_enemy_models():
@@ -178,7 +225,7 @@ def test_models_cant_move_through_enemy_models():
 
 def test_remaining_stationary_is_recorded():
     state, _ = act(movement(), {'type': 'stationary', 'unit': 'p1-squad'})
-    assert unit_by_id(state, 'p1-squad')['activity'] == {'moved': 'stationary'}
+    assert unit_by_id(state, 'p1-squad')['activity']['moved'] == 'stationary'
 
 
 def test_a_new_turn_clears_what_units_did():
