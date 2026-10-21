@@ -73,17 +73,25 @@ class ActionError(ValueError):
     """An action the rules don't allow; its message says why, for the player."""
 
 
-def new_game(armies, battlefield=None, roles=None):
+def new_game(armies, battlefield=None, roles=None, setup=False):
     """
     A game between frozen armies (snapshot.freeze_army) on a battlefield (battlefields.BUILTIN's default
     if none), the first army's player attacking unless `roles` ({'attacker', 'defender'}: players) says.
+    With `setup`, the game starts with the mission sequence (SETUP_STEPS): the central objective roll,
+    the roll-off for attacker or defender, and (when deployment ends) the roll-off for the first turn;
+    without it (games saved before setup existed), player 1 attacks, deploys first and goes first.
     """
     battlefield = json.loads(json.dumps(battlefield or battlefields.BUILTIN[battlefields.DEFAULT]))  # Plain data
     roles = dict(roles or {'attacker': 0, 'defender': 1})
-    state = {'version': STATE_VERSION, 'players': [], 'units': [],
-             'turn': {'phase': 'deployment', 'round': 0, 'player': 0}, 'pending': None,
+    turn = {'phase': 'deployment', 'round': 0, 'player': 0}
+    if setup:
+        single = sum(o['kind'] == 'central' for o in battlefield['objectives']) == 1
+        turn = {'phase': 'setup', 'round': 0, 'player': 0, 'step': 'objectives' if single else 'roll_off'}
+    state = {'version': STATE_VERSION, 'players': [], 'units': [], 'setup': bool(setup),
+             'turn': turn, 'pending': None,
              'battlefield': {k: v for k, v in battlefield.items() if k != 'objectives'}, 'roles': roles,
-             'objectives': [{'id': o['id'], 'kind': o['kind'], 'owner': roles[o['role']] if o.get('role') else None,
+             'objectives': [{'id': o['id'], 'kind': o['kind'], 'role': o.get('role'),
+                             'owner': roles[o['role']] if o.get('role') else None,
                              'x': o['x'], 'y': o['y'], 'terrain': o.get('terrain'), 'controller': None}
                             for o in battlefield['objectives']]}
     for player, army in enumerate(armies):
@@ -115,8 +123,9 @@ def _snapshot(state):
                                 'effects': u.get('effects', [])} for u in state['units']},
             'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0), 'used': p.get('used', {})}
                         for p in state['players']],
-            'turn': state.get('turn'), 'pending': state.get('pending'),
-            'objectives': {o['id']: o.get('controller') for o in state.get('objectives', [])}}
+            'turn': state.get('turn'), 'pending': state.get('pending'), 'roles': state.get('roles'),
+            'objectives': {o['id']: o.get('controller') for o in state.get('objectives', [])},
+            'layout': [{k: v for k, v in o.items() if k != 'controller'} for o in state.get('objectives', [])]}
 
 
 def resolve_action(state, action, dice):
@@ -134,7 +143,9 @@ def resolve_action(state, action, dice):
                 'orders': lambda s: _orders(s, action), 'stratagem': lambda s: _stratagem(s, action),
                 'rule': lambda s: _rule(s, action), 'effect': lambda s: _manual_effect(s, action),
                 'remove_effect': lambda s: _remove_effect(s, action), 'correction': lambda s: _correction(s, action),
-                'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False)}
+                'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False),
+                'roll_objectives': lambda s: _roll_objectives(s, dice), 'roll_off': lambda s: _roll_off_roles(s, dice),
+                'choose_role': lambda s: _choose_role(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
         raise ActionError(f'Unknown action: {kind}')
@@ -156,6 +167,10 @@ def resolve_action(state, action, dice):
         event['players'] = after['players']
     if after['pending'] != before['pending']:
         event['pending'] = after['pending']
+    if after['roles'] != before['roles']:
+        event['roles'] = after['roles']
+    if after['layout'] != before['layout']:  # Objectives added, moved or changing hands (setup)
+        event['layout'] = after['layout']
     changed = {k: v for k, v in after['objectives'].items() if before['objectives'].get(k) != v}
     if changed:
         event['objectives'] = changed
@@ -178,6 +193,11 @@ def apply_event(state, event):
         player.update(copy.deepcopy(changes))
     if 'pending' in event:
         state['pending'] = copy.deepcopy(event['pending'])
+    if 'roles' in event:
+        state['roles'] = dict(event['roles'])
+    if 'layout' in event:
+        held = {o['id']: o.get('controller') for o in state.get('objectives', [])}
+        state['objectives'] = [dict(o, controller=held.get(o['id'])) for o in copy.deepcopy(event['layout'])]
     for objective in state.get('objectives', []):
         if objective['id'] in event.get('objectives', {}):
             objective['controller'] = event['objectives'][objective['id']]
@@ -204,9 +224,71 @@ def _end_deployment(state, dice):
     if _unplaced(state, 0) or _unplaced(state, 1):
         raise ActionError('Place every unit before deployment ends.')
     report = {'battle_shock': [], 'hazards': []}
-    _start_turn(state, 1, 0, dice, report)
+    first = 0
+    if state.get('setup'):  # Roll off for the first turn: the winner goes first
+        report['first_turn'] = _roll_off(dice, 'first turn')
+        first = report['first_turn']['winner']
+    state['roles'] = dict(state.get('roles') or {'attacker': 0, 'defender': 1}, first=first)
+    _start_turn(state, 1, first, dice, report)
     _prune_effects(state)
     return {k: v for k, v in report.items() if v}
+
+
+# --- Setup: the mission sequence -----------------------------------------------------------------------------
+
+def _require_setup(state, step):
+    turn = state['turn']
+    if turn['phase'] != 'setup' or turn.get('step') != step:
+        raise ActionError(f'That isn\'t this step of setting up the game{" (it is over)" if turn["phase"] != "setup" else ""}.')
+
+
+def _roll_off(dice, purpose):
+    """Both players roll a D6 (player 1's die first), again on a tie: {'rolls': [[a, b], ...], 'winner'}."""
+    rolls = []
+    while True:
+        pair = [dice.roll_value('D6', f'{purpose}: {name}') for name in ('player 1', 'player 2')]
+        rolls.append(pair)
+        if pair[0] != pair[1]:
+            return {'rolls': rolls, 'winner': 0 if pair[0] > pair[1] else 1}
+
+
+def _roll_objectives(state, dice):
+    """The central objective: one in the centre, or on a D6 roll of 6, two along the dividing line."""
+    _require_setup(state, 'objectives')
+    face = dice.roll_value('D6', 'central objective')
+    if face == 6:
+        rest = [o for o in state['objectives'] if o['kind'] != 'central']
+        pieces = terrain_areas(state)
+        central = [{'id': f'central-{i + 1}', 'kind': 'central', 'role': None, 'owner': None, 'x': x, 'y': y,
+                    'terrain': next((p['id'] for p, area in pieces if battlefields.inside((x, y), area.points)), None),
+                    'controller': None}
+                   for i, (x, y) in enumerate(battlefields.central_points(state['battlefield'], True))]
+        state['objectives'] = rest[:2] + central + rest[2:]  # Home objectives, then central, then expansion
+    state['turn']['step'] = 'roll_off'
+    return {'central': {'roll': face, 'objectives': 2 if face == 6 else 1}}
+
+
+def _roll_off_roles(state, dice):
+    """The roll-off for attacker or defender: the winner chooses (choose_role)."""
+    _require_setup(state, 'roll_off')
+    result = _roll_off(dice, 'attacker or defender')
+    state['turn'].update(step='choose_role', player=result['winner'])
+    return {'roll_off': result}
+
+
+def _choose_role(state, action):
+    """The roll-off winner is the attacker or the defender; the defender deploys first."""
+    _require_setup(state, 'choose_role')
+    role = action.get('role')
+    if role not in ('attacker', 'defender'):
+        raise ActionError('Choose to be the attacker or defender.')
+    chooser = state['turn']['player']
+    state['roles'] = {role: chooser, ('defender' if role == 'attacker' else 'attacker'): 1 - chooser}
+    for objective in state['objectives']:
+        if objective.get('role'):
+            objective['owner'] = state['roles'][objective['role']]
+    state['turn'] = {'phase': 'deployment', 'round': 0, 'player': state['roles']['defender']}
+    return {'chose': {'player': chooser, 'role': role}}
 
 
 def _next_phase(state, dice):
@@ -245,12 +327,17 @@ def _change_phase(state, dice, report):
         turn['phase'] = PHASES[i + 1]
         if turn['phase'] == 'fight':
             turn['step'] = 'pile_in'
-    elif turn['player'] == 0:
-        _start_turn(state, turn['round'], 1, dice, report)
+    elif turn['player'] == first_player(state):
+        _start_turn(state, turn['round'], 1 - turn['player'], dice, report)
     elif turn['round'] >= BATTLE_ROUNDS:
         state['turn'] = {'phase': 'ended', 'round': turn['round'], 'player': turn['player']}
     else:
-        _start_turn(state, turn['round'] + 1, 0, dice, report)
+        _start_turn(state, turn['round'] + 1, first_player(state), dice, report)
+
+
+def first_player(state):
+    """Who takes the first turn of each battle round (player 1 in games without setup)."""
+    return (state.get('roles') or {}).get('first', 0)
 
 
 def _start_turn(state, round_number, player, dice, report):
@@ -742,9 +829,9 @@ def _carried(unit):
             for part in unit['parts'] if part.get('enhancement')]
 
 
-def replay(armies, events, battlefield=None):
+def replay(armies, events, battlefield=None, setup=False):
     """A game rebuilt from its frozen armies (on its battlefield) and its events, in order (no dice)."""
-    state = new_game(armies, battlefield)
+    state = new_game(armies, battlefield, setup=setup)
     for event in events:
         state = apply_event(state, event)
     return state

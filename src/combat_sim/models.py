@@ -619,6 +619,7 @@ class SavedGame(db.Model):
     armies = db.Column(JSON, nullable=False)  # [snapshot.freeze_army(...), ...], one per player
     events = db.Column(JSON, nullable=False, default=list)
     battlefield = db.Column(JSON, nullable=True)  # The game's own copy of its battlefield (None: the default map)
+    setup = db.Column(db.Boolean, nullable=True)  # Starts with the mission sequence (None: saved before it existed)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

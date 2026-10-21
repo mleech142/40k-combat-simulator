@@ -662,3 +662,19 @@ test('playSnap rounds to the nearest step', () => {
     assert.equal(Core.playSnap(10.24, 0.5), 10);
     assert.equal(Core.playSnap(-0.2, 0.5), -0);
 });
+
+test('playSetupPrompt walks the mission sequence: central objective, roll-off, then a choice', () => {
+    const players = [{ name: 'Red' }, { name: 'Blue' }];
+    const step = s => Core.playSetupPrompt({ phase: 'setup', step: s, player: 1 }, players);
+    assert.deepEqual(step('objectives').buttons, [{ action: { type: 'roll_objectives' }, label: 'Roll for the central objective', icon: 'dice' }]);
+    assert.match(step('roll_off').text, /winner chooses/);
+    const choose = step('choose_role');
+    assert.match(choose.text, /^Blue won the roll-off/);
+    assert.deepEqual(choose.buttons.map(b => b.action), [{ type: 'choose_role', role: 'attacker' }, { type: 'choose_role', role: 'defender' }]);
+    assert.equal(Core.playSetupPrompt({ phase: 'deployment', player: 0 }, players), null);
+});
+
+test('playRollOff writes a roll-off and its re-rolls as one line', () => {
+    const players = [{ name: 'Red' }, { name: 'Blue' }];
+    assert.equal(Core.playRollOff({ rolls: [[3, 3], [2, 5]], winner: 1 }, players), 'Red 3, Blue 3 (tie), then Red 2, Blue 5: Blue wins');
+});

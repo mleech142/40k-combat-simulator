@@ -19,7 +19,7 @@ from .snapshot import freeze_army
 
 def game_response(saved):
     """A game with its state, and what the page needs to draw it: the board and each part's outline."""
-    state = replay(saved.armies, saved.events or [], saved.battlefield)
+    state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup))
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
                     'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH},
                     'zones': [deployment_zone(state, p) for p in (0, 1)],
@@ -88,7 +88,8 @@ def register_play_routes(app):
             if battlefield is None:
                 return jsonify({'error': 'That battlefield is no longer saved.'}), 400
         name = str(data.get('name') or '').strip()[:200] or f'{frozen[0]["name"]} vs {frozen[1]["name"]}'
-        saved = SavedGame(name=name, armies=frozen, events=[], battlefield=battlefield)
+        saved = SavedGame(name=name, armies=frozen, events=[], battlefield=battlefield,
+                          setup=data.get('setup', True) is not False)  # Skipped only when asked
         db.session.add(saved)
         db.session.commit()
         return game_response(saved)
@@ -110,7 +111,7 @@ def register_play_routes(app):
         action = request.get_json(silent=True)
         if not isinstance(action, dict):
             return jsonify({'error': 'Send the action as a JSON object.'}), 400
-        state = replay(saved.armies, saved.events or [], saved.battlefield)
+        state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup))
         try:
             event = resolve_action(state, action, Dice())
         except ActionError as error:
@@ -139,7 +140,7 @@ def register_play_routes(app):
         """What a unit can do now in the Shooting, Charge or Fight phase, and why not."""
         saved = db.get_or_404(SavedGame, game_id)
         try:
-            return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield), unit_id))
+            return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup)), unit_id))
         except ActionError as error:
             return jsonify({'error': str(error)}), 404
 

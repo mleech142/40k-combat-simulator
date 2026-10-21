@@ -12,7 +12,7 @@
     const { escapeHtml } = Core;
     const SVG = 'http://www.w3.org/2000/svg';
     const PLAYER_CLASSES = ['play-p1', 'play-p2'];
-    const PHASE_NAMES = { deployment: 'Deployment', command: 'Command', movement: 'Movement', shooting: 'Shooting',
+    const PHASE_NAMES = { setup: 'Setup', deployment: 'Deployment', command: 'Command', movement: 'Movement', shooting: 'Shooting',
                           charge: 'Charge', fight: 'Fight' };
     const MOVE_MODES = [['normal', 'Normal move'], ['advance', 'Advance'], ['fall_back', 'Fall Back']];
     const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary' };
@@ -257,8 +257,14 @@
         const turn = game && game.state.turn;
         const allPlaced = game && game.state.units.every(u => u.models.every(m => !m.alive || m.position));
         let banner = '';
-        if (turn && turn.phase === 'deployment') {
-            banner = allPlaced ? 'Deployment · every unit placed: press Deployment done' : `Deployment · ${game.state.players[turn.player].name} to place`;
+        const setup = turn && turn.phase === 'setup';
+        if (setup) {
+            banner = 'Setting up the game';
+        } else if (turn && turn.phase === 'deployment') {
+            const roles = game.state.roles || {};
+            const role = p => roles.attacker === p ? 'attacker' : 'defender';
+            banner = allPlaced ? 'Deployment · every unit placed: press Deployment done'
+                : `Deployment · ${game.state.players[turn.player].name} (${role(turn.player)}) to place`;
         } else if (turn) {
             banner = `Round ${turn.round} · ${game.state.players[turn.player].name} · ${PHASE_NAMES[turn.phase]} phase`;
             if (turn.step) banner += ` · ${STEP_NAMES[turn.step]}`;
@@ -271,11 +277,11 @@
         const result = game && Core.playResult(game.state.players, game.score, turn);
         if (result) banner = result;
         $('turn-banner').textContent = banner;
-        $('scoreboard').innerHTML = game && turn.phase !== 'deployment' ? game.state.players.map((pl, i) =>
+        $('scoreboard').innerHTML = game && !['setup', 'deployment'].includes(turn.phase) ? game.state.players.map((pl, i) =>
             `<span class="${PLAYER_CLASSES[i]}">${escapeHtml(pl.name)}: ${pl.cp ?? 0} CP · ${game.score[i]} pts</span>`).join('') : '';
         $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player] : ''}`;
-        $('phase-btn').hidden = !game || turn.phase === 'ended';
-        $('correct-btn').hidden = !game || turn.phase === 'deployment';
+        $('phase-btn').hidden = !game || turn.phase === 'ended' || setup;
+        $('correct-btn').hidden = !game || ['setup', 'deployment'].includes(turn.phase);
         if (turn) {
             $('phase-btn').querySelector('span').textContent = turn.phase === 'deployment' ? 'Deployment done'
                 : turn.phase === 'fight' ? (turn.step === 'consolidate' ? 'End turn' : 'Next step') : 'Next phase';
@@ -285,8 +291,26 @@
         drawBoard();
         renderLog();
         renderPending();
+        renderSetup();
         renderCorrection();
         renderStratagems();
+    }
+
+    /** The setup bar: the mission sequence's next step (central objective roll, roll-off, attacker or defender). */
+    function renderSetup() {
+        const game = state.game;
+        const prompt = game && Core.playSetupPrompt(game.state.turn, game.state.players);
+        $('setup-bar').hidden = !prompt;
+        if (!prompt) return;
+        $('setup-bar').innerHTML = `<span>${escapeHtml(prompt.text)}</span>
+            <span class="play-pending-actions">${prompt.buttons.map((b, i) =>
+                `<button class="btn-small" data-setup="${i}"><i class="fa-solid fa-${b.icon}" aria-hidden="true"></i> ${escapeHtml(b.label)}</button>`).join('')}</span>`;
+        $('setup-bar').querySelectorAll('[data-setup]').forEach(button => button.addEventListener('click', async () => {
+            const action = prompt.buttons[Number(button.dataset.setup)].action;
+            if (await send(action) && state.game.state.turn.phase === 'deployment') {
+                message(`${state.game.state.players[state.game.state.turn.player].name} is the defender and deploys first.`);
+            }
+        }));
     }
 
     /** The squares above the board: this turn's phases, the current one lit in the active player's colour. */
@@ -294,7 +318,7 @@
         const game = state.game;
         const track = $('phase-track');
         const turn = game && game.state.turn;
-        track.hidden = !game || turn.phase === 'deployment';
+        track.hidden = !game || ['setup', 'deployment'].includes(turn.phase);
         if (track.hidden) return;
         track.className = `play-phases ${PLAYER_CLASSES[turn.player]}`;
         track.innerHTML = Core.playPhaseTrack(turn).map(p => `
@@ -766,7 +790,7 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type) && e.rolls.length)).reverse() : [];
@@ -807,6 +831,12 @@
                 return `<span class="play-effect rule">${player(event.player)}: ${escapeHtml(event.rule)}</span> on ${escapeHtml(name(event.unit))}`;
             case 'effect':
                 return `<span class="play-effect manual">Manual effect: ${escapeHtml(event.effect)}</span> on ${escapeHtml(name(event.unit))}`;
+            case 'roll_objectives':
+                return `Central objective roll: ${dice(event.rolls[0])}: <strong>${event.central.objectives === 2 ? 'two central objectives' : 'one central objective'}</strong>`;
+            case 'roll_off':
+                return `Roll-off for attacker or defender: ${escapeHtml(Core.playRollOff(event.roll_off, state.game.state.players))}`;
+            case 'choose_role':
+                return `<strong>${player(event.chose.player)}</strong> chose to be the ${event.chose.role}`;
             case 'correction':
                 return `${player(a.player)} proposed a correction: ${escapeHtml(a.note || '')}`;
             case 'accept':
@@ -824,6 +854,9 @@
                     const hurt = h.mortal_wounds ? `${h.mortal_wounds} mortal wound${h.mortal_wounds === 1 ? '' : 's'}` : 'no harm';
                     const dead = h.killed.length ? `, ${h.killed.length} model${h.killed.length === 1 ? '' : 's'} lost` : '';
                     lines.push(`<strong>${escapeHtml(h.name)}</strong> ${escapeHtml(h.reason)} hazard rolls: ${dice(event.rolls[h.rolls[0]])}: ${hurt}${dead}`);
+                }
+                if (event.first_turn) {
+                    lines.unshift(`First turn roll-off: ${escapeHtml(Core.playRollOff(event.first_turn, state.game.state.players))} and goes first`);
                 }
                 if (lines.length) return lines.join('<br>');
                 return event.rolls.map(r => r.purpose === 'battle-shock'  // Games saved before units were recorded

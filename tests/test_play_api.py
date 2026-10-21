@@ -30,7 +30,7 @@ def saved_army(client, name, *units):
 def game(client):
     red = saved_army(client, 'Red', {'uid': 'w', 'unit': 'Void Warriors'}, {'uid': 'c', 'unit': 'Star Captain'})
     blue = saved_army(client, 'Blue', {'uid': 'g', 'unit': 'Gun Crew'})
-    response = client.post('/api/play/games', json={'name': 'First game', 'armies': [red, blue]})
+    response = client.post('/api/play/games', json={'name': 'First game', 'armies': [red, blue], 'setup': False})
     assert response.status_code == 200, response.get_json()
     return response.get_json()
 
@@ -52,6 +52,22 @@ def test_new_game_from_two_saved_armies(client, game):
     listed = client.get('/api/play/games').get_json()
     assert [(g['id'], g['name'], g['players']) for g in listed] == [(game['id'], 'First game', ['Red', 'Blue'])]
     assert client.get(f'/api/play/games/{game["id"]}').get_json() == game
+
+
+def test_a_new_game_starts_with_the_mission_sequence(client):
+    red = saved_army(client, 'Red', {'uid': 'w', 'unit': 'Void Warriors'})
+    blue = saved_army(client, 'Blue', {'uid': 'g', 'unit': 'Gun Crew'})
+    game = client.post('/api/play/games', json={'armies': [red, blue]}).get_json()
+    assert game['state']['turn']['phase'] == 'setup' and game['ready'] == []
+    url = f'/api/play/games/{game["id"]}/actions'
+    client.post(url, json={'type': 'roll_objectives'})
+    game = client.post(url, json={'type': 'roll_off'}).get_json()
+    winner = game['events'][-1]['roll_off']['winner']
+    game = client.post(url, json={'type': 'choose_role', 'role': 'defender'}).get_json()
+    assert game['state']['roles'] == {'attacker': 1 - winner, 'defender': winner}
+    assert game['state']['turn']['phase'] == 'deployment' and game['state']['turn']['player'] == winner
+    assert game['zones'][winner] == [[0, 32], [60, 32], [60, 44], [0, 44]]  # The defender's zone
+    assert client.get(f'/api/play/games/{game["id"]}').get_json()['state'] == game['state']  # Replays the same
 
 
 def test_deleting_a_game(client, game):

@@ -851,6 +851,32 @@
     }
 
     /** 'Game over: Blue wins, 120 to 60' once the battle has ended, else null. */
+    /**
+     * Play: what the setup bar says and offers in a game's setup phase (the mission sequence), or null
+     * once it's over. Buttons carry the action to send.
+     */
+    function playSetupPrompt(turn, players) {
+        if (!turn || turn.phase !== 'setup') return null;
+        if (turn.step === 'objectives') {
+            return { text: 'Set up the battlefield: roll a D6 for the central objective (on a 6 there are two).',
+                buttons: [{ action: { type: 'roll_objectives' }, label: 'Roll for the central objective', icon: 'dice' }] };
+        }
+        if (turn.step === 'roll_off') {
+            return { text: 'Roll off: the winner chooses to be the attacker or the defender. The defender deploys first.',
+                buttons: [{ action: { type: 'roll_off' }, label: 'Roll off', icon: 'dice' }] };
+        }
+        const name = players[turn.player].name;
+        return { text: `${name} won the roll-off: attacker or defender?`,
+            buttons: ['attacker', 'defender'].map(role => ({ action: { type: 'choose_role', role },
+                label: `${name} ${role === 'attacker' ? 'attacks' : 'defends'}`, icon: role === 'attacker' ? 'khanda' : 'shield-halved' })) };
+    }
+
+    /** Play: a roll-off for the log, re-rolled ties and all. */
+    function playRollOff(result, players) {
+        const rounds = result.rolls.map(([a, b]) => `${players[0].name} ${a}, ${players[1].name} ${b}${a === b ? ' (tie)' : ''}`);
+        return `${rounds.join(', then ')}: ${players[result.winner].name} wins`;
+    }
+
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
         if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
@@ -866,7 +892,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playSnap,
+        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
