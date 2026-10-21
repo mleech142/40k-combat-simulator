@@ -604,3 +604,10 @@ test('playCentre is the middle of a unit\'s placed models', () => {
     assert.deepEqual(Core.playCentre([{ x: 10, y: 6 }, { x: 14, y: 8 }]), { x: 12, y: 7 });
     assert.equal(Core.playCentre([]), null);
 });
+
+test('playFormation puts the last row (leaders) at the back for a player on the top edge too', () => {
+    // Player 1 deploys at the bottom: rows run from the front (higher y) back to lower y
+    assert.deepEqual(Core.playFormation([1, 1, 1, 1, 1, 2], 20, 6).map(p => p.y), [7.05, 7.05, 7.05, 7.05, 7.05, 4.95]);
+    // Player 2 deploys at the top: the same rows mirrored, so the leader is at the higher y (their back)
+    assert.deepEqual(Core.playFormation([1, 1, 1, 1, 1, 2], 20, 38, true).map(p => p.y), [36.95, 36.95, 36.95, 36.95, 36.95, 39.05]);
+});

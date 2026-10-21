@@ -697,8 +697,10 @@
     /**
      * Where a unit's models go when it is dropped at (cx, cy): rows of up to 5, bases almost touching
      * (0.1" apart, spaced by the biggest base), the rows centred on the point. `sizes` are base lengths in inches.
+     * The first row faces the enemy and the last (where an attached leader goes) is at the back: lower y for
+     * the player on the bottom edge, higher y with `topEdge`.
      */
-    function playFormation(sizes, cx, cy) {
+    function playFormation(sizes, cx, cy, topEdge = false) {
         const spacing = Math.max(...sizes) + 0.1;
         const rows = Math.ceil(sizes.length / 5);
         const round = v => Math.round(v * 100) / 100;
@@ -707,7 +709,7 @@
             const inRow = Math.min(5, sizes.length - row * 5);
             return {
                 x: round(cx + ((i % 5) - (inRow - 1) / 2) * spacing),
-                y: round(cy + ((rows - 1) / 2 - row) * spacing),
+                y: round(cy + ((rows - 1) / 2 - row) * spacing * (topEdge ? -1 : 1)),
             };
         });
     }

@@ -197,7 +197,7 @@
         const board = state.game.board;
         const zone = unit.player === 0 ? { left: 0, right: board.width, bottom: 0, top: board.deployment_depth }
             : { left: 0, right: board.width, bottom: board.depth - board.deployment_depth, top: board.depth };
-        const spots = Core.playFit(Core.playFormation(sizes, point.x, point.y), sizes.map(s => s / 2), zone);
+        const spots = Core.playFit(Core.playFormation(sizes, point.x, point.y, unit.player === 1), sizes.map(s => s / 2), zone);
         const angle = unit.player === 0 ? 0 : 180;
         if (await place(unit.id, living.map((m, i) => ({ id: m.id, x: spots[i].x, y: spots[i].y, angle })))) {
             state.selected = null;
