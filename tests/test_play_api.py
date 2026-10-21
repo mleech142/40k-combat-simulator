@@ -43,6 +43,7 @@ def test_new_game_from_two_saved_armies(client, game):
     assert [u['id'] for u in game['state']['units']] == ['p1-w', 'p1-c', 'p2-g']
     assert all(m['position'] is None for u in game['state']['units'] for m in u['models'])  # Not placed yet
     assert game['board'] == {'width': 60, 'depth': 44, 'deployment_depth': 12}
+    assert game['moves'] == {'p1-w': [6], 'p1-c': [6], 'p2-g': [5]}  # Each part's Move, in inches
     assert game['outlines']['p1-w'] == [{'shape': 'round', 'length': 32 / 25.4, 'width': 32 / 25.4, 'estimated': False}]
     listed = client.get('/api/play/games').get_json()
     assert [(g['id'], g['name'], g['players']) for g in listed] == [(game['id'], 'First game', ['Red', 'Blue'])]
@@ -102,6 +103,7 @@ def test_placements_the_rules_dont_allow_are_refused(client, game, spots, messag
 
 def test_a_unit_cant_be_placed_on_another(client, game):
     assert place(client, game, 'p1-w', ROW).status_code == 200
+    assert place(client, game, 'p2-g', [(10, 38), (11.5, 38)]).status_code == 200  # Players take turns
     on_top = place(client, game, 'p1-c', [(10, 6)])
     assert on_top.status_code == 400 and 'overlap' in on_top.get_json()['error']
     assert place(client, game, 'p1-c', [(10, 8)]).status_code == 200
@@ -126,3 +128,21 @@ def test_play_link_shows_only_when_the_setting_is_on(client):
     assert 'js/play.js' in client.get('/play').get_data(as_text=True)
     client.post('/api/play/setting', json={'enabled': False})
     assert 'href="/play"' not in client.get('/armies').get_data(as_text=True)
+
+
+def test_an_advance_roll_stands_but_the_move_after_it_can_be_undone(client, game):
+    act = lambda body: client.post(f'/api/play/games/{game["id"]}/actions', json=body)  # noqa: E731
+    place(client, game, 'p1-w', ROW)
+    place(client, game, 'p2-g', [(10, 38), (11.5, 38)])
+    place(client, game, 'p1-c', [(30, 6)])
+    for body in ({'type': 'end_deployment'}, {'type': 'next_phase'}):
+        assert act(body).status_code == 200, act(body).get_json()
+    rolled = act({'type': 'advance', 'unit': 'p1-w'}).get_json()
+    roll = rolled['state']['units'][0]['activity']['advance_roll']
+    models = [m['id'] for m in rolled['state']['units'][0]['models']]
+    moved = act({'type': 'move', 'unit': 'p1-w', 'mode': 'advance',
+                 'models': [{'id': m, 'x': x, 'y': y + 1} for m, (x, y) in zip(models, ROW)]})
+    assert moved.status_code == 200, moved.get_json()
+    undone = client.post(f'/api/play/games/{game["id"]}/undo').get_json()
+    assert undone['state']['units'][0]['activity'] == {'advance_roll': roll}  # The move is gone, the roll stays
+    assert client.post(f'/api/play/games/{game["id"]}/undo').status_code == 400

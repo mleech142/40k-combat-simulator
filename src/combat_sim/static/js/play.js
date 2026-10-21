@@ -12,12 +12,17 @@
     const { escapeHtml } = Core;
     const SVG = 'http://www.w3.org/2000/svg';
     const PLAYER_CLASSES = ['play-p1', 'play-p2'];
+    const PHASE_NAMES = { deployment: 'Deployment', command: 'Command', movement: 'Movement', shooting: 'Shooting',
+                          charge: 'Charge', fight: 'Fight' };
+    const MOVE_MODES = [['normal', 'Normal move'], ['advance', 'Advance'], ['fall_back', 'Fall Back']];
+    const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary' };
 
     const state = {
         game: null,  // /api/play/games/<id> answer
         selected: null,  // Unit id picked in the list
         view: null,  // The board's viewBox, in SVG units (inches, y down)
-        drag: null,  // {unitId, modelIds, start, moved} while dragging
+        drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
+        moveMode: 'normal',  // How the selected unit will move (Movement phase)
     };
     const $ = id => document.getElementById(id);
 
@@ -27,6 +32,7 @@
         $('new-game-btn').addEventListener('click', newGame);
         $('undo-btn').addEventListener('click', undo);
         $('fit-btn').addEventListener('click', () => { fitView(); drawBoard(); });
+        $('phase-btn').addEventListener('click', nextPhase);
         const board = $('play-board');
         board.addEventListener('wheel', zoom, { passive: false });
         board.addEventListener('pointerdown', pointerDown);
@@ -135,6 +141,39 @@
         return send({ type: 'place', unit: unitId, models: positions });
     }
 
+    async function nextPhase() {
+        const turn = state.game.state.turn;
+        if (await send({ type: turn.phase === 'deployment' ? 'end_deployment' : 'next_phase' })) {
+            state.moveMode = 'normal';
+            const now = state.game.state.turn;
+            message(`${state.game.state.players[now.player].name}: ${PHASE_NAMES[now.phase]} phase.`);
+        }
+    }
+
+    /** The Movement phase buttons: choose a move, roll to Advance, or remain stationary. */
+    async function movementChoice(choice) {
+        const unit = unitById(state.selected);
+        if (choice === 'stationary') {
+            await send({ type: 'stationary', unit: unit.id });
+            return;
+        }
+        if (choice === 'advance' && unit.activity.advance_roll == null) {
+            if (!await send({ type: 'advance', unit: unit.id })) return;
+            message(`Advance roll: ${unitById(unit.id).activity.advance_roll}. Drag the unit to move it.`);
+        }
+        state.moveMode = choice;
+        renderUnits();
+        drawBoard();
+    }
+
+    /** How far a model may move now (its Move, plus the Advance roll when advancing), or null if it can't. */
+    function allowance(unit, model) {
+        const turn = state.game.state.turn;
+        if (turn.phase !== 'movement' || unit.player !== turn.player || unit.activity.moved) return null;
+        const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
+        return state.game.moves[unit.id][model.part] + roll;
+    }
+
     /** Place the selected unit in formation, centred on a board point. */
     async function placeSelectedAt(point) {
         const unit = unitById(state.selected);
@@ -158,6 +197,17 @@
         const game = state.game;
         $('game-title').textContent = game ? game.name : 'Choose or start a game';
         $('undo-btn').disabled = !game || !game.events.length || game.events[game.events.length - 1].rolls.length > 0;
+        const turn = game && game.state.turn;
+        const allPlaced = game && game.state.units.every(u => u.models.every(m => !m.alive || m.position));
+        $('turn-banner').textContent = !turn ? '' : turn.phase === 'deployment'
+            ? (allPlaced ? 'Deployment · every unit placed: press Deployment done' : `Deployment · ${game.state.players[turn.player].name} to place`)
+            : `Round ${turn.round} · ${game.state.players[turn.player].name} · ${PHASE_NAMES[turn.phase]} phase`;
+        $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.player] : ''}`;
+        $('phase-btn').hidden = !game;
+        if (turn) {
+            $('phase-btn').querySelector('span').textContent = turn.phase === 'deployment' ? 'Deployment done'
+                : turn.phase === 'fight' ? 'End turn' : 'Next phase';
+        }
         renderUnits();
         drawBoard();
     }
@@ -178,9 +228,12 @@
             return `<div class="play-player ${PLAYER_CLASSES[p]}"><h4>${escapeHtml(player.name)}</h4>${units.map(u => {
                 const living = u.models.filter(m => m.alive);
                 const placed = living.length && living.every(m => m.position);
+                const done = game.state.turn.phase === 'deployment' ? (placed ? 'placed' : 'not placed')
+                    : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '']
+                        .filter(Boolean).join(' · ');
                 return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''}" data-unit="${u.id}">
                     <span>${escapeHtml(u.name)}</span>
-                    <small>${living.length} model${living.length === 1 ? '' : 's'} · ${placed ? 'placed' : 'not placed'}</small>
+                    <small>${living.length} model${living.length === 1 ? '' : 's'}${done ? ' · ' + escapeHtml(done) : ''}</small>
                 </button>`;
             }).join('')}</div>`;
         }).join('');
@@ -189,8 +242,12 @@
     }
 
     function select(unitId) {
-        state.selected = state.selected === unitId ? null : unitId;
-        if (state.selected) message(`Click the board to place ${unitById(unitId).name} in its deployment zone.`);
+        const changed = state.selected !== unitId;
+        state.selected = changed ? unitId : null;
+        if (changed) state.moveMode = unitById(unitId).activity.advance_roll != null ? 'advance' : 'normal';
+        const turn = state.game.state.turn;
+        if (!state.selected) message('');
+        else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone.`);
         else message('');
         renderUnits();
         drawBoard();
@@ -202,7 +259,17 @@
             $('unit-detail').innerHTML = '';
             return;
         }
-        $('unit-detail').innerHTML = unit.parts.map((part, i) => {
+        const turn = state.game.state.turn;
+        let controls = '';
+        if (turn.phase === 'movement' && unit.player === turn.player && !unit.activity.moved) {
+            const rolled = unit.activity.advance_roll != null;
+            controls = `<div class="play-move-modes">${MOVE_MODES.map(([mode, label]) => `
+                <button class="btn-small ${state.moveMode === mode ? 'active' : ''}" data-mode="${mode}"
+                    ${rolled && mode !== 'advance' ? 'disabled' : ''}>${label}${mode === 'advance' && rolled ? ` (+${unit.activity.advance_roll}")` : ''}</button>`).join('')}
+                <button class="btn-small" data-mode="stationary" ${rolled ? 'disabled' : ''}>Remain stationary</button>
+            </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]}.</p>`;
+        }
+        $('unit-detail').innerHTML = controls + unit.parts.map((part, i) => {
             const s = part.stats;
             const outline = state.game.outlines[unit.id][i];
             const alive = unit.models.filter(m => m.alive && m.part === i).length;
@@ -212,6 +279,7 @@
                 <small>${alive} of ${part.models} models · base ${escapeHtml((part.base && part.base.text) || 'unknown')}${outline.estimated ? ' (size estimated)' : ''}</small>
             </div>`;
         }).join('');
+        $('unit-detail').querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => movementChoice(b.dataset.mode)));
     }
 
     function fitView() {
@@ -255,6 +323,15 @@
             const top = Math.min(...placed.map(m => D - m.position.y - reach(m)));
             const bottom = Math.max(...placed.map(m => D - m.position.y + reach(m)));
             svgEl('rect', { x: left, y: top, width: right - left, height: bottom - top, rx: 0.6, class: 'play-unit-outline' }, g);
+            if (state.selected === unit.id) {
+                for (const model of placed) {
+                    const reach = allowance(unit, model);
+                    if (reach == null) continue;
+                    const o = game.outlines[unit.id][model.part];
+                    svgEl('circle', { cx: model.position.x, cy: D - model.position.y, r: reach + Math.max(o.length, o.width) / 2,
+                                      class: 'play-move-ring' }, g);
+                }
+            }
             for (const model of placed) drawModel(g, unit, model, D);
             const label = svgEl('text', { x: (left + right) / 2, y: top - 0.3, class: 'play-label' }, g);
             label.textContent = unit.name;
@@ -290,7 +367,7 @@
         if (!state.game || event.button !== 0) return;
         const target = event.target.closest('[data-model]');
         if (!target) {
-            if (state.selected) placeSelectedAt(boardPoint(event));
+            if (state.selected && state.game.state.turn.phase === 'deployment') placeSelectedAt(boardPoint(event));
             return;
         }
         const unit = unitById(target.dataset.unit);
@@ -304,6 +381,15 @@
         const p = boardPoint(event);
         state.drag.dx = p.x - state.drag.start.x;
         state.drag.dy = p.y - state.drag.start.y;
+        const unit = unitById(state.drag.unitId);
+        const limits = state.drag.modelIds.map(id => allowance(unit, unit.models.find(m => m.id === id))).filter(v => v != null);
+        showReadout(event, limits.length ? Core.playMoveLabel(state.drag.dx, state.drag.dy, Math.min(...limits)) : null);
+        if (state.drag.modelIds.length === unit.models.filter(m => m.alive && m.position).length) {
+            // The whole unit: its outline and name go with it (SVG y runs down)
+            const group = $('play-board').querySelector(`.play-unit-group[data-unit="${unit.id}"]`);
+            group.querySelectorAll('.play-unit-outline, .play-label').forEach(el =>
+                el.setAttribute('transform', `translate(${state.drag.dx} ${-state.drag.dy})`));
+        }
         for (const id of state.drag.modelIds) {
             const el = $('play-board').querySelector(`[data-model="${id}"]`);
             const model = unitById(state.drag.unitId).models.find(m => m.id === id);
@@ -318,14 +404,26 @@
         if (!drag) return;
         const unit = unitById(drag.unitId);
         if (Math.hypot(drag.dx, drag.dy) < 0.05) {  // A click on a unit: show it
-            state.selected = unit.id;
-            message('');
-            renderUnits();
-            drawBoard();
+            showReadout(null, null);
+            if (state.selected !== unit.id) select(unit.id);
             return;
         }
+        showReadout(null, null);
         const round = v => Math.round(v * 100) / 100;
         const moved = new Set(drag.modelIds);
+        if (state.game.state.turn.phase !== 'deployment') {
+            if (state.game.state.turn.phase !== 'movement') {
+                message('Models only move in the Movement phase (for now).', true);
+                render();
+                return;
+            }
+            const mode = state.selected === unit.id ? state.moveMode : 'normal';
+            await send({ type: 'move', unit: unit.id, mode, models: unit.models.filter(m => m.alive).map(m => ({
+                id: m.id, x: round(m.position.x + (moved.has(m.id) ? drag.dx : 0)),
+                y: round(m.position.y + (moved.has(m.id) ? drag.dy : 0)), angle: m.position.angle || 0,
+            })) });
+            return;
+        }
         await place(unit.id, unit.models.filter(m => m.alive).map(m => ({
             id: m.id, angle: m.position ? m.position.angle : 0,
             x: m.position ? round(m.position.x + (moved.has(m.id) ? drag.dx : 0)) : null,
@@ -343,6 +441,23 @@
         const p = pt.matrixTransform(svg.getScreenCTM().inverse());
         state.view = Core.playZoom(state.view, event.deltaY > 0 ? 1.1 : 1 / 1.1, p.x, p.y);
         svg.setAttribute('viewBox', `${state.view.x} ${state.view.y} ${state.view.w} ${state.view.h}`);
+    }
+
+    /** The distance readout beside the pointer while dragging ({text, over}), or hidden. */
+    function showReadout(event, label) {
+        let el = $('play-readout');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'play-readout';
+            el.className = 'play-readout';
+            document.body.appendChild(el);
+        }
+        el.hidden = !label;
+        if (!label) return;
+        el.textContent = label.text;
+        el.classList.toggle('over', label.over);
+        el.style.left = `${event.clientX + 14}px`;
+        el.style.top = `${event.clientY + 14}px`;
     }
 
     function message(text, isError = false) {

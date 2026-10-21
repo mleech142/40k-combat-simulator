@@ -9,7 +9,7 @@ from .. import armies
 from ..models import SavedArmy, SavedGame, db
 from .dice import Dice
 from ..settings import update_settings
-from .game import DEPLOYMENT_DEPTH, ActionError, outline, replay, resolve_action
+from .game import DEPLOYMENT_DEPTH, ActionError, move_characteristic, outline, replay, resolve_action
 from .geometry import BOARD_DEPTH, BOARD_WIDTH
 from .snapshot import freeze_army
 
@@ -19,7 +19,8 @@ def game_response(saved):
     state = replay(saved.armies, saved.events or [])
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
                     'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH, 'deployment_depth': DEPLOYMENT_DEPTH},
-                    'outlines': {u['id']: [outline(p) for p in u['parts']] for u in state['units']}})
+                    'outlines': {u['id']: [outline(p) for p in u['parts']] for u in state['units']},
+                    'moves': {u['id']: [move_characteristic(p) for p in u['parts']] for u in state['units']}})
 
 
 def register_play_routes(app):

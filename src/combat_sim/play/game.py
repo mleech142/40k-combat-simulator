@@ -1,5 +1,6 @@
 """
-A game's state as plain data (JSON all through): the two frozen armies and every model's wounds.
+A game's state as plain data (JSON all through): the two frozen armies, every model's wounds and
+position, what each unit has done this turn (`activity`) and whose turn and phase it is (`turn`).
 
 Actions become events: resolve_action rolls the dice and says what happened without changing the
 state; apply_event applies an event's results without rolling. A game's log is its events, so
@@ -7,16 +8,22 @@ replaying them on new_game rebuilds the game exactly, with no dice.
 """
 
 import copy
+import math
+import re
 from dataclasses import asdict
 
 from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
-from .geometry import BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_shape, bounds, hull_shape, overlaps
+from .geometry import BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, hull_shape, overlaps
 
 STATE_VERSION = 1
+ENGAGEMENT_RANGE = 1  # Inches, measured base to base (height is ignored on a flat board)
+COHERENCY_RANGE = 2  # Each model within this of 1 other model in its unit (2 others with 7+ models)
+PATH_STEP = 0.2  # Inches between the points a move's path is checked at
 DEPLOYMENT_DEPTH = 12  # Until missions: each player sets up within this many inches of their own long edge
 MODEL_FIELDS = ('wounds_left', 'alive', 'position')  # What an event can change about a model
+PHASES = ('command', 'movement', 'shooting', 'charge', 'fight')  # Each player's turn, in order
 
 
 class ActionError(ValueError):
@@ -25,7 +32,8 @@ class ActionError(ValueError):
 
 def new_game(armies):
     """A game between frozen armies (snapshot.freeze_army), the first army's player going first."""
-    state = {'version': STATE_VERSION, 'players': [], 'units': []}
+    state = {'version': STATE_VERSION, 'players': [], 'units': [],
+             'turn': {'phase': 'deployment', 'round': 0, 'player': 0}}
     for player, army in enumerate(armies):
         state['players'].append({'name': army['name'], 'faction': army['faction']})
         for unit in army['units']:
@@ -36,7 +44,7 @@ def new_game(armies):
                        'weapons': [i for i, w in enumerate(part['weapons']) if n < w['qty']]}
                       for part_index, part in enumerate(unit['parts']) for n in range(part['models'])]
             state['units'].append({'id': unit_id, 'player': player, 'name': unit['name'],
-                                   'parts': copy.deepcopy(unit['parts']), 'models': models})
+                                   'parts': copy.deepcopy(unit['parts']), 'models': models, 'activity': {}})
     return state
 
 
@@ -44,35 +52,91 @@ def unit_by_id(state, unit_id):
     return next(u for u in state['units'] if u['id'] == unit_id)
 
 
+def _snapshot(state):
+    """What events record: each model's MODEL_FIELDS, each unit's activity, and the turn."""
+    return {'models': {m['id']: {k: m[k] for k in MODEL_FIELDS} for u in state['units'] for m in u['models']},
+            'units': {u['id']: {'activity': u.get('activity', {})} for u in state['units']},
+            'turn': state.get('turn')}
+
+
 def resolve_action(state, action, dice):
-    """Roll an action and return its event ({'action', 'rolls', 'models', ...}); `state` is not changed."""
-    before = {m['id']: {k: m[k] for k in MODEL_FIELDS} for u in state['units'] for m in u['models']}
+    """
+    Roll an action and return its event: {'action', 'rolls', 'models' (changed models), 'units'
+    (changed units' activity), 'turn' (when it changed), ...}. `state` is not changed.
+    """
+    handlers = {'shoot': lambda s: _shoot(s, action, dice), 'place': lambda s: _place(s, action),
+                'end_deployment': _end_deployment, 'next_phase': _next_phase,
+                'move': lambda s: _move(s, action), 'advance': lambda s: _advance(s, action, dice),
+                'stationary': lambda s: _stationary(s, action)}
+    kind = action.get('type') if isinstance(action, dict) else None
+    if kind not in handlers:
+        raise ActionError(f'Unknown action: {kind}')
+    before = copy.deepcopy(_snapshot(state))
     state = copy.deepcopy(state)
     start = len(dice.log)
-    kind = action.get('type')
-    if kind == 'shoot':
-        detail = _shoot(state, action, dice)
-    elif kind == 'place':
-        detail = _place(state, action)
-    else:
-        raise ActionError(f'Unknown action: {kind}')
-    changed = {}
-    for unit in state['units']:
-        for m in unit['models']:
-            now = {k: m[k] for k in MODEL_FIELDS}
-            if now != before[m['id']]:
-                changed[m['id']] = now
-    return {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]], 'models': changed, **detail}
+    detail = handlers[kind](state) or {}
+    after = _snapshot(state)
+    event = {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]],
+             'models': {k: v for k, v in after['models'].items() if v != before['models'][k]},
+             'units': {k: v for k, v in after['units'].items() if v != before['units'][k]}, **detail}
+    if after['turn'] != before['turn']:
+        event['turn'] = after['turn']
+    return event
 
 
 def apply_event(state, event):
     """The state after an event: its results applied, no dice rolled."""
     state = copy.deepcopy(state)
     for unit in state['units']:
+        unit.update(copy.deepcopy(event.get('units', {}).get(unit['id'], {})))
         for model in unit['models']:
             if model['id'] in event['models']:
                 model.update(event['models'][model['id']])
+    if 'turn' in event:
+        state['turn'] = dict(event['turn'])
     return state
+
+
+# --- Turn order -------------------------------------------------------------------------------
+
+def _require(state, phase, unit=None):
+    """Refuse an action outside `phase`, or for a unit that isn't the active player's."""
+    turn = state['turn']
+    if turn['phase'] != phase:
+        raise ActionError(f'That can only be done in the {phase} phase (it is the {turn["phase"]} phase).')
+    if unit is not None and unit['player'] != turn['player']:
+        raise ActionError(f'It is {state["players"][turn["player"]]["name"]}\'s turn.')
+
+
+def _unplaced(state, player):
+    return [u for u in state['units'] if u['player'] == player and any(m['alive'] and not m['position'] for m in u['models'])]
+
+
+def _end_deployment(state):
+    _require(state, 'deployment')
+    if _unplaced(state, 0) or _unplaced(state, 1):
+        raise ActionError('Place every unit before deployment ends.')
+    _start_turn(state, 1, 0)
+
+
+def _next_phase(state):
+    turn = state['turn']
+    if turn['phase'] not in PHASES:
+        raise ActionError('The battle has not started yet.')
+    i = PHASES.index(turn['phase'])
+    if i + 1 < len(PHASES):
+        turn['phase'] = PHASES[i + 1]
+    elif turn['player'] == 0:
+        _start_turn(state, turn['round'], 1)
+    else:
+        _start_turn(state, turn['round'] + 1, 0)
+
+
+def _start_turn(state, round_number, player):
+    """A player's turn begins: Command phase, and every unit's record of this turn cleared."""
+    state['turn'] = {'phase': 'command', 'round': round_number, 'player': player}
+    for unit in state['units']:
+        unit['activity'] = {}
 
 
 def _shoot(state, action, dice):
@@ -203,20 +267,12 @@ def _place(state, action):
     """Set up a unit: every living model, wholly on the board and in its player's deployment zone,
     overlapping no other model."""
     unit = _unit_or_error(state, action.get('unit'))
+    if state['turn']['phase'] != 'deployment':
+        raise ActionError('Units can only be placed during deployment.')
+    _require(state, 'deployment', unit)
+    new = not any(m['position'] for m in unit['models'] if m['alive'])
     living = {m['id']: m for m in unit['models'] if m['alive']}
-    spots = {}
-    for spot in action.get('models') or []:
-        try:
-            spots[spot['id']] = {'x': float(spot['x']), 'y': float(spot['y']), 'angle': float(spot.get('angle') or 0)}
-        except (KeyError, TypeError, ValueError):
-            raise ActionError('Each model needs an id, x and y.')
-    if set(spots) != set(living):
-        raise ActionError(f'Place every model of {unit["name"]} at once.')
-    for spot in spots.values():  # Whole numbers stay whole in the saved game
-        for key in ('x', 'y', 'angle'):
-            if spot[key].is_integer():
-                spot[key] = int(spot[key])
-
+    spots = _spots(unit, action, 'Place')
     shapes = {mid: model_shape(unit['parts'][living[mid]['part']], spot) for mid, spot in spots.items()}
     zone = (0, DEPLOYMENT_DEPTH) if unit['player'] == 0 else (BOARD_DEPTH - DEPLOYMENT_DEPTH, BOARD_DEPTH)
     for shape in shapes.values():
@@ -234,4 +290,156 @@ def _place(state, action):
             raise ActionError("Models' bases can't overlap.")
     for mid, spot in spots.items():
         living[mid]['position'] = spot
+    if new:  # Players take turns setting up units; one with nothing left to place sits out
+        other = 1 - unit['player']
+        if _unplaced(state, other):
+            state['turn']['player'] = other
     return {}
+
+
+def _spots(unit, action, verb):
+    """{model id: position} for every living model of `unit`, from an action's 'models'."""
+    living = {m['id']: m for m in unit['models'] if m['alive']}
+    spots = {}
+    for spot in action.get('models') or []:
+        try:
+            current = living[spot['id']]['position'] or {}
+            angle = spot.get('angle', current.get('angle', 0))
+            spots[spot['id']] = {'x': float(spot['x']), 'y': float(spot['y']), 'angle': float(angle or 0)}
+        except (KeyError, TypeError, ValueError):
+            raise ActionError('Each model needs an id, x and y.')
+    if set(spots) != set(living):
+        raise ActionError(f'{verb} every model of {unit["name"]} at once.')
+    for spot in spots.values():  # Whole numbers stay whole in the saved game
+        for key in ('x', 'y', 'angle'):
+            if spot[key].is_integer():
+                spot[key] = int(spot[key])
+    return spots
+
+
+# --- Movement ---------------------------------------------------------------------------------
+
+MOVE_MODES = {'normal': 'Normal move', 'advance': 'Advance', 'fall_back': 'Fall Back'}
+
+
+def _placed_shapes(unit):
+    return [model_shape(unit['parts'][m['part']], m['position']) for m in unit['models'] if m['alive'] and m['position']]
+
+
+def _enemy_shapes(state, unit):
+    return [shape for u in state['units'] if u['player'] != unit['player'] for shape in _placed_shapes(u)]
+
+
+def _engaged(shapes, enemies):
+    return any(base_distance(a, b) <= ENGAGEMENT_RANGE + 1e-9 for a in shapes for b in enemies)
+
+
+def move_characteristic(part):
+    """A part's Move in inches ('6', '20+' -> 20; none -> 0)."""
+    found = re.match(r'\s*(\d+)', str(part['stats'].get('move') or ''))
+    return int(found.group(1)) if found else 0
+
+
+def _ready_to_move(state, unit):
+    _require(state, 'movement', unit)
+    activity = unit['activity']
+    if activity.get('moved') == 'stationary':
+        raise ActionError(f'{unit["name"]} has already remained stationary this phase.')
+    if 'moved' in activity:
+        raise ActionError(f'{unit["name"]} has already moved this phase.')
+    return activity
+
+
+def _advance(state, action, dice):
+    """Roll to Advance: D6 inches added to the unit's next move (an Advance), and the roll stands."""
+    unit = _unit_or_error(state, action.get('unit'))
+    activity = _ready_to_move(state, unit)
+    if 'advance_roll' in activity:
+        raise ActionError(f'{unit["name"]} has already rolled to Advance.')
+    if _engaged(_placed_shapes(unit), _enemy_shapes(state, unit)):
+        raise ActionError(f'{unit["name"]} is in engagement range: it can only Fall Back.')
+    activity['advance_roll'] = dice.roll_value('D6', 'advance')
+
+
+def _stationary(state, action):
+    unit = _unit_or_error(state, action.get('unit'))
+    activity = _ready_to_move(state, unit)
+    if 'advance_roll' in activity:
+        raise ActionError(f'{unit["name"]} rolled to Advance: it must make an Advance move.')
+    activity['moved'] = 'stationary'
+
+
+def _move(state, action):
+    """
+    A Normal move, Advance or Fall Back: each model in a straight line up to its Move (+ the Advance
+    roll), not through enemy models, ending wholly on the board, overlapping no model, in coherency
+    and out of engagement range. Only an engaged unit Falls Back; an engaged unit can do nothing else.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    activity = _ready_to_move(state, unit)
+    mode = action.get('mode')
+    if mode not in MOVE_MODES:
+        raise ActionError('Choose a Normal move, Advance or Fall Back.')
+    enemies = _enemy_shapes(state, unit)
+    engaged = _engaged(_placed_shapes(unit), enemies)
+    if mode == 'fall_back' and not engaged:
+        raise ActionError('Only a unit in engagement range can Fall Back.')
+    if mode != 'fall_back' and engaged:
+        raise ActionError(f'{unit["name"]} is in engagement range: it can only Fall Back.')
+    if mode == 'advance' and 'advance_roll' not in activity:
+        raise ActionError('Roll to Advance first.')
+    if mode != 'advance' and 'advance_roll' in activity:
+        raise ActionError(f'{unit["name"]} rolled to Advance: it must make an Advance move.')
+
+    living = {m['id']: m for m in unit['models'] if m['alive']}
+    spots = _spots(unit, action, 'Move')
+    shapes = {}
+    for mid, spot in spots.items():
+        model, part = living[mid], unit['parts'][living[mid]['part']]
+        start = model['position']
+        allowance = move_characteristic(part) + (activity.get('advance_roll', 0) if mode == 'advance' else 0)
+        distance = math.dist((start['x'], start['y']), (spot['x'], spot['y']))
+        if distance > allowance + 1e-6:
+            raise ActionError(f'{part["name"]} can move at most {allowance}" ({distance:.1f}" asked).')
+        steps = max(1, math.ceil(distance / PATH_STEP))
+        for i in range(1, steps):
+            t = i / steps
+            here = {'x': start['x'] + t * (spot['x'] - start['x']), 'y': start['y'] + t * (spot['y'] - start['y']),
+                    'angle': spot['angle']}
+            if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
+                raise ActionError(f'{part["name"]} can\'t move through enemy models.')
+        shapes[mid] = model_shape(part, spot)
+
+    for shape in shapes.values():
+        left, bottom, right, top = bounds(shape)
+        if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
+            raise ActionError('Every model must end wholly on the board.')
+    others = [shape for u in state['units'] if u is not unit for shape in _placed_shapes(u)]
+    placed = list(shapes.values())
+    for i, shape in enumerate(placed):
+        if any(overlaps(shape, other) for other in placed[i + 1:] + others):
+            raise ActionError("Models' bases can't overlap.")
+    if _engaged(placed, enemies):
+        if mode == 'fall_back':
+            raise ActionError(f'A unit that Falls Back must end out of engagement range ({ENGAGEMENT_RANGE}") of enemies.')
+        raise ActionError(f'A {MOVE_MODES[mode]} can\'t end in engagement range ({ENGAGEMENT_RANGE}") of an enemy.')
+    problem = coherency_problem(placed)
+    if problem:
+        raise ActionError(problem)
+    for mid, spot in spots.items():
+        living[mid]['position'] = spot
+    activity['moved'] = mode
+
+
+def coherency_problem(shapes):
+    """Why a unit's models (shapes) are out of coherency, or None: each must be within 2" of another
+    model of the unit (of 2 others when the unit has 7 or more)."""
+    if len(shapes) < 2:
+        return None
+    needed = 2 if len(shapes) >= 7 else 1
+    for i, shape in enumerate(shapes):
+        near = sum(1 for j, other in enumerate(shapes) if j != i and base_distance(shape, other) <= COHERENCY_RANGE + 1e-9)
+        if near < needed:
+            return (f'Every model must end within {COHERENCY_RANGE}" of '
+                    f'{"two other models" if needed == 2 else "another model"} in its unit (unit coherency).')
+    return None

@@ -6,9 +6,10 @@
 <div class="page-header">
     <h2><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Play <span class="play-badge">Experimental</span></h2>
 </div>
-<p class="data-note">A game between two saved armies on one PC, taking turns. So far: set up each unit in your
-    deployment zone (12" from your own edge). Pick a unit on the right, click the board to place it, then drag it
-    (hold Shift to move one model). The mouse wheel zooms.</p>
+<p class="data-note">A game between two saved armies on one PC, taking turns. <strong>Deployment:</strong> players take
+    turns setting up a unit in their zone (12" from their own edge): pick it on the right, click the board, drag to adjust
+    (Shift-drag moves one model). <strong>Movement:</strong> pick one of your units, choose how it moves, then drag it; the
+    rings show how far each model can go. The mouse wheel zooms.</p>
 
 <div class="play-layout">
     <aside class="card play-games">
@@ -34,8 +35,10 @@
     <section class="card play-board-card">
         <div class="play-toolbar">
             <strong id="game-title">Choose or start a game</strong>
+            <span class="play-turn" id="turn-banner"></span>
             <span class="play-message" id="play-message" role="status"></span>
             <span class="play-toolbar-actions">
+                <button class="btn-small" id="phase-btn" hidden><i class="fa-solid fa-forward-step" aria-hidden="true"></i> <span>Next phase</span></button>
                 <button class="btn-small" id="undo-btn" disabled><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Undo</button>
                 <button class="btn-small" id="fit-btn"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Fit board</button>
             </span>

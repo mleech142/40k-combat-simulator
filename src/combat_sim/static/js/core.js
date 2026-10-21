@@ -731,6 +731,12 @@
         return positions.map(p => ({ x: round(p.x + dx), y: round(p.y + dy) }));
     }
 
+    /** The distance a model has been dragged ({text: '5.0" of 6"', over}), against how far it may move. */
+    function playMoveLabel(dx, dy, allowance) {
+        const distance = Math.hypot(dx, dy);
+        return { text: `${distance.toFixed(1)}" of ${allowance}"`, over: distance > allowance + 1e-6 };
+    }
+
     /** The board view ({x, y, w, h} in inches) zoomed by `factor` about the point (px, py), 10" to 72" wide. */
     function playZoom(view, factor, px, py) {
         const w = Math.min(72, Math.max(10, view.w * factor));
@@ -739,7 +745,7 @@
     }
 
     return {
-        playFormation, playFit, playZoom,
+        playFormation, playFit, playMoveLabel, playZoom,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

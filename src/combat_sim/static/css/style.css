@@ -3642,7 +3642,24 @@ h4 .fa-solid,
 
 .play-toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
 .play-toolbar-actions { margin-left: auto; display: flex; gap: 0.4rem; }
-.play-message { color: var(--text-secondary); font-size: 0.9rem; }
+.play-message { color: var(--text-secondary); font-size: 0.9rem; order: 10; flex-basis: 100%; min-height: 1.35rem; }
+.play-turn { font-size: 0.9rem; padding-left: 0.5rem; border-left: 4px solid var(--play-p1); }
+.play-turn.play-p2 { border-left-color: var(--play-p2); }
+.play-move-modes { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0 0.4rem; }
+.play-move-modes .btn-small.active { border-color: var(--accent); background: var(--accent-tint); color: var(--text-primary); }
+.play-move-ring { fill: var(--player); fill-opacity: 0.05; stroke: var(--player); stroke-opacity: 0.35; stroke-width: 0.05;
+                  stroke-dasharray: 0.3 0.2; pointer-events: none; }
+.play-readout {
+    position: fixed;
+    z-index: 50;
+    pointer-events: none;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+.play-readout.over { color: var(--error); border-color: var(--error); }
 .play-message.error { color: var(--error); }
 
 .play-board {

@@ -180,7 +180,12 @@ Version 1 is hot-seat play (two players on one PC).
    - Units are placed with a `place` action: every living model at once, wholly on the board and in the player's deployment zone (12" from their own long edge: player 1 at the bottom, player 2 at the top), not overlapping another model (touching is fine). No dice, so `POST .../undo` can take it back.
    - Size estimates (decided for step 1): a hull by the model's wounds (up to 8: 4" x 2.5"; up to 14: 5" x 3.5"; more: 7" x 4.5"), a missing base as 32mm; both drawn dashed.
    - The page drops a picked unit in rows of up to 5, bases 0.1" apart (`Core.playFormation`), shifted to fit the player's zone if it can (`Core.playFit`); a drag moves the unit, Shift-drag one model; the wheel zooms (`Core.playZoom`).
-2. **Movement:** normal move, Advance and Fall Back, with move distance, coherency and engagement range enforced.
+2. *Done:* **Movement**, with a simple turn order:
+   - **Turn order** (`state['turn']`: phase, round, player). Deployment: players take turns setting up a unit (a player with nothing left to place sits out; a placed unit can be adjusted on your own deployment turn); `end_deployment` once every unit is placed. Then each player's turn runs Command, Movement, Shooting, Charge and Fight (`next_phase`); only the active player acts. Each unit's `activity` (what it did this turn) is cleared when a player's turn starts.
+   - **Moves** (`move` with `mode` normal / advance / fall_back; `advance`; `stationary`), once per unit per Movement phase. Each model moves in a straight line up to its Move (+ the Advance roll), checked every 0.2" so it can't pass through enemy models; it ends wholly on the board, overlapping no model, in coherency (within 2" of another model of its unit, 2 others with 7+ models) and out of engagement range (1"). A unit in engagement range can only Fall Back, and must end out of it. The Advance roll (`activity.advance_roll`) is a roll, so it can't be undone; the move after it can.
+   - Events now also record changed units' `activity` and the `turn`.
+   - The page: a turn banner and phase button, move choices on the selected unit, dashed rings for each model's reach, and a live distance readout while dragging (`Core.playMoveLabel`). The server sends each part's Move (`moves`).
+   - Still to come with terrain: moving around obstacles (move to one point, then another) and terrain movement rules.
 3. **Shooting:**
    - visible targets in range
    - dice shown in hit / wound / save / damage groups
@@ -194,6 +199,7 @@ Version 1 is hot-seat play (two players on one PC).
 
 - **Wound allocation before the board exists:** a model already damaged first, then bodyguard models before leaders, then the last-listed model first (the first-listed models carry the special weapons, so they're removed last). When positions arrive, the last step becomes the "remove from the back" standing order.
 - **Devastating Wounds don't carry over:** extra damage is lost at the model it hits, as in the Simulator.
+- **Movement values** (confirmed for 11th edition): engagement range 1" horizontally; coherency 2" (two other models for units of 7+); Advance adds a D6; only engaged units Fall Back; moving through friendly models is allowed, through enemy models isn't. Distance is a straight line per model for now; turning on the spot is free.
 
 ## Open questions
 

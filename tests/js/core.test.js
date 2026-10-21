@@ -534,6 +534,12 @@ test('playFormation sets a unit out in rows of up to 5, bases 0.1" apart, centre
     assert.deepEqual(Core.playFormation([1, 2], 10, 10).map(p => p.x), [8.95, 11.05]);
 });
 
+test('playMoveLabel shows how far a model has been dragged against how far it may go', () => {
+    assert.deepEqual(Core.playMoveLabel(3, 4, 6), { text: '5.0" of 6"', over: false });
+    assert.deepEqual(Core.playMoveLabel(0, 6.04, 6), { text: '6.0" of 6"', over: true });
+    assert.deepEqual(Core.playMoveLabel(0, 0, 10), { text: '0.0" of 10"', over: false });
+});
+
 test('playZoom zooms about the pointer and keeps the view between 10" and the board plus a margin', () => {
     const view = { x: 0, y: 0, w: 60, h: 44 };
     assert.deepEqual(Core.playZoom(view, 0.5, 30, 22), { x: 15, y: 11, w: 30, h: 22 });
