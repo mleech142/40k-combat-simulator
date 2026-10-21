@@ -162,7 +162,11 @@ Version 1 is hot-seat play (two players on one PC).
 0. **Groundwork, with no page yet:**
    - ~~The importer reads base sizes~~ (done: `Unit.base`, also returned by `/api/units/<id>`).
    - *Done:* game dice in the `play` package (`play/dice.py`, `play/attack.py`), **not** in `simulation.py`. The game asks `simulation.resolve()` what each roll needs, then rolls and records its own dice step by step (hit, wound, save, damage), stopping where the defender decides. The existing analytical and Monte Carlo functions are not changed and never use game dice.
-   - A pure-Python `play` package: frozen army snapshot, game state, action log, `apply(action)`.
+   - *Done:* the game state in the `play` package.
+     - `snapshot.freeze_army(army)` freezes a saved army through `armies.price_army`, the Armies page's own pricing. Each unit's parts are the unit itself, then its leaders and support units, each with stats, keywords, base, weapons (how many models carry each), leader buffs, enhancement and Warlord flag. Units with no wargear choices scale their weapon counts to the unit size, as Analytics does.
+     - `game.new_game(armies)` creates every model with full wounds. The first `qty` models of a part carry each weapon.
+     - `game.resolve_action(state, action, dice)` returns an event (the action, every dice group, each target model's wounds and whether it's alive, a summary per weapon) without changing the state. `game.apply_event` applies it, and `game.replay(armies, events)` rebuilds a game with no dice. The first action is `shoot`, with no range or line-of-sight checks yet.
+     - Leader and enhancement effects come from `effects.py`, shared with the Simulator's routes.
    - A geometry module: base-to-base distance (circles and ovals), line of sight against footprints.
 1. **Board:** the Play page. Create a hot-seat game from two saved armies, place bases by dragging, save and reload.
 2. **Movement:** normal move, Advance and Fall Back, with move distance, coherency and engagement range enforced.
@@ -174,6 +178,11 @@ Version 1 is hot-seat play (two players on one PC).
    - half range and cover worked out from the board
 4. **Charge and Fight:** charge roll, engagement, fights-first order, pile-in and consolidate.
 5. **Full game loop:** Command phase CP, battle rounds, kill points, manual effects, the "correct the game" request, stratagems.
+
+### Rules decisions made while building
+
+- **Wound allocation before the board exists:** a model already damaged first, then bodyguard models before leaders, then the order models are listed. When positions arrive, the last step becomes the "remove from the back" standing order.
+- **Devastating Wounds don't carry over:** extra damage is lost at the model it hits, as in the Simulator.
 
 ## Open questions
 

@@ -15,7 +15,8 @@ from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
-from . import armies, bsdata_download, folder_dialog, wahapedia, wahapedia_download
+from . import armies, bsdata_download, effects, folder_dialog, wahapedia, wahapedia_download
+from .effects import RULE_PHASES
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
@@ -140,10 +141,6 @@ def conditions_from_request(conditions_data):
     )
 
 
-# Phases a rule must have to apply to a weapon of each type
-RULE_PHASES = {'ranged': ('Shooting', 'Both'), 'melee': ('Fighting', 'Both')}
-
-
 def selected_rules(selection):
     """Ticked faction rules and stratagems from {'rule_ids': [...], 'stratagem_ids': [...]} (not superseded ones)."""
     selection = selection or {}
@@ -189,14 +186,7 @@ def leader_modifiers(leader, side, weapon_type):
     """Modifier text a leader grants the unit it leads, for one side and the attacking weapon's phase."""
     if leader is None:
         return []
-    modifiers = []
-    for buff in leader.effective_leader_buffs:
-        if (buff.get('applies_to') or 'Attacker') != side:
-            continue
-        if (buff.get('phase') or 'Both') not in RULE_PHASES['melee' if weapon_type == 'melee' else 'ranged']:
-            continue
-        modifiers += [m.strip() for m in (buff.get('modifier') or '').split(',') if m.strip()]
-    return modifiers
+    return effects.leader_modifiers(leader.effective_leader_buffs, side, weapon_type)
 
 
 def load_enhancements(items):
@@ -218,20 +208,8 @@ def enhancement_modifiers(carried, side, weapon_type, leader_weapon=False):
     attacking weapon's phase. An effect for the bearer only applies to the bearer's own weapons
     (the leader's when the leader carries it) and, as a target, only when the unit is the bearer.
     """
-    modifiers = []
-    for enhancement, bearer in carried:
-        for buff in enhancement.buffs or []:
-            if (buff.get('applies_to') or 'Attacker') != side:
-                continue
-            if (buff.get('phase') or 'Both') not in RULE_PHASES['melee' if weapon_type == 'melee' else 'ranged']:
-                continue
-            if buff.get('scope') == 'bearer':
-                if side == 'Attacker' and (bearer == 'leader') != bool(leader_weapon):
-                    continue
-                if side == 'Target' and bearer != 'unit':
-                    continue
-            modifiers += [m.strip() for m in (buff.get('modifier') or '').split(',') if m.strip()]
-    return modifiers
+    return effects.enhancement_modifiers([(enhancement.buffs, bearer) for enhancement, bearer in carried],
+                                         side, weapon_type, leader_weapon)
 
 
 def enhancement_points(carried):
