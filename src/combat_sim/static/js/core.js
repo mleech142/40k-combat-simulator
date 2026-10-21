@@ -793,6 +793,23 @@
         return lines;
     }
 
+    /**
+     * A terrain footprint's corners ([x, y], inches): `size` [length, width] with its corner (the triangle's
+     * right angle) at (x, y), its length along x before it is turned `angle` degrees anticlockwise about
+     * that corner. The same as the server's geometry.footprint (sizes come from the server).
+     */
+    function playFootprintPoints(kind, size, x, y, angle) {
+        const [length, width] = size;
+        const corners = kind === 'triangle' ? [[0, 0], [length, 0], [0, width]] : [[0, 0], [length, 0], [length, width], [0, width]];
+        const c = Math.cos(angle * Math.PI / 180), s = Math.sin(angle * Math.PI / 180);
+        return corners.map(([px, py]) => [x + px * c - py * s, y + px * s + py * c]);
+    }
+
+    /** A value rounded to the nearest `step` (the editor's snapping). */
+    function playSnap(value, step) {
+        return Math.round(value / step) * step;
+    }
+
     /** The box round some points ([x, y]): {left, bottom, right, top}. */
     function playBounds(points) {
         const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
@@ -849,7 +866,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds,
+        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

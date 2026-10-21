@@ -13,7 +13,7 @@ from ..settings import update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
                    deployment_zone, fight_options, move_characteristic, objective_control, outline, ready_units, replay, resolve_action,
                    score, shooting_options, terrain_areas)
-from .geometry import BOARD_DEPTH, BOARD_WIDTH
+from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS
 from .snapshot import freeze_army
 
 
@@ -142,6 +142,11 @@ def register_play_routes(app):
             return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield), unit_id))
         except ActionError as error:
             return jsonify({'error': str(error)}), 404
+
+    @app.route('/api/play/footprints')
+    def api_footprints():
+        """The terrain footprints' sizes, [length, width] in inches (geometry.FOOTPRINTS)."""
+        return jsonify({name: list(size) for name, size in FOOTPRINTS.items()})
 
     @app.route('/api/play/battlefields')
     def api_list_battlefields():

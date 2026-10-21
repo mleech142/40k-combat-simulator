@@ -649,3 +649,16 @@ test('playBounds is the box round some points', () => {
     assert.deepEqual(Core.playBounds([[0, 0], [20, 0], [20, 22], [12, 22], [12, 44], [0, 44]]),
                      { left: 0, bottom: 0, right: 20, top: 44 });
 });
+
+test('playFootprintPoints places a footprint by its corner and turns it about that corner', () => {
+    const round = pts => pts.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]);
+    assert.deepEqual(round(Core.playFootprintPoints('medium', [6, 4], 10, 10, 0)), [[10, 10], [16, 10], [16, 14], [10, 14]]);
+    assert.deepEqual(round(Core.playFootprintPoints('medium', [6, 4], 10, 10, 90)), [[10, 10], [10, 16], [6, 16], [6, 10]]);
+    assert.deepEqual(round(Core.playFootprintPoints('triangle', [11.5, 8], 0, 0, 0)), [[0, 0], [11.5, 0], [0, 8]]);
+});
+
+test('playSnap rounds to the nearest step', () => {
+    assert.equal(Core.playSnap(10.26, 0.5), 10.5);
+    assert.equal(Core.playSnap(10.24, 0.5), 10);
+    assert.equal(Core.playSnap(-0.2, 0.5), -0);
+});

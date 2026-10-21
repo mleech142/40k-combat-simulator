@@ -50,6 +50,7 @@
         board.addEventListener('pointerdown', pointerDown);
         board.addEventListener('pointermove', pointerMove);
         board.addEventListener('pointerup', pointerUp);
+        document.addEventListener('battlefields-changed', e => fillBattlefields(e.detail));
         await Promise.all([loadArmies(), loadGames()]);
         const id = new URLSearchParams(location.search).get('game');
         if (id) await openGame(id);
@@ -67,6 +68,14 @@
         $('new-game-btn').disabled = !armies.length;
     }
 
+    /** The New game form's battlefields (the editor sends the list whenever it changes). */
+    function fillBattlefields(list) {
+        const select = $('new-battlefield');
+        const current = select.value;
+        select.innerHTML = list.map(b => `<option value="${b.key}">${escapeHtml(b.name)}${b.terrain ? ` (${b.terrain} terrain)` : ''}</option>`).join('');
+        if (list.some(b => b.key === current)) select.value = current;
+    }
+
     async function loadGames() {
         const games = await fetch('/api/play/games').then(r => r.json()).catch(() => []);
         $('game-list').innerHTML = games.length ? games.map(g => `
@@ -81,7 +90,8 @@
     }
 
     async function newGame() {
-        const body = { armies: [$('new-red').value, $('new-blue').value].map(Number), name: $('new-name').value };
+        const body = { armies: [$('new-red').value, $('new-blue').value].map(Number), name: $('new-name').value,
+                       battlefield: $('new-battlefield').value || null };
         const resp = await fetch('/api/play/games', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
@@ -850,6 +860,10 @@
         for (let x = 1; x < W; x++) svgEl('line', { x1: x, y1: 0, x2: x, y2: D, class: x % 6 ? '' : 'major' }, grid);
         for (let y = 1; y < D; y++) svgEl('line', { x1: 0, y1: y, x2: W, y2: y, class: y % 6 ? '' : 'major' }, grid);
         if (!game) return;
+        const divider = game.state.battlefield && game.state.battlefield.divider;
+        if (divider) {  // The line between the two territories
+            svgEl('line', { x1: divider[0][0], y1: D - divider[0][1], x2: divider[1][0], y2: D - divider[1][1], class: 'play-divider' }, svg);
+        }
         drawTerrain(svg, D);
         drawObjectives(svg, D);
         drawShotLines(svg, D);

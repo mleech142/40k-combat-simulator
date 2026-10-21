@@ -35,6 +35,7 @@ def test_the_built_in_maps_are_listed_and_read_only(client):
     dawn = client.get('/api/play/battlefields/builtin:dawn-of-war').get_json()
     assert dawn['zones']['attacker'] == [[0, 0], [60, 0], [60, 12], [0, 12]]
     assert client.put('/api/play/battlefields/builtin:dawn-of-war', json=with_terrain()).status_code == 403
+    assert client.get('/api/play/footprints').get_json()['medium'] == [6, 4]
 
 
 def test_saving_editing_and_deleting_a_battlefield(client):

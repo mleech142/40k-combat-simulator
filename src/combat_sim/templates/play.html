@@ -5,19 +5,27 @@
 {% block content %}
 <div class="page-header">
     <h2><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Play <span class="play-badge">Experimental</span></h2>
+    <div class="play-tabs" role="tablist">
+        <button class="btn-small active" data-tab="games" role="tab">Games</button>
+        <button class="btn-small" data-tab="battlefields" role="tab">Battlefields</button>
+    </div>
 </div>
-<div class="play-layout">
+<div class="play-layout" id="tab-games">
     <aside class="card play-games">
         <h3>Games</h3>
         <div id="game-list"><p class="empty-message">No games yet</p></div>
         <h3 class="play-new-title">New game</h3>
         <div class="form-group">
-            <label for="new-red">Player 1 (bottom edge)</label>
+            <label for="new-red">Player 1 (attacker)</label>
             <select id="new-red" class="filter-select"></select>
         </div>
         <div class="form-group">
-            <label for="new-blue">Player 2 (top edge)</label>
+            <label for="new-blue">Player 2 (defender)</label>
             <select id="new-blue" class="filter-select"></select>
+        </div>
+        <div class="form-group">
+            <label for="new-battlefield">Battlefield</label>
+            <select id="new-battlefield" class="filter-select"></select>
         </div>
         <div class="form-group">
             <label for="new-name">Name</label>
@@ -60,6 +68,28 @@
         <div id="stratagem-panel" class="play-stratagems"></div>
     </aside>
 </div>
+
+<div class="play-layout" id="tab-battlefields" hidden>
+    <aside class="card play-games">
+        <h3>Battlefields</h3>
+        <div id="bf-list"></div>
+        <div class="play-editor-row">
+            <label class="btn-small" for="bf-import"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import</label>
+            <input type="file" id="bf-import" accept=".json,application/json" hidden>
+        </div>
+    </aside>
+    <section class="card play-board-card">
+        <div class="play-toolbar">
+            <strong id="bf-title">Choose a battlefield</strong>
+            <span class="play-message" id="bf-message" role="status"></span>
+        </div>
+        <svg id="bf-board" class="play-board" xmlns="http://www.w3.org/2000/svg" role="img"
+             aria-label="The battlefield being edited, seen from above"></svg>
+        <p class="play-hint">Drag terrain and objectives to move them (they snap to half inches). An objective under a
+            terrain piece becomes a terrain objective. Built-in maps are read-only: save a copy to change one.</p>
+    </section>
+    <aside class="card play-units" id="bf-tools"></aside>
+</div>
 {% endblock %}
 
 {% block head %}
@@ -68,4 +98,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/play.js') }}"></script>
+<script src="{{ url_for('static', filename='js/play-editor.js') }}"></script>
 {% endblock %}
