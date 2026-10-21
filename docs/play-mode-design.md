@@ -221,6 +221,41 @@ Version 1 is hot-seat play (two players on one PC).
 - **Movement values** (11th edition core rules, checked against Wahapedia's copy in October 2026): engagement range 2" horizontally (height ignored); coherency: within 2" of at least one other model of the unit and within 9" of every other one; Advance adds a D6; only engaged units Fall Back; models move through friendly models but not enemy ones, except Monsters and Vehicles making Normal or Advance moves, which move through any model that isn't a Monster or Vehicle. Distance is a straight line per model for now; turning on the spot is free.
 - **Shooting types** (11th edition): normal shooting (unengaged, didn't Advance); assault shooting (Advanced: Assault weapons only); close-quarters shooting (engaged, didn't Advance: Pistol / Close-Quarters weapons at units engaged with it, or anything for Monsters and Vehicles at -1 to hit unless it's a Close-Quarters weapon at a unit they're engaged with). Targets must be unengaged, except engaged Monsters and Vehicles (-1 to hit); Blast never targets engaged units. Outside Monsters and Vehicles, each model fires either its Close-Quarters weapons or its others. Heavy: +1 to hit if the unit is unengaged and no model moved more than 3". Fell Back: no shooting.
 
+## Missions plan (11th edition)
+
+Agreed October 2026, after reading the 11th edition core rules and the 2026-27 mission deck (Wahapedia's copies) and community guides.
+
+### How 11th edition missions work
+
+- **Force dispositions:** each detachment has one (Take and Hold, Purge the Foe, Disruption, Reconnaissance, Priority Assets; imported from BSData). Each player's **primary mission** comes from a 5×5 matrix of their disposition against the opponent's; outside mirror matchups the two players have different primaries.
+- **Secondary missions:** each player plays **Fixed** (two of A Grievous Blow, Assassination, Bring It Down, Engage on All Fronts; up to 20 VP each) or **Tactical** (an 18-card deck: draw 2 in each Command phase, discard when achieved, redraw once per battle or discard at the end of the turn for 1 CP).
+- **Caps:** 15 VP per battle round and 45 per game for primaries, the same for secondaries; end-of-battle VP aren't capped.
+- **Objectives:** a 40mm marker, in range within 3" horizontally (5" vertically); a terrain objective's range is its terrain area. Control is the sum of OC in range at the end of every phase and turn; a tie is nobody's; not sticky unless a rule secures it; battle-shocked units add nothing. Home (one per player), expansion and central objectives (one, or two on a D6 roll of 6).
+- **Mission sequence:** dispositions, map, battlefield (objectives, then terrain), roll-off for attacker/defender, Fixed or Tactical, deployment (defender first, alternating), roll-off for the first turn.
+- **Actions:** started by units that aren't battle-shocked, engaged, Advanced or Fell Back, with OC above 0; while performing one a unit can't shoot or charge, and moving stops it.
+- **Maps:** 6 deployment maps in the Chapter Approved deck; the Event Companion's layouts A, B and C per disposition pairing fix zones, objectives and terrain. They exist only as images.
+
+### Decisions
+
+- **Content:** the missions are built into the app (`play/missions.py`) as data and scoring logic in our own words: names, conditions, VP and caps; no card text or art. The repo and releases are public, so the content is kept in one file that can be updated each season or removed.
+- **Force disposition** is chosen in the army builder from the army's detachments' dispositions and frozen into the game; older armies default to their first one and the page asks to confirm.
+- **Scoring** is automatic (objectives held, units destroyed and where, actions, operation markers), with the caps; VP replace kill points on the scoreboard. "Correct the game" gets a VP field. Battle Ready (10 VP for painted armies) is left out.
+- **Choices the missions give players** go through a Mission panel (above the stratagems): required ones (Punishment's targets, Beacon's unit, A Tempting Target's objective) hold the phase button and say who decides; optional ones (discards, redraws, starting actions) don't. End-of-turn scoring is summarised in the log.
+- **Game setup** walks through the mission sequence as logged actions.
+- **Battlefield editor** (a Battlefields tab): the 5 footprints with category (Exposed, Light, Dense) and height, deployment zone polygons, objectives by type; snapping, rotation, exact coordinates; built-in maps read-only, your own in the database, export and import as files.
+- **Terrain rules (11th edition, ground level):** Light and Dense areas are obscuring (lines of sight through them are blocked, except for models inside); Dense counts the same as Light for seeing (Solid's low gaps can't be modelled from above); cover, Hidden (15" detection, lost after shooting) and Gone to ground are automatic; Monsters and Vehicles can't cross Dense areas over 2" high; moves can go via waypoints.
+- **Assumption:** tactical cards are public once drawn.
+
+### Order
+
+1. **Objectives:** markers, range, control at the end of each phase and turn, shown on the board. Until battlefields exist, every game uses a plain default map.
+2. **Battlefields and terrain:** the format and editor, the 6 deployment maps, then the Event Companion layouts in batches (each checked against its picture); the 11th edition terrain rules.
+3. **Force dispositions and primary missions,** VP and caps.
+4. **Fixed secondaries.**
+5. **Actions and operation markers** (unlocking the action-based primaries).
+6. **Tactical secondaries.**
+7. **Twists.**
+
 ## Open questions
 
 These are for later stages and are not yet decided:
