@@ -800,6 +800,25 @@
                  y: positions.reduce((n, p) => n + p.y, 0) / positions.length };
     }
 
+    /**
+     * The stratagems and rules to offer in a phase: those for it ('Shooting', 'Fighting' or 'Both'),
+     * and those the app has no phase for (it reads phases only for shooting and fighting).
+     */
+    function playUsableNow(entries, phase) {
+        const BATTLE = ['command', 'movement', 'shooting', 'charge', 'fight'];
+        if (!BATTLE.includes(phase)) return [];
+        const fits = { shooting: ['Shooting', 'Both'], fight: ['Fighting', 'Both'] }[phase] || [];
+        return entries.filter(e => !e.phase || fits.includes(e.phase));
+    }
+
+    /** 'Game over: Blue wins, 120 to 60' once the battle has ended, else null. */
+    function playResult(players, score, turn) {
+        if (!turn || turn.phase !== 'ended') return null;
+        if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
+        const winner = score[0] > score[1] ? 0 : 1;
+        return `Game over: ${players[winner].name} wins, ${score[winner]} to ${score[1 - winner]}`;
+    }
+
     /** The board view ({x, y, w, h} in inches) zoomed by `factor` about the point (px, py), 10" to 72" wide. */
     function playZoom(view, factor, px, py) {
         const w = Math.min(72, Math.max(10, view.w * factor));
@@ -808,7 +827,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom, playDiceGroups, playAttackSummary, playShotLines, playCentre,
+        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playDiceGroups, playAttackSummary, playShotLines, playCentre,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

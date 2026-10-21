@@ -33,6 +33,7 @@
         fight: null,  // /api/play/games/<id>/fight/<unit> for the selected unit (Fight step)
         fightWeapon: {},  // The melee weapon chosen for each part, part -> weapon
         fightTarget: {},  // The enemy unit each part attacks, part -> unit id
+        correcting: false,  // The "Correct the game" panel is open
     };
     const $ = id => document.getElementById(id);
 
@@ -43,6 +44,7 @@
         $('undo-btn').addEventListener('click', undo);
         $('fit-btn').addEventListener('click', () => { fitView(); drawBoard(); });
         $('phase-btn').addEventListener('click', nextPhase);
+        $('correct-btn').addEventListener('click', () => { state.correcting = !state.correcting; renderCorrection(); });
         const board = $('play-board');
         board.addEventListener('wheel', zoom, { passive: false });
         board.addEventListener('pointerdown', pointerDown);
@@ -256,9 +258,14 @@
             }
             if (turn.step === 'pile_in' || turn.step === 'consolidate') banner += ': both players';
         }
+        const result = game && Core.playResult(game.state.players, game.score, turn);
+        if (result) banner = result;
         $('turn-banner').textContent = banner;
+        $('scoreboard').innerHTML = game && turn.phase !== 'deployment' ? game.state.players.map((pl, i) =>
+            `<span class="${PLAYER_CLASSES[i]}">${escapeHtml(pl.name)}: ${pl.cp ?? 0} CP · ${game.score[i]} pts</span>`).join('') : '';
         $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player] : ''}`;
-        $('phase-btn').hidden = !game;
+        $('phase-btn').hidden = !game || turn.phase === 'ended';
+        $('correct-btn').hidden = !game || turn.phase === 'deployment';
         if (turn) {
             $('phase-btn').querySelector('span').textContent = turn.phase === 'deployment' ? 'Deployment done'
                 : turn.phase === 'fight' ? (turn.step === 'consolidate' ? 'End turn' : 'Next step') : 'Next phase';
@@ -266,6 +273,9 @@
         renderUnits();
         drawBoard();
         renderLog();
+        renderPending();
+        renderCorrection();
+        renderStratagems();
     }
 
     function unitById(id) {
@@ -294,7 +304,9 @@
                     : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
                        u.activity.shot ? 'shot' : '',
                        u.activity.charge_roll != null ? `charge roll ${u.activity.charge_roll}${u.activity.charged ? ', charged' : ''}` : '',
-                       u.activity.fought ? 'fought' : '']
+                       u.activity.fought ? 'fought' : '',
+                       u.status && u.status.shocked ? 'BATTLE-SHOCKED' : '',
+                       (u.effects || []).length ? `${u.effects.length} effect${u.effects.length === 1 ? '' : 's'}` : '']
                         .filter(Boolean).join(' · ');
                 return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''}" data-unit="${u.id}">
                     <span>${escapeHtml(u.name)}</span>
@@ -326,6 +338,8 @@
         }
         renderUnits();
         drawBoard();
+        renderStratagems();
+        renderCorrection();
     }
 
     function renderDetail() {
@@ -363,6 +377,7 @@
                 Both players can move units now; moves lock when the step ends.</p>
                 ${moved ? '<div class="play-move-modes"><button class="btn-small" data-reset>Reset move</button></div>' : ''}`;
         }
+        if (turn.phase !== 'deployment' && turn.phase !== 'ended') controls += effectsControls(unit);
         $('unit-detail').innerHTML = controls + unit.parts.map((part, i) => {
             const s = part.stats;
             const outline = state.game.outlines[unit.id][i];
@@ -401,6 +416,147 @@
         }));
         const strike = $('fight-btn');
         if (strike) strike.addEventListener('click', fightSelected);
+        const addEffect = $('effect-add');
+        if (addEffect) {
+            addEffect.addEventListener('click', () => send({ type: 'effect', unit: unit.id, effect: $('effect-kind').value,
+                                                             until: $('effect-until').value }));
+        }
+        $('unit-detail').querySelectorAll('[data-remove-effect]').forEach(b => b.addEventListener('click', () =>
+            send({ type: 'remove_effect', unit: unit.id, index: Number(b.dataset.removeEffect) })));
+    }
+
+    // --- Effects, stratagems and rules ---------------------------------------------------------
+
+    const UNTIL = [['phase', 'this phase'], ['turn', 'this turn'], ['game', 'the rest of the game']];
+
+    function effectsControls(unit) {
+        const list = (unit.effects || []).map((e, i) => `<li><span class="play-effect ${e.source}">${escapeHtml(e.name)}</span>
+            <small>${e.until === 'game' ? 'for the game' : 'this ' + e.until}</small>
+            <button class="btn-icon" data-remove-effect="${i}" title="Remove" aria-label="Remove ${escapeHtml(e.name)}">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i></button></li>`).join('');
+        return `<details class="play-effects" ${(unit.effects || []).length ? 'open' : ''}>
+            <summary>Effects on ${escapeHtml(unit.name)}${(unit.effects || []).length ? ` (${unit.effects.length})` : ''}</summary>
+            ${list ? `<ul>${list}</ul>` : ''}
+            <div class="play-effect-add">
+                <select id="effect-kind" class="filter-select">${state.game.manual_effects.map(e =>
+                    `<option value="${e.key}">${escapeHtml(e.name)} (${e.side === 'Target' ? 'when attacked' : 'when attacking'})</option>`).join('')}</select>
+                <select id="effect-until" class="filter-select">${UNTIL.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+                <button class="btn-small" id="effect-add">Add effect</button>
+            </div></details>`;
+    }
+
+    function renderStratagems() {
+        const game = state.game;
+        const panel = $('stratagem-panel');
+        if (!game || !['command', 'movement', 'shooting', 'charge', 'fight'].includes(game.state.turn.phase)) {
+            panel.innerHTML = '';
+            return;
+        }
+        const turn = game.state.turn;
+        const selected = state.selected && unitById(state.selected);
+        panel.innerHTML = `<h3>Stratagems and rules</h3>
+            <p class="play-hint">${selected ? `Used on <strong>${escapeHtml(selected.name)}</strong> (its player's).` : 'Select a unit first, then use one on it.'}
+                Rules last <select id="rule-until" class="filter-select">${UNTIL.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></p>
+            ${game.state.players.map((pl, p) => {
+                const usable = Core.playUsableNow(pl.stratagems || [], turn.phase);
+                const used = pl.used || {};
+                return `<details class="play-player-stratagems ${PLAYER_CLASSES[p]}" ${selected && selected.player === p ? 'open' : ''}>
+                    <summary>${escapeHtml(pl.name)} · ${pl.cp ?? 0} CP · ${usable.length} now</summary>
+                    ${usable.map(e => {
+                        const disabled = !selected || selected.player !== p || (e.kind === 'stratagem' && (e.cp > (pl.cp ?? 0)
+                            || Object.values(used).length && used[e.key] === phaseId(turn)));
+                        return `<button class="play-stratagem ${e.kind}" data-use="${p}|${e.key}" ${disabled ? 'disabled' : ''}
+                            title="${escapeHtml(e.text || '')}"><span>${escapeHtml(e.name)}</span>
+                            <small>${e.kind === 'stratagem' ? e.cp + ' CP' : 'rule'}${e.modifier ? ' · ' + escapeHtml(e.modifier) : ' · apply by hand'}</small></button>`;
+                    }).join('') || '<p class="empty-message">Nothing for this phase</p>'}
+                </details>`;
+            }).join('')}`;
+        panel.querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => useEntry(b.dataset.use)));
+    }
+
+    function phaseId(turn) {
+        return `${turn.round}.${turn.player}.${turn.phase}.${turn.step || ''}`;
+    }
+
+    async function useEntry(code) {
+        const [player, key] = code.split('|');
+        const entry = state.game.state.players[player].stratagems.find(e => e.key === key);
+        const action = { type: entry.kind, player: Number(player), key, unit: state.selected };
+        if (entry.kind === 'rule') action.until = $('rule-until').value;
+        if (await send(action)) {
+            message(entry.modifier ? `${entry.name}: ${entry.modifier} on ${unitById(action.unit).name}.`
+                : `${entry.name} used: apply it by hand (add an effect if it changes the dice). ${entry.text || ''}`.slice(0, 400));
+        }
+    }
+
+    // --- Correcting the game -----------------------------------------------------------------------
+
+    function renderPending() {
+        const game = state.game;
+        const pending = game && game.state.pending;
+        $('pending-bar').hidden = !pending;
+        if (!pending) return;
+        const by = game.state.players[pending.player].name, other = game.state.players[1 - pending.player].name;
+        const models = Object.keys(pending.models).length;
+        const cp = Object.entries(pending.cp).map(([p, v]) => `${game.state.players[p].name} ${v} CP`).join(', ');
+        $('pending-bar').innerHTML = `<strong>${escapeHtml(by)} proposes a correction:</strong> ${escapeHtml(pending.note || '(no note)')}
+            <small>${models ? `${models} model${models === 1 ? '' : 's'} changed` : ''}${models && cp ? '; ' : ''}${escapeHtml(cp)}</small>
+            <span class="play-pending-actions">${escapeHtml(other)}:
+                <button class="btn-small" data-answer="accept">Accept</button>
+                <button class="btn-small" data-answer="decline">Decline</button></span>`;
+        $('pending-bar').querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
+            if (await send({ type: b.dataset.answer, player: 1 - pending.player })) {
+                message(b.dataset.answer === 'accept' ? 'Correction made.' : 'Correction declined.');
+            }
+        }));
+    }
+
+    function renderCorrection() {
+        const panel = $('correction-panel');
+        const game = state.game;
+        panel.hidden = !state.correcting || !game || !!game.state.pending;
+        if (panel.hidden) return;
+        const unit = state.selected && unitById(state.selected);
+        const rows = unit ? unit.models.map(m => {
+            const part = unit.parts[m.part];
+            return `<tr><td>${escapeHtml(part.name)} ${m.id.split('-').pop()}</td>
+                <td><input type="number" min="0" max="${part.stats.wounds}" value="${m.wounds_left}" data-fix-wounds="${m.id}" class="filter-input"></td>
+                <td><label><input type="checkbox" data-fix-alive="${m.id}" ${m.alive ? 'checked' : ''}> alive</label></td></tr>`;
+        }).join('') : '';
+        panel.innerHTML = `<h3>Correct the game</h3>
+            <p class="play-hint">Propose a fix; the other player must accept it before anything else happens.
+                ${unit ? '' : 'Select a unit to change its models.'}</p>
+            ${unit ? `<table class="data-table data-table-compact"><thead><tr><th>${escapeHtml(unit.name)}</th><th>Wounds</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+            <div class="play-correction-row">${game.state.players.map((pl, i) =>
+                `<label>${escapeHtml(pl.name)} CP <input type="number" min="0" value="${pl.cp ?? 0}" data-fix-cp="${i}" class="filter-input"></label>`).join('')}</div>
+            <div class="play-correction-row"><input type="text" id="fix-note" class="filter-input" maxlength="300" placeholder="What went wrong?">
+                <select id="fix-by" class="filter-select">${game.state.players.map((pl, i) => `<option value="${i}">Proposed by ${escapeHtml(pl.name)}</option>`).join('')}</select>
+                <button class="btn btn-primary" id="fix-propose">Propose</button>
+                <button class="btn-small" id="fix-cancel">Cancel</button></div>`;
+        $('fix-cancel').addEventListener('click', () => { state.correcting = false; renderCorrection(); });
+        $('fix-propose').addEventListener('click', proposeCorrection);
+    }
+
+    async function proposeCorrection() {
+        const game = state.game;
+        const unit = state.selected && unitById(state.selected);
+        const models = {};
+        if (unit) {
+            for (const m of unit.models) {
+                const wounds = Number($('correction-panel').querySelector(`[data-fix-wounds="${m.id}"]`).value);
+                const alive = $('correction-panel').querySelector(`[data-fix-alive="${m.id}"]`).checked;
+                if (wounds !== m.wounds_left || alive !== m.alive) models[m.id] = { wounds_left: alive && !wounds ? 1 : wounds, alive };
+            }
+        }
+        const cp = {};
+        $('correction-panel').querySelectorAll('[data-fix-cp]').forEach(input => {
+            const i = Number(input.dataset.fixCp);
+            if (Number(input.value) !== (game.state.players[i].cp ?? 0)) cp[i] = Number(input.value);
+        });
+        if (await send({ type: 'correction', player: Number($('fix-by').value), note: $('fix-note').value, models, cp })) {
+            state.correcting = false;
+            message('Correction proposed: waiting for the other player.');
+        }
     }
 
     // --- Options for the selected unit (Shooting, Charge, Fight) ----------------------------
@@ -568,20 +724,17 @@
 
     function renderLog() {
         const game = state.game;
+        const ONE_LINE = ['charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
-            .filter(([e]) => (e.attacks && e.attacks.length) || ['charge', 'advance'].includes(e.action.type)).reverse() : [];
+            .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
+                || (e.action.type === 'next_phase' && e.rolls.length)).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
             return;
         }
         const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
         $('dice-log').innerHTML = shots.map(([event, i], n) => {
-            if (!event.attacks) {  // A charge or Advance roll
-                const roll = event.rolls[0];
-                const what = event.action.type === 'charge' ? 'charge roll' : 'Advance roll';
-                return `<div class="play-log-entry play-log-roll">${escapeHtml(name(event.action.unit))} ${what}:
-                    ${roll.dice.map(d => `<span class="play-die value">${d.face}</span>`).join('')} = <strong>${roll.total}"</strong></div>`;
-            }
+            if (!event.attacks) return `<div class="play-log-entry play-log-roll">${logLine(event, name)}</div>`;
             const targets = [...new Set(event.attacks.filter(a => a.name !== 'Hazardous').map(a => name(a.target)))];
             return `<details class="play-log-entry" ${n === 0 ? 'open' : ''}>
                 <summary>${escapeHtml(name(event.action.unit))} ${event.action.type === 'fight' ? 'fights' : 'shoots'} ${escapeHtml(targets.join(', '))}</summary>
@@ -595,6 +748,33 @@
                 </div>`).join('')}
             </details>`;
         }).join('');
+    }
+
+    /** One line of the dice log for an event that isn't an attack. */
+    function logLine(event, name) {
+        const a = event.action;
+        const dice = roll => roll.dice.map(d => `<span class="play-die ${roll.need == null ? 'value' : d.success ? 'success' : 'fail'}">${d.face}</span>`).join('');
+        const player = p => escapeHtml(state.game.state.players[p].name);
+        switch (a.type) {
+            case 'charge':
+            case 'advance':
+                return `${escapeHtml(name(a.unit))} ${a.type === 'charge' ? 'charge' : 'Advance'} roll: ${dice(event.rolls[0])} = <strong>${event.rolls[0].total}"</strong>`;
+            case 'stratagem':
+                return `<span class="play-effect stratagem">${player(event.player)} used ${escapeHtml(event.stratagem)} (${event.cp} CP)</span> on ${escapeHtml(name(event.unit))}`;
+            case 'rule':
+                return `<span class="play-effect rule">${player(event.player)}: ${escapeHtml(event.rule)}</span> on ${escapeHtml(name(event.unit))}`;
+            case 'effect':
+                return `<span class="play-effect manual">Manual effect: ${escapeHtml(event.effect)}</span> on ${escapeHtml(name(event.unit))}`;
+            case 'correction':
+                return `${player(a.player)} proposed a correction: ${escapeHtml(a.note || '')}`;
+            case 'accept':
+            case 'decline':
+                return `Correction ${a.type === 'accept' ? 'accepted' : 'declined'}: ${escapeHtml(event.corrected || event.declined || '')}`;
+            default: {  // A phase change with battle-shock or hazard rolls
+                return event.rolls.map(r => r.purpose === 'battle-shock'
+                    ? `Battle-shock roll: ${dice(r)} = ${r.total}` : `Hazard rolls: ${dice(r)}`).join('<br>');
+            }
+        }
     }
 
     function fitView() {
@@ -633,7 +813,8 @@
             const targeted = (game.state.turn.phase === 'shooting'
                 && Object.entries(state.targets).some(([key, id]) => id === unit.id && state.fire[key]))
                 || (game.state.turn.phase === 'charge' && state.charge && state.chargeTargets.includes(unit.id));
-            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''}`,
+            const shocked = unit.status && unit.status.shocked ? 'shocked' : '';
+            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
             const reach = m => Math.max(game.outlines[unit.id][m.part].length, game.outlines[unit.id][m.part].width) / 2 + 0.4;

@@ -613,3 +613,19 @@ test('playFormation puts the last row (leaders) at the back for a player on the 
     // Player 2 deploys at the top: the same rows mirrored, so the leader is at the higher y (their back)
     assert.deepEqual(Core.playFormation([1, 1, 1, 1, 1, 2], 20, 38, true).map(p => p.y), [36.95, 36.95, 36.95, 36.95, 36.95, 39.05]);
 });
+
+test('playUsableNow offers stratagems for the current phase (any phase when the app has none for it)', () => {
+    const entries = [{ name: 'Aim', phase: 'Shooting' }, { name: 'Strike', phase: 'Fighting' },
+                     { name: 'Both', phase: 'Both' }, { name: 'Anytime', phase: null }];
+    assert.deepEqual(Core.playUsableNow(entries, 'shooting').map(e => e.name), ['Aim', 'Both', 'Anytime']);
+    assert.deepEqual(Core.playUsableNow(entries, 'fight').map(e => e.name), ['Strike', 'Both', 'Anytime']);
+    assert.deepEqual(Core.playUsableNow(entries, 'movement').map(e => e.name), ['Anytime']);
+    assert.deepEqual(Core.playUsableNow(entries, 'deployment'), []);
+});
+
+test('playResult says who won once the battle is over', () => {
+    const players = [{ name: 'Red' }, { name: 'Blue' }];
+    assert.equal(Core.playResult(players, [60, 120], { phase: 'ended' }), 'Game over: Blue wins, 120 to 60');
+    assert.equal(Core.playResult(players, [30, 30], { phase: 'ended' }), 'Game over: a draw, 30 each');
+    assert.equal(Core.playResult(players, [30, 0], { phase: 'shooting' }), null);
+});

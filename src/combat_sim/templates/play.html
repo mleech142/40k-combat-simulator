@@ -40,13 +40,17 @@
         <div class="play-toolbar">
             <strong id="game-title">Choose or start a game</strong>
             <span class="play-turn" id="turn-banner"></span>
+            <span class="play-scoreboard" id="scoreboard"></span>
             <span class="play-message" id="play-message" role="status"></span>
             <span class="play-toolbar-actions">
                 <button class="btn-small" id="phase-btn" hidden><i class="fa-solid fa-forward-step" aria-hidden="true"></i> <span>Next phase</span></button>
+                <button class="btn-small" id="correct-btn" hidden><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i> Correct the game</button>
                 <button class="btn-small" id="undo-btn" disabled><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Undo</button>
                 <button class="btn-small" id="fit-btn"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Fit board</button>
             </span>
         </div>
+        <div class="play-pending" id="pending-bar" hidden></div>
+        <div class="play-correction" id="correction-panel" hidden></div>
         <svg id="play-board" class="play-board" xmlns="http://www.w3.org/2000/svg" role="img"
              aria-label="The battlefield, seen from above"></svg>
         <div class="play-log">
@@ -59,6 +63,7 @@
         <h3>Units</h3>
         <div id="unit-list"><p class="empty-message">No game open</p></div>
         <div id="unit-detail" class="play-detail"></div>
+        <div id="stratagem-panel" class="play-stratagems"></div>
     </aside>
 </div>
 {% endblock %}
