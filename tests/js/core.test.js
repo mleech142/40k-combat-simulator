@@ -558,3 +558,31 @@ test('playFit shifts a dropped formation to lie wholly inside an area when it ca
     // Too deep to fit: left where it was dropped (the server says why)
     assert.deepEqual(Core.playFit([{ x: 10, y: 1 }, { x: 10, y: 14 }], [0.5, 0.5], area), [{ x: 10, y: 1 }, { x: 10, y: 14 }]);
 });
+
+test('playDiceGroups turns an attack\'s rolls into labelled groups, joining one-at-a-time saves', () => {
+    const die = (face, success, critical = false, rerolled_from = null) => ({ face, success, critical, rerolled_from });
+    const rolls = [
+        { purpose: 'advance', size: 6, dice: [die(4, true)], modifier: 0, total: 4 },  // Not this attack's
+        { purpose: 'hit', need: 3, crit_on: 6, dice: [die(6, true, true), die(2, false), die(5, true, false, 1)] },
+        { purpose: 'wound', need: 4, crit_on: 6, dice: [die(4, true), die(3, false)] },
+        { purpose: 'save', need: 3, crit_on: 7, dice: [die(1, false)] },
+        { purpose: 'damage', size: 3, dice: [die(2, true)], modifier: 1, total: 3 },
+    ];
+    const groups = Core.playDiceGroups(rolls, [1, 5]);
+    assert.deepEqual(groups.map(g => [g.label, g.need]), [['Hit', '3+'], ['Wound', '4+'], ['Save', '3+'], ['Damage', null]]);
+    assert.deepEqual(groups[0].dice.map(d => d.kind), ['critical', 'fail', 'success']);
+    assert.equal(groups[0].dice[2].rerolled_from, 1);
+    assert.deepEqual(groups[3].dice.map(d => [d.face, d.kind]), [[2, 'value']]);
+    assert.equal(groups[3].note, 'D3+1 = 3');
+    // Two saves in a row show as one group
+    const saves = [{ purpose: 'save', need: 3, crit_on: 7, dice: [die(1, false)] }, { purpose: 'save', need: 3, crit_on: 7, dice: [die(6, true)] }];
+    assert.deepEqual(Core.playDiceGroups(saves, [0, 2]).map(g => g.dice.length), [2]);
+});
+
+test('playAttackSummary says what an attack did in one line', () => {
+    assert.equal(Core.playAttackSummary({ name: 'Bolter', models: 2, attacks: 4, hits: 3, wounds: 2, mortal: 0, killed: ['a'] }),
+                 'Bolter (2 models): 4 attacks, 3 hits, 2 wounds, 1 model killed');
+    assert.equal(Core.playAttackSummary({ name: 'Melta', models: 1, attacks: 1, hits: 1, wounds: 0, mortal: 1, killed: [], half_range: true }),
+                 'Melta (1 model, half range): 1 attack, 1 hit, 0 wounds, 1 mortal wound, none killed');
+    assert.equal(Core.playAttackSummary({ name: 'Hazardous', models: 2, killed: ['a'] }), 'Hazardous: 2 rolled, 1 model killed');
+});

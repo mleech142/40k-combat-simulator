@@ -737,6 +737,45 @@
         return { text: `${distance.toFixed(1)}" of ${allowance}"`, over: distance > allowance + 1e-6 };
     }
 
+    /**
+     * An attack's dice for the dice log: the event's rolls from `range` ([first, last)) as groups
+     * {label, need ('3+' or null), note, dice: [{face, kind, rerolled_from}]}, kind being 'critical',
+     * 'success', 'fail' or 'value' (a rolled amount such as damage). Rolls of the same kind in a row
+     * (saves are rolled one wound at a time) show as one group.
+     */
+    function playDiceGroups(rolls, range) {
+        const label = purpose => purpose.replace(/\b\w/g, c => c.toUpperCase());
+        const groups = [];
+        for (const roll of rolls.slice(range[0], range[1])) {
+            const value = roll.need == null;
+            const dice = roll.dice.map(d => ({
+                face: d.face, rerolled_from: d.rerolled_from ?? null,
+                kind: value ? 'value' : d.critical ? 'critical' : d.success ? 'success' : 'fail',
+            }));
+            const need = value ? null : `${roll.need}+`;
+            const note = value ? `${roll.dice.length > 1 ? roll.dice.length : ''}D${roll.size}${roll.modifier ? (roll.modifier > 0 ? '+' : '') + roll.modifier : ''} = ${roll.total}` : null;
+            const last = groups[groups.length - 1];
+            if (last && last.purpose === roll.purpose && last.need === need) {
+                last.dice.push(...dice);
+                if (note) last.note = last.note ? `${last.note}, ${note.split(' = ')[1]}` : note;
+            } else {
+                groups.push({ purpose: roll.purpose, label: label(roll.purpose), need, note, dice });
+            }
+        }
+        return groups.map(({ purpose, ...group }) => group);
+    }
+
+    /** One line saying what an attack did ('Bolter (2 models): 4 attacks, 3 hits, 2 wounds, 1 model killed'). */
+    function playAttackSummary(attack) {
+        const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+        const killed = attack.killed.length ? count(attack.killed.length, 'model') + ' killed' : 'none killed';
+        if (attack.name === 'Hazardous') return `Hazardous: ${attack.models} rolled, ${killed}`;
+        const who = `${count(attack.models, 'model')}${attack.half_range ? ', half range' : ''}`;
+        const parts = [count(attack.attacks, 'attack'), count(attack.hits, 'hit'), count(attack.wounds, 'wound')];
+        if (attack.mortal) parts.push(count(attack.mortal, 'mortal wound'));
+        return `${attack.name} (${who}): ${parts.join(', ')}, ${killed}`;
+    }
+
     /** The board view ({x, y, w, h} in inches) zoomed by `factor` about the point (px, py), 10" to 72" wide. */
     function playZoom(view, factor, px, py) {
         const w = Math.min(72, Math.max(10, view.w * factor));
@@ -745,7 +784,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom,
+        playFormation, playFit, playMoveLabel, playZoom, playDiceGroups, playAttackSummary,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

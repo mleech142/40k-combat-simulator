@@ -146,3 +146,27 @@ def test_an_advance_roll_stands_but_the_move_after_it_can_be_undone(client, game
     undone = client.post(f'/api/play/games/{game["id"]}/undo').get_json()
     assert undone['state']['units'][0]['activity'] == {'advance_roll': roll}  # The move is gone, the roll stays
     assert client.post(f'/api/play/games/{game["id"]}/undo').status_code == 400
+
+
+def test_shooting_through_the_api_logs_each_attack_with_its_dice(client, game):
+    act = lambda body: client.post(f'/api/play/games/{game["id"]}/actions', json=body)  # noqa: E731
+    place(client, game, 'p1-w', ROW)
+    place(client, game, 'p2-g', [(10, 38), (11.5, 38)])  # Crew guns (36") reach the Void Warriors (~30.7")
+    place(client, game, 'p1-c', [(30, 6)])
+    assert act({'type': 'end_deployment'}).status_code == 200
+    for _ in range(7):  # Red's five phases, then Blue's Command and Movement
+        assert act({'type': 'next_phase'}).status_code == 200
+    options = client.get(f'/api/play/games/{game["id"]}/shooting/p2-g').get_json()
+    assert options['reason'] is None
+    assert options['weapons'][0]['targets']['p1-w'] == {'ok': True, 'models': 2, 'reason': None}
+    assert client.get(f'/api/play/games/{game["id"]}/shooting/nobody').status_code == 404
+    shot = act({'type': 'shoot', 'unit': 'p2-g', 'target': 'p1-w'})
+    assert shot.status_code == 200, shot.get_json()
+    event = shot.get_json()['events'][-1]
+    attack = next(a for a in event['attacks'] if a['name'] == 'Crew gun')
+    assert (attack['target'], attack['models'], attack['attacks']) == ('p1-w', 2, 4)  # 2 crew, 2 shots each
+    first, last = attack['rolls']
+    assert event['rolls'][first]['purpose'] == 'hit' and last > first
+    again = act({'type': 'shoot', 'unit': 'p2-g', 'target': 'p1-w'})
+    assert again.status_code == 400 and 'already shot' in again.get_json()['error']
+    assert client.post(f'/api/play/games/{game["id"]}/undo').status_code == 400  # Dice were rolled

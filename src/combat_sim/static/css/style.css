@@ -3704,6 +3704,32 @@ h4 .fa-solid,
 }
 .play-unit small { display: block; color: var(--text-muted); }
 .play-unit.selected { border-color: var(--accent); background: var(--accent-tint); }
+.play-orders { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.35rem; }
+.play-orders select { width: 100%; font-size: 0.8rem; padding: 0.15rem 0.3rem; }
+.play-unit-group.targeted .play-unit-outline { stroke: var(--error); stroke-opacity: 1; stroke-width: 0.15; stroke-dasharray: 0.4 0.2; }
+.play-shooting { margin-bottom: 0.5rem; }
+.play-weapon { padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
+.play-weapon label { display: block; }
+.play-weapon select { width: 100%; margin-top: 0.2rem; font-size: 0.85rem; }
+.play-weapon.blocked label { color: var(--text-muted); }
+.play-why { display: block; color: var(--warning); }
+.play-shooting .btn { margin-top: 0.5rem; width: 100%; }
+.play-log { margin-top: 0.75rem; }
+.play-log h3 { margin-bottom: 0.4rem; }
+.play-log-entry { border-top: 1px solid var(--border); padding: 0.35rem 0; }
+.play-log-entry summary { cursor: pointer; }
+.play-log-attack { margin: 0.35rem 0 0.35rem 1rem; }
+.play-dice-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.15rem; }
+.play-dice-label { width: 7.5rem; color: var(--text-secondary); font-size: 0.85rem; }
+.play-die {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.35rem; height: 1.35rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600;
+    background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-muted);
+}
+.play-die.success { border-color: var(--success); color: var(--text-primary); }
+.play-die.critical { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.play-die.fail { opacity: 0.55; }
+.play-die.value { border-color: var(--text-secondary); color: var(--text-primary); }
 .play-detail .play-part { border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem; }
 .play-stats { color: var(--text-secondary); font-size: 0.9rem; }
 

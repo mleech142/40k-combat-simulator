@@ -186,12 +186,14 @@ Version 1 is hot-seat play (two players on one PC).
    - Events now also record changed units' `activity` and the `turn`.
    - The page: a turn banner and phase button, move choices on the selected unit, dashed rings for each model's reach, and a live distance readout while dragging (`Core.playMoveLabel`). The server sends each part's Move (`moves`).
    - Still to come with terrain: moving around obstacles (move to one point, then another) and terrain movement rules.
-3. **Shooting:**
-   - visible targets in range
-   - dice shown in hit / wound / save / damage groups
-   - wounds on individual models
-   - casualties removed by standing order
-   - half range and cover worked out from the board
+3. *Done:* **Shooting** (`shoot`: a target for every weapon, or one per weapon in `weapons`), once per unit per Shooting phase.
+   - **Who can shoot (v1 rules, to revisit when issues come up):** not after Falling Back; after Advancing, only Assault weapons; in engagement range, only Pistols at the unit it's engaged with, except Monsters and Vehicles, which fire everything at -1 to hit (Big Guns Never Tire). Units in engagement range of your own units can't be targeted unless they're Monsters or Vehicles.
+   - **Per model:** a model fires a weapon if a target model it can see is within range, base to base (models don't block sight; no terrain yet). Models within half range roll as their own group (Rapid Fire, Melta). A unit that didn't move or remained stationary counts as stationary (Heavy).
+   - **Wounds** go, one at a time: a damaged model; bodyguard before leaders; common-weapon models before special-weapon carriers; then farthest from the attacking unit, or closest by the player's standing order (`orders` action, `players[].orders.casualties`); then the last-listed model.
+   - **Hazardous:** after the attacks, a D6 for each model that fired one; on a 1 that model suffers 3 mortal wounds.
+   - The event lists each `attacks` entry (weapon, target, models, half range, the wound pool, models killed, and its slice of `rolls`). `game.shooting_options` (`GET /api/play/games/<id>/shooting/<unit>`) tells the page which weapons can fire at which units, and why not.
+   - The page: weapons with a target each (click an enemy unit to target it with everything), Fire, a dice log under the board (`Core.playDiceGroups`, `Core.playAttackSummary`) and each player's casualty order.
+   - Cover from terrain comes with terrain.
 4. **Charge and Fight:** charge roll, engagement, fights-first order, pile-in and consolidate.
 5. **Full game loop:** Command phase CP, battle rounds, kill points, manual effects, the "correct the game" request, stratagems.
 

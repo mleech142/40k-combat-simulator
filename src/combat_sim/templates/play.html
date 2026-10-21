@@ -9,7 +9,8 @@
 <p class="data-note">A game between two saved armies on one PC, taking turns. <strong>Deployment:</strong> players take
     turns setting up a unit in their zone (12" from their own edge): pick it on the right, click the board, drag to adjust
     (Shift-drag moves one model). <strong>Movement:</strong> pick one of your units, choose how it moves, then drag it; the
-    rings show how far each model can go. The mouse wheel zooms.</p>
+    rings show how far each model can go. <strong>Shooting:</strong> pick one of your units, click an enemy unit to target it
+    (or choose per weapon), then Fire. The mouse wheel zooms.</p>
 
 <div class="play-layout">
     <aside class="card play-games">
@@ -45,6 +46,10 @@
         </div>
         <svg id="play-board" class="play-board" xmlns="http://www.w3.org/2000/svg" role="img"
              aria-label="The battlefield, seen from above"></svg>
+        <div class="play-log">
+            <h3>Dice</h3>
+            <div id="dice-log"><p class="empty-message">No dice rolled yet</p></div>
+        </div>
     </section>
 
     <aside class="card play-units">

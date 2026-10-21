@@ -9,7 +9,7 @@ from .. import armies
 from ..models import SavedArmy, SavedGame, db
 from .dice import Dice
 from ..settings import update_settings
-from .game import DEPLOYMENT_DEPTH, ActionError, move_characteristic, outline, replay, resolve_action
+from .game import DEPLOYMENT_DEPTH, ActionError, move_characteristic, outline, replay, resolve_action, shooting_options
 from .geometry import BOARD_DEPTH, BOARD_WIDTH
 from .snapshot import freeze_army
 
@@ -104,3 +104,12 @@ def register_play_routes(app):
         saved.events = events[:-1]
         db.session.commit()
         return game_response(saved)
+
+    @app.route('/api/play/games/<int:game_id>/shooting/<unit_id>')
+    def api_shooting_options(game_id, unit_id):
+        """Which of a unit's weapons can fire at which enemy units now, and why not."""
+        saved = db.get_or_404(SavedGame, game_id)
+        try:
+            return jsonify(shooting_options(replay(saved.armies, saved.events or []), unit_id))
+        except ActionError as error:
+            return jsonify({'error': str(error)}), 404

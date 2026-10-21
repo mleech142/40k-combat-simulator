@@ -15,7 +15,8 @@ from dataclasses import asdict
 from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
-from .geometry import BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, hull_shape, overlaps
+from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, hull_shape,
+                       overlaps)
 
 STATE_VERSION = 1
 ENGAGEMENT_RANGE = 1  # Inches, measured base to base (height is ignored on a flat board)
@@ -24,6 +25,8 @@ PATH_STEP = 0.2  # Inches between the points a move's path is checked at
 DEPLOYMENT_DEPTH = 12  # Until missions: each player sets up within this many inches of their own long edge
 MODEL_FIELDS = ('wounds_left', 'alive', 'position')  # What an event can change about a model
 PHASES = ('command', 'movement', 'shooting', 'charge', 'fight')  # Each player's turn, in order
+DEFAULT_ORDERS = {'casualties': 'farthest'}  # Standing orders: which models are removed first
+HAZARDOUS_DAMAGE = 3  # Mortal wounds to a model whose Hazardous roll is a 1
 
 
 class ActionError(ValueError):
@@ -35,7 +38,7 @@ def new_game(armies):
     state = {'version': STATE_VERSION, 'players': [], 'units': [],
              'turn': {'phase': 'deployment', 'round': 0, 'player': 0}}
     for player, army in enumerate(armies):
-        state['players'].append({'name': army['name'], 'faction': army['faction']})
+        state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS)})
         for unit in army['units']:
             unit_id = f'p{player + 1}-{unit["uid"]}'
             models = [{'id': f'{unit_id}-{part_index}-{n + 1}', 'part': part_index,
@@ -53,9 +56,10 @@ def unit_by_id(state, unit_id):
 
 
 def _snapshot(state):
-    """What events record: each model's MODEL_FIELDS, each unit's activity, and the turn."""
+    """What events record: each model's MODEL_FIELDS, each unit's activity, players' orders and the turn."""
     return {'models': {m['id']: {k: m[k] for k in MODEL_FIELDS} for u in state['units'] for m in u['models']},
             'units': {u['id']: {'activity': u.get('activity', {})} for u in state['units']},
+            'players': [p.get('orders', DEFAULT_ORDERS) for p in state['players']],
             'turn': state.get('turn')}
 
 
@@ -67,7 +71,7 @@ def resolve_action(state, action, dice):
     handlers = {'shoot': lambda s: _shoot(s, action, dice), 'place': lambda s: _place(s, action),
                 'end_deployment': _end_deployment, 'next_phase': _next_phase,
                 'move': lambda s: _move(s, action), 'advance': lambda s: _advance(s, action, dice),
-                'stationary': lambda s: _stationary(s, action)}
+                'stationary': lambda s: _stationary(s, action), 'orders': lambda s: _orders(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
         raise ActionError(f'Unknown action: {kind}')
@@ -81,6 +85,8 @@ def resolve_action(state, action, dice):
              'units': {k: v for k, v in after['units'].items() if v != before['units'][k]}, **detail}
     if after['turn'] != before['turn']:
         event['turn'] = after['turn']
+    if after['players'] != before['players']:
+        event['orders'] = after['players']
     return event
 
 
@@ -94,6 +100,8 @@ def apply_event(state, event):
                 model.update(event['models'][model['id']])
     if 'turn' in event:
         state['turn'] = dict(event['turn'])
+    for player, orders in zip(state['players'], event.get('orders', [])):
+        player['orders'] = dict(orders)
     return state
 
 
@@ -139,47 +147,232 @@ def _start_turn(state, round_number, player):
         unit['activity'] = {}
 
 
-def _shoot(state, action, dice):
-    shooter, target = unit_by_id(state, action['unit']), unit_by_id(state, action['target'])
-    chosen = action.get('weapons')
-    if chosen is None:  # Every weapon that starts ticked
-        chosen = [{'part': p, 'weapon': w} for p, part in enumerate(shooter['parts'])
-                  for w, weapon in enumerate(part['weapons']) if weapon['default_use'] and weapon['type'] == 'ranged']
-    conditions = BattleConditions()
-    weapons = []
-    for pick in chosen:
-        carriers = [m for m in shooter['models'] if m['alive'] and m['part'] == pick['part'] and pick['weapon'] in m['weapons']]
-        if not carriers or not any(m['alive'] for m in target['models']):
+def _orders(state, action):
+    """A player's standing orders (any time): which models are removed first ('farthest' or 'closest'
+    from the attacking unit)."""
+    try:
+        player = state['players'][int(action.get('player'))]
+    except (TypeError, ValueError, IndexError):
+        raise ActionError('Say whose orders these are.')
+    casualties = action.get('casualties')
+    if casualties not in ('farthest', 'closest'):
+        raise ActionError('Casualties are removed farthest or closest first.')
+    player['orders'] = dict(player.get('orders', DEFAULT_ORDERS), casualties=casualties)
+
+
+# --- Shooting -------------------------------------------------------------------------------------
+
+def _has(keywords, name):
+    """Whether a keyword list has `name` (any case, ignoring a value after it: 'Rapid Fire 1')."""
+    name = name.lower()
+    return any(k.lower() == name or k.lower().startswith(name + ' ') for k in keywords or [])
+
+
+def _big(unit):
+    """Monsters and Vehicles can shoot while in engagement range and be shot while fighting."""
+    return any(_has(part['keywords'], 'Monster') or _has(part['keywords'], 'Vehicle') for part in unit['parts'])
+
+
+def _engaged_units(state, unit):
+    """The enemy units in engagement range of `unit`."""
+    mine = _placed_shapes(unit)
+    return [u for u in state['units'] if u['player'] != unit['player'] and _engaged(mine, _placed_shapes(u))]
+
+
+def _placed_models(unit):
+    return [(m, model_shape(unit['parts'][m['part']], m['position'])) for m in unit['models'] if m['alive'] and m['position']]
+
+
+def _shooter_checks(state, shooter):
+    """Refuse a unit that can't shoot now (phase, turn, already shot, Fell Back)."""
+    _require(state, 'shooting', shooter)
+    activity = shooter['activity']
+    if activity.get('shot'):
+        raise ActionError(f'{shooter["name"]} has already shot this phase.')
+    if activity.get('moved') == 'fall_back':
+        raise ActionError(f'{shooter["name"]} Fell Back this turn, so it can\'t shoot.')
+
+
+def _weapon_plan(state, shooter, part_index, weapon_index, target):
+    """
+    Check one weapon against one target: ([models within half range], [models in range beyond it],
+    extra abilities) or ActionError saying why it can't fire. A model fires if a target model it can
+    see is within the weapon's range, base to base.
+    """
+    try:
+        weapon = shooter['parts'][int(part_index)]['weapons'][int(weapon_index)]
+    except (TypeError, ValueError, IndexError):
+        raise ActionError('Choose weapons the unit has.')
+    if weapon['type'] != 'ranged':
+        raise ActionError(f'{weapon["name"]} is a melee weapon.')
+    if target['player'] == shooter['player']:
+        raise ActionError('Choose an enemy unit to shoot at.')
+    if not _placed_models(target):
+        raise ActionError(f'{target["name"]} is not on the battlefield.')
+    activity = shooter['activity']
+    abilities = weapon['abilities'] or []
+    pistol = _has(abilities, 'Pistol')
+    engaged_with = _engaged_units(state, shooter)
+    big = _big(shooter)
+    if activity.get('moved') == 'advance' and not _has(abilities, 'Assault'):
+        raise ActionError(f'{shooter["name"]} Advanced: it can only fire Assault weapons ({weapon["name"]} isn\'t one).')
+    if engaged_with and not big and not pistol:
+        raise ActionError(f'{shooter["name"]} is in engagement range: it can only fire Pistols.')
+    if engaged_with and pistol and target not in engaged_with:
+        raise ActionError(f'Pistols fired while engaged must target the unit {shooter["name"]} is engaged with.')
+    if target not in engaged_with and not _big(target):
+        friendly = [u for u in state['units'] if u['player'] == shooter['player']]
+        if any(target in _engaged_units(state, u) for u in friendly):
+            raise ActionError(f'{target["name"]} is in engagement range of your units: only Monsters and Vehicles can be shot then.')
+    reach = weapon.get('range') or 0
+    targets = _placed_models(target)
+    near, far = [], []
+    for model, shape in _placed_models(shooter):
+        if model['part'] != int(part_index) or int(weapon_index) not in model['weapons']:
             continue
-        attacker = _attacker(shooter, pick['part'], pick['weapon'], len(carriers))
-        pool = roll_attack(attacker, _defender(target, _first_alive(target)['part']), conditions, dice)
-        for mortal in [False] * pool.wounds + [True] * pool.mortal:
-            model = _allocate(target)
-            if model is None:
-                break
-            result = roll_wound(attacker, _defender(target, model['part']), conditions, dice, model['wounds_left'], mortal)
-            model['wounds_left'] -= result.damage
-            model['alive'] = model['wounds_left'] > 0
-        weapons.append({'part': pick['part'], 'weapon': pick['weapon'], 'models': len(carriers), **asdict(pool)})
-    return {'weapons': weapons}
+        seen = [base_distance(shape, other) for _, other in targets if can_see(shape, other, [])]
+        if seen and min(seen) <= reach + 1e-9:
+            (near if min(seen) <= reach / 2 + 1e-9 else far).append(model)
+    if not near and not far:
+        raise ActionError(f'No model carrying {weapon["name"]} has {target["name"]} in range ({reach}") and in sight.')
+    extra = ['Hit Modifier -1'] if engaged_with and big and not pistol else []  # Big Guns Never Tire
+    return near, far, extra
+
+
+def shooting_options(state, unit_id):
+    """
+    For the page: whether a unit can shoot now ('reason' why not, else None) and, for each of its
+    ranged weapons, each enemy unit as a target: {'ok', 'models' (how many would fire), 'reason'}.
+    """
+    shooter = _unit_or_error(state, unit_id)
+    try:
+        _shooter_checks(state, shooter)
+        reason = None
+    except ActionError as error:
+        reason = str(error)
+    enemies = [u for u in state['units'] if u['player'] != shooter['player'] and _placed_models(u)]
+    weapons = []
+    for part_index, part in enumerate(shooter['parts']):
+        for weapon_index, weapon in enumerate(part['weapons']):
+            if weapon['type'] != 'ranged':
+                continue
+            targets = {}
+            for target in enemies:
+                try:
+                    near, far, _ = _weapon_plan(state, shooter, part_index, weapon_index, target)
+                    targets[target['id']] = {'ok': True, 'models': len(near) + len(far), 'reason': None}
+                except ActionError as error:
+                    targets[target['id']] = {'ok': False, 'models': 0, 'reason': str(error)}
+            weapons.append({'part': part_index, 'weapon': weapon_index, 'name': weapon['name'], 'range': weapon.get('range'),
+                            'default_use': weapon['default_use'], 'targets': targets})
+    return {'reason': reason, 'weapons': weapons}
+
+
+def _shoot(state, action, dice):
+    """
+    Shoot with a unit: each weapon at its target (`target` for all, or per weapon in `weapons`:
+    [{'part', 'weapon', 'target'}]). Every weapon is checked first (_weapon_plan), then rolled in
+    turn: models within half range roll on their own. Wounds go to models by the target player's
+    standing orders; Hazardous weapons roll afterwards.
+    """
+    shooter = _unit_or_error(state, action.get('unit'))
+    _shooter_checks(state, shooter)
+    activity = shooter['activity']
+    picks = action.get('weapons')
+    if picks is None:  # Every ranged weapon that starts ticked
+        picks = [{'part': p, 'weapon': w} for p, part in enumerate(shooter['parts'])
+                 for w, weapon in enumerate(part['weapons']) if weapon['default_use'] and weapon['type'] == 'ranged']
+    if not picks:
+        raise ActionError(f'{shooter["name"]} has no ranged weapons to fire.')
+    stationary = activity.get('moved') in (None, 'stationary')
+    plans = []
+    for pick in picks:
+        if not isinstance(pick, dict) or 'part' not in pick or 'weapon' not in pick:
+            raise ActionError('Choose weapons the unit has.')
+        target = _unit_or_error(state, pick.get('target') or action.get('target'))
+        near, far, extra = _weapon_plan(state, shooter, pick['part'], pick['weapon'], target)
+        part_index, weapon_index = int(pick['part']), int(pick['weapon'])
+        plans.append((part_index, weapon_index, shooter['parts'][part_index]['weapons'][weapon_index], target, near, far, extra))
+
+    attacks, hazardous = [], []
+    for part_index, weapon_index, weapon, target, near, far, extra in plans:
+        for models, half in ((near, True), (far, False)):
+            if not models or not any(m['alive'] for m in target['models']):
+                continue
+            attacker = _attacker(shooter, part_index, weapon_index, len(models))
+            attacker.abilities += extra
+            conditions = BattleConditions(half_range=half, stationary=stationary)
+            first = len(dice.log)
+            pool = roll_attack(attacker, _defender(target, _first_alive(target)['part']), conditions, dice)
+            killed = _resolve_wounds(state, shooter, target, attacker, conditions, pool, dice)
+            attacks.append({'part': part_index, 'weapon': weapon_index, 'name': weapon['name'], 'target': target['id'],
+                            'models': len(models), 'half_range': half, **asdict(pool), 'killed': killed,
+                            'rolls': [first, len(dice.log)]})
+        if _has(weapon['abilities'], 'Hazardous'):
+            hazardous += near + far
+    if hazardous:
+        first = len(dice.log)
+        roll = dice.roll(len(hazardous), 'hazardous', 2, crit_on=7)
+        for model, die in zip(hazardous, roll.dice):
+            if not die.success and model['alive']:
+                model['wounds_left'] = max(0, model['wounds_left'] - HAZARDOUS_DAMAGE)
+                model['alive'] = model['wounds_left'] > 0
+        attacks.append({'name': 'Hazardous', 'target': shooter['id'], 'models': len(hazardous),
+                        'killed': [m['id'] for m in hazardous if not m['alive']], 'rolls': [first, len(dice.log)]})
+    activity['shot'] = True
+    return {'attacks': attacks}
+
+
+def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice):
+    """Allocate and resolve a wound pool one wound at a time (normal wounds, then mortal); the models killed."""
+    killed = []
+    order = state['players'][target['player']].get('orders', DEFAULT_ORDERS)['casualties']
+    for mortal in [False] * pool.wounds + [True] * pool.mortal:
+        model = _allocate(target, attacking, order)
+        if model is None:
+            break
+        result = roll_wound(attacker, _defender(target, model['part']), conditions, dice, model['wounds_left'], mortal)
+        model['wounds_left'] -= result.damage
+        model['alive'] = model['wounds_left'] > 0
+        if not model['alive']:
+            killed.append(model['id'])
+    return killed
 
 
 def _first_alive(unit):
     return next(m for m in unit['models'] if m['alive'])
 
 
-def _allocate(unit):
+def _special(unit, model):
+    """Whether a model carries a weapon that not every model of its part has (a special weapon)."""
+    part = unit['parts'][model['part']]
+    return any(part['weapons'][w]['qty'] < part['models'] for w in model['weapons'])
+
+
+def _allocate(unit, attacking=None, order='farthest'):
     """
-    The model the next wound goes to: one already damaged, else bodyguard before leaders and, within
-    each, the last-listed model first (the first models carry the special weapons; see new_game).
+    The model the next wound goes to: one already damaged; else bodyguard before leaders; then models
+    with only the common weapons before special-weapon carriers; then the farthest from (or, by
+    standing order, closest to) the attacking unit; then the last-listed model.
     """
-    alive = [m for m in reversed(unit['models']) if m['alive']]
-    alive.sort(key=lambda m: m['part'])  # Stable: last-listed first within each part
+    alive = [m for m in unit['models'] if m['alive']]
     if not alive:
         return None
     full = {m['id']: unit['parts'][m['part']]['stats']['wounds'] for m in alive}
     damaged = [m for m in alive if m['wounds_left'] < full[m['id']]]
-    return (damaged or alive)[0]
+    if damaged:
+        return damaged[0]
+    attackers = [shape for _, shape in _placed_models(attacking)] if attacking else []
+
+    def distance(model):
+        if not attackers or not model['position']:
+            return 0
+        shape = model_shape(unit['parts'][model['part']], model['position'])
+        return min(base_distance(shape, other) for other in attackers)
+
+    position = {m['id']: i for i, m in enumerate(unit['models'])}
+    sign = -1 if order == 'farthest' else 1
+    return min(alive, key=lambda m: (m['part'], _special(unit, m), round(sign * distance(m), 6), -position[m['id']]))
 
 
 def _attacker(unit, part_index, weapon_index, models):

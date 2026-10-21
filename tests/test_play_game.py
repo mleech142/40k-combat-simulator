@@ -90,9 +90,9 @@ def part(name, models, wounds, role='unit', save=3, toughness=4, weapons=(), **e
                  'enhancement': None, 'warlord': False}, **extra)
 
 
-def gun(name='Bolter', attacks='2', skill=3, strength=4, ap=0, damage='1', qty=1, abilities=(), kind='ranged'):
+def gun(name='Bolter', attacks='2', skill=3, strength=4, ap=0, damage='1', qty=1, abilities=(), kind='ranged', range=24):
     return {'name': name, 'type': kind, 'attacks': attacks, 'skill': skill, 'strength': strength, 'ap': ap,
-            'damage': damage, 'range': 24, 'abilities': list(abilities), 'qty': qty, 'default_use': True}
+            'damage': damage, 'range': range, 'abilities': list(abilities), 'qty': qty, 'default_use': True}
 
 
 def army(name, *units):
@@ -125,11 +125,23 @@ def shoot(state, faces, unit='p2-gunner', target='p1-squad', weapons=None):
     return resolve_action(state, action, Dice(FixedRolls(*faces)))
 
 
+def on_board(state, player=1):
+    """Every model set out in rows, 1.5" apart (Red's first unit from (10, 10), Blue's from (11.5, 20), each
+    further unit 6" further back), in `player`'s Shooting phase."""
+    for side, (x, y) in ((0, (10, 10)), (1, (11.5, 20))):
+        for row, unit in enumerate(u for u in state['units'] if u['player'] == side):  # Each unit 6" further back
+            for i, model in enumerate(unit['models']):
+                model['position'] = {'x': x + 1.5 * i, 'y': y + (6 if side else -6) * row, 'angle': 0}
+    state['turn'] = {'phase': 'shooting', 'round': 1, 'player': player}
+    return state
+
+
 def duel(squad=None, gunner=None):
-    """Red: 3 models W2 Sv3+ led by a Hero (W5, Sv2+). Blue: one gunner with a 4-shot bolter."""
+    """Red: 3 models W2 Sv3+ led by a Hero (W5, Sv2+), at y 10. Blue: one gunner with a 4-shot bolter,
+    at (11.5, 20). Blue's Shooting phase."""
     squad = squad or (part('Squad', 3, 2, role='bodyguard'), part('Hero', 1, 5, role='leader', save=2))
     gunner = gunner or (part('Gunner', 1, 3, weapons=[gun(attacks='4')]),)
-    return new_game([army('Red', squad), army('Blue', gunner)])
+    return on_board(new_game([army('Red', squad), army('Blue', gunner)]))
 
 
 def test_shooting_wounds_an_already_damaged_model_first():
@@ -178,30 +190,39 @@ def test_leader_effects_apply_to_the_shooter_and_to_the_target():
 
 def test_only_living_models_carrying_a_weapon_shoot_it():
     gunners = (part('Gunners', 2, 1, weapons=[gun(attacks='1', qty=2)]),)
-    state = new_game([army('Red', (part('Target', 5, 1),), (part('Snipers', 1, 1, weapons=[gun(attacks='1')]),)),
-                      army('Blue', gunners)])
+    state = on_board(new_game([army('Red', (part('Target', 5, 1),), (part('Snipers', 1, 1, weapons=[gun(attacks='1')]),)),
+                               army('Blue', gunners)]), player=0)
     # Red's sniper kills a gunner (hit 6, wound 6, save 1); the one gunner left shoots back with one attack
     first = resolve_action(state, {'type': 'shoot', 'unit': 'p1-snipers', 'target': 'p2-gunners'},
                            Dice(FixedRolls(6, 6, 1)))
     state = apply_event(state, first)
+    state['turn']['player'] = 1
     event = shoot(state, [1], unit='p2-gunners', target='p1-target')
-    assert event['weapons'][0]['models'] == 1 and event['weapons'][0]['attacks'] == 1
+    assert event['attacks'][0]['models'] == 1 and event['attacks'][0]['attacks'] == 1
 
 
 # --- Replaying a game from its events -----------------------------------------------------
 
 def test_replaying_saved_events_rebuilds_the_game_without_dice():
-    armies = [army('Red', (part('Squad', 3, 2, role='bodyguard'), part('Hero', 1, 5, role='leader', save=2))),
-              army('Blue', (part('Gunner', 1, 3, weapons=[gun(attacks='4')]),))]
+    # Red's gunner shoots Blue's squad in two turns: set up, deployment done, through the phases
+    armies = [army('Red', (part('Gunner', 1, 3, weapons=[gun(attacks='4')]),)),
+              army('Blue', (part('Squad', 3, 2, role='bodyguard'), part('Hero', 1, 5, role='leader', save=2)))]
+    squad = [f'p2-squad-{p}-{n}' for p, n in ((0, 1), (0, 2), (0, 3), (1, 1))]
+    shoot_squad = {'type': 'shoot', 'unit': 'p1-gunner', 'target': 'p2-squad'}
+    actions = [({'type': 'place', 'unit': 'p1-gunner', 'models': [{'id': 'p1-gunner-0-1', 'x': 11.5, 'y': 10}]}, []),
+               ({'type': 'place', 'unit': 'p2-squad', 'models': [{'id': m, 'x': 10 + 1.5 * i, 'y': 34}
+                                                                   for i, m in enumerate(squad)]}, []),
+               ({'type': 'end_deployment'}, []), ({'type': 'next_phase'}, []), ({'type': 'next_phase'}, []),
+               (shoot_squad, [3, 3, 3, 1, 4, 4, 4, 1, 1, 6])]
+    actions += [({'type': 'next_phase'}, [])] * 10 + [(shoot_squad, [6, 6, 6, 6, 4, 4, 4, 4, 1, 1, 1, 1])]
     state, events = new_game(armies), []
-    for faces in ([3, 3, 3, 1, 4, 4, 4, 1, 1, 6], [6, 6, 6, 6, 4, 4, 4, 4, 1, 1, 1, 1]):
-        event = resolve_action(state, {'type': 'shoot', 'unit': 'p2-gunner', 'target': 'p1-squad'},
-                               Dice(FixedRolls(*faces)))
+    for action, faces in actions:
+        event = resolve_action(state, action, Dice(FixedRolls(*faces)))
         events.append(event)
         state = apply_event(state, event)
     saved = json.loads(json.dumps(events))  # As the game file / relay would keep them
     assert replay(armies, saved) == state
-    assert wounds(state, 'p1-squad') == ['dead', 'dead', 'dead', 5]
+    assert wounds(state, 'p2-squad') == ['dead', 'dead', 'dead', 5]
 
 
 # --- How each model is drawn ----------------------------------------------------------------

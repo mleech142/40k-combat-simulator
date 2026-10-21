@@ -23,6 +23,9 @@
         view: null,  // The board's viewBox, in SVG units (inches, y down)
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
         moveMode: 'normal',  // How the selected unit will move (Movement phase)
+        shooting: null,  // /api/play/games/<id>/shooting/<unit> for the selected unit (Shooting phase)
+        targets: {},  // The target chosen for each weapon, 'part:weapon' -> unit id
+        fire: {},  // Whether each weapon is ticked to fire, 'part:weapon' -> bool
     };
     const $ = id => document.getElementById(id);
 
@@ -145,6 +148,10 @@
         const turn = state.game.state.turn;
         if (await send({ type: turn.phase === 'deployment' ? 'end_deployment' : 'next_phase' })) {
             state.moveMode = 'normal';
+            state.shooting = null;
+            state.targets = {};
+            state.fire = {};
+            loadShooting();
             const now = state.game.state.turn;
             message(`${state.game.state.players[now.player].name}: ${PHASE_NAMES[now.phase]} phase.`);
         }
@@ -210,6 +217,7 @@
         }
         renderUnits();
         drawBoard();
+        renderLog();
     }
 
     function unitById(id) {
@@ -225,11 +233,18 @@
         }
         $('unit-list').innerHTML = game.state.players.map((player, p) => {
             const units = game.state.units.filter(u => u.player === p);
-            return `<div class="play-player ${PLAYER_CLASSES[p]}"><h4>${escapeHtml(player.name)}</h4>${units.map(u => {
+            const orders = (player.orders || {}).casualties || 'farthest';
+            return `<div class="play-player ${PLAYER_CLASSES[p]}"><h4>${escapeHtml(player.name)}</h4>
+                <label class="play-orders">Casualties
+                    <select data-orders="${p}" class="filter-select">
+                        <option value="farthest" ${orders === 'farthest' ? 'selected' : ''}>farthest from the attacker first</option>
+                        <option value="closest" ${orders === 'closest' ? 'selected' : ''}>closest to the attacker first</option>
+                    </select></label>${units.map(u => {
                 const living = u.models.filter(m => m.alive);
                 const placed = living.length && living.every(m => m.position);
                 const done = game.state.turn.phase === 'deployment' ? (placed ? 'placed' : 'not placed')
-                    : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '']
+                    : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
+                       u.activity.shot ? 'shot' : '']
                         .filter(Boolean).join(' · ');
                 return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''}" data-unit="${u.id}">
                     <span>${escapeHtml(u.name)}</span>
@@ -238,6 +253,8 @@
             }).join('')}</div>`;
         }).join('');
         $('unit-list').querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => select(b.dataset.unit)));
+        $('unit-list').querySelectorAll('[data-orders]').forEach(s => s.addEventListener('change', () =>
+            send({ type: 'orders', player: Number(s.dataset.orders), casualties: s.value })));
         renderDetail();
     }
 
@@ -249,6 +266,12 @@
         if (!state.selected) message('');
         else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone.`);
         else message('');
+        if (changed) {
+            state.shooting = null;
+            state.targets = {};
+            state.fire = {};
+            loadShooting();
+        }
         renderUnits();
         drawBoard();
     }
@@ -269,6 +292,9 @@
                 <button class="btn-small" data-mode="stationary" ${rolled ? 'disabled' : ''}>Remain stationary</button>
             </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]}.</p>`;
         }
+        if (turn.phase === 'shooting' && unit.player === turn.player && state.shooting && state.shooting.unit === unit.id) {
+            controls = shootingControls(unit);
+        }
         $('unit-detail').innerHTML = controls + unit.parts.map((part, i) => {
             const s = part.stats;
             const outline = state.game.outlines[unit.id][i];
@@ -280,6 +306,108 @@
             </div>`;
         }).join('');
         $('unit-detail').querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => movementChoice(b.dataset.mode)));
+        $('unit-detail').querySelectorAll('[data-fire]').forEach(c => c.addEventListener('change', () => {
+            state.fire[c.dataset.fire] = c.checked;
+        }));
+        $('unit-detail').querySelectorAll('[data-target]').forEach(s => s.addEventListener('change', () => {
+            state.targets[s.dataset.target] = s.value;
+            state.fire[s.dataset.target] = true;
+            renderDetail();
+        }));
+        const fire = $('fire-btn');
+        if (fire) fire.addEventListener('click', fireSelected);
+    }
+
+    // --- Shooting -----------------------------------------------------------------------
+
+    async function loadShooting() {
+        const unit = state.selected && unitById(state.selected);
+        const turn = state.game.state.turn;
+        if (!unit || turn.phase !== 'shooting' || unit.player !== turn.player) return;
+        const resp = await fetch(`/api/play/games/${state.game.id}/shooting/${unit.id}`);
+        if (!resp.ok || state.selected !== unit.id) return;
+        state.shooting = { unit: unit.id, ...(await resp.json()) };
+        renderDetail();
+    }
+
+    /** Point every weapon that can fire at an enemy unit (clicked on the board). */
+    function targetAll(enemyId) {
+        if (!state.shooting) return;
+        for (const w of state.shooting.weapons) {
+            const key = `${w.part}:${w.weapon}`;
+            state.targets[key] = enemyId;
+            state.fire[key] = w.targets[enemyId] ? w.targets[enemyId].ok && (w.default_use || state.fire[key]) : false;
+        }
+        message(`Target: ${unitById(enemyId).name}.`);
+        renderDetail();
+        drawBoard();
+    }
+
+    function shootingControls(unit) {
+        const options = state.shooting;
+        if (options.reason) return `<p class="play-hint">${escapeHtml(options.reason)}</p>`;
+        if (!options.weapons.length) return '<p class="play-hint">No ranged weapons.</p>';
+        const enemies = state.game.state.units.filter(u => u.player !== unit.player && u.models.some(m => m.alive && m.position));
+        const rows = options.weapons.map(w => {
+            const key = `${w.part}:${w.weapon}`;
+            const target = state.targets[key];
+            const choice = target && w.targets[target];
+            const checked = !!(choice && choice.ok && state.fire[key]);
+            const select = `<select class="filter-select" data-target="${key}">
+                <option value="">Choose a target</option>
+                ${enemies.map(e => {
+                    const t = w.targets[e.id];
+                    return `<option value="${e.id}" ${target === e.id ? 'selected' : ''} ${t && t.ok ? '' : 'disabled'}
+                        title="${escapeHtml(t && t.reason ? t.reason : '')}">${escapeHtml(e.name)}${t && t.ok ? ` (${t.models} firing)` : ' (no)'}</option>`;
+                }).join('')}</select>`;
+            const why = choice && !choice.ok ? `<small class="play-why">${escapeHtml(choice.reason)}</small>` : '';
+            return `<div class="play-weapon ${choice && !choice.ok ? 'blocked' : ''}">
+                <label><input type="checkbox" data-fire="${key}" ${checked ? 'checked' : ''} ${choice && choice.ok ? '' : 'disabled'}>
+                    ${escapeHtml(w.name)} <small>${w.range ? w.range + '"' : ''}</small></label>${select}${why}</div>`;
+        }).join('');
+        return `<div class="play-shooting">${rows}
+            <button class="btn btn-primary" id="fire-btn"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Fire</button></div>`;
+    }
+
+    async function fireSelected() {
+        const weapons = state.shooting.weapons
+            .map(w => ({ key: `${w.part}:${w.weapon}`, w }))
+            .filter(({ key, w }) => state.fire[key] && state.targets[key] && w.targets[state.targets[key]]?.ok)
+            .map(({ key, w }) => ({ part: w.part, weapon: w.weapon, target: state.targets[key] }));
+        if (!weapons.length) return message('Tick at least one weapon with a target.', true);
+        if (await send({ type: 'shoot', unit: state.selected, weapons })) {
+            const event = state.game.events[state.game.events.length - 1];
+            const killed = event.attacks.reduce((n, a) => n + a.killed.length, 0);
+            message(`${unitById(state.selected).name} fired: ${killed} model${killed === 1 ? '' : 's'} killed.`);
+            state.shooting = null;
+            loadShooting();
+        }
+    }
+
+    // --- Dice log -------------------------------------------------------------------------
+
+    function renderLog() {
+        const game = state.game;
+        const shots = game ? game.events.map((e, i) => [e, i]).filter(([e]) => e.attacks && e.attacks.length).reverse() : [];
+        if (!shots.length) {
+            $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
+            return;
+        }
+        const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
+        $('dice-log').innerHTML = shots.map(([event, i], n) => {
+            const targets = [...new Set(event.attacks.filter(a => a.name !== 'Hazardous').map(a => name(a.target)))];
+            return `<details class="play-log-entry" ${n === 0 ? 'open' : ''}>
+                <summary>${escapeHtml(name(event.action.unit))} shoots ${escapeHtml(targets.join(', '))}</summary>
+                ${event.attacks.map(a => `<div class="play-log-attack">
+                    <div>${escapeHtml(Core.playAttackSummary(a))}${a.name !== 'Hazardous' && targets.length > 1 ? ` at ${escapeHtml(name(a.target))}` : ''}</div>
+                    ${Core.playDiceGroups(event.rolls, a.rolls).map(g => `<div class="play-dice-row">
+                        <span class="play-dice-label">${escapeHtml(g.label)}${g.need ? ' ' + g.need : ''}</span>
+                        ${g.dice.map(d => `<span class="play-die ${d.kind}" title="${d.rerolled_from ? 'Re-rolled from ' + d.rerolled_from : ''}">${d.face}</span>`).join('')}
+                        ${g.note ? `<small>${escapeHtml(g.note)}</small>` : ''}
+                    </div>`).join('')}
+                </div>`).join('')}
+            </details>`;
+        }).join('');
     }
 
     function fitView() {
@@ -314,7 +442,8 @@
         for (const unit of game.state.units) {
             const placed = unit.models.filter(m => m.alive && m.position);
             if (!placed.length) continue;
-            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''}`,
+            const targeted = Object.values(state.targets).includes(unit.id) && game.state.turn.phase === 'shooting';
+            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
             const reach = m => Math.max(game.outlines[unit.id][m.part].length, game.outlines[unit.id][m.part].width) / 2 + 0.4;
@@ -403,9 +532,15 @@
         state.drag = null;
         if (!drag) return;
         const unit = unitById(drag.unitId);
-        if (Math.hypot(drag.dx, drag.dy) < 0.05) {  // A click on a unit: show it
+        if (Math.hypot(drag.dx, drag.dy) < 0.05) {  // A click on a unit: target it (shooting) or show it
             showReadout(null, null);
-            if (state.selected !== unit.id) select(unit.id);
+            const turn = state.game.state.turn;
+            const mine = state.selected && unitById(state.selected);
+            if (turn.phase === 'shooting' && mine && mine.player === turn.player && unit.player !== turn.player) {
+                targetAll(unit.id);
+            } else if (state.selected !== unit.id) {
+                select(unit.id);
+            }
             return;
         }
         showReadout(null, null);
