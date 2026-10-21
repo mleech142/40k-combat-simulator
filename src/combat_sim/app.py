@@ -17,6 +17,7 @@ from .data_store import (DataFileError, read_data_file, check_data, load_bsdata,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
 from . import armies, bsdata_download, effects, folder_dialog, wahapedia, wahapedia_download
 from .effects import RULE_PHASES
+from .play.routes import register_play_routes
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
@@ -62,6 +63,7 @@ def create_app(config=None):
         last_update = ((app.config.get('WAHAPEDIA_STATUS') or {}).get('source') or {}).get('last_update') or ''
         return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
                 'bsdata_label': bsdata_label(app),
+                'show_play': bool(load_settings(app.config['SETTINGS_JSON']).get('show_play')),
                 'wahapedia_label': (last_update[:10] or 'loaded') if wahapedia_loaded else None}
 
     if config:
@@ -75,6 +77,7 @@ def create_app(config=None):
 
     # Register routes
     register_routes(app)
+    register_play_routes(app)
 
     return app
 

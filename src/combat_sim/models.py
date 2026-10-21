@@ -609,6 +609,19 @@ class SavedArmy(db.Model):
                 'updated_at': (self.updated_at or self.created_at).isoformat() if (self.updated_at or self.created_at) else None}
 
 
+class SavedGame(db.Model):
+    """A Play mode game: its frozen armies and its event log (the state is their replay; see play/game.py).
+    Kept in the database only, like armies."""
+    __tablename__ = 'saved_games'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    armies = db.Column(JSON, nullable=False)  # [snapshot.freeze_army(...), ...], one per player
+    events = db.Column(JSON, nullable=False, default=list)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class SavedComparison(db.Model):
     """A saved matrix comparison for army analysis."""
     __tablename__ = 'saved_comparisons'
@@ -648,7 +661,7 @@ def add_missing_columns():
     (create_all only makes missing tables). Anything else still needs a manual ALTER TABLE.
     """
     inspector = db.inspect(db.engine)
-    for model in (SavedScenario, SavedComparison, SavedArmy, StableId):
+    for model in (SavedScenario, SavedComparison, SavedArmy, SavedGame, StableId):
         table = model.__table__
         if not inspector.has_table(table.name):
             continue

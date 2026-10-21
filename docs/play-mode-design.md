@@ -175,7 +175,11 @@ Version 1 is hot-seat play (two players on one PC).
      - `can_see`: any clear line between 16 points around each base, plus the centres.
 
      Which terrain blocks sight or gives cover is decided with terrain categories later. Shooting doesn't check range or sight until the board places models (step 3).
-1. **Board:** the Play page. Create a hot-seat game from two saved armies, place bases by dragging, save and reload.
+1. *Done:* **Board:** the Play page (`/play`, shown in the menu when "Show Play in the menu" is ticked on the Setup page, saved as `show_play` in `settings.json`).
+   - A game is a `SavedGame` row (database only): its two frozen armies and its event log. The API (`play/routes.py`) always answers with the replayed state, the board size and each part's outline (`game.outline`: inches, `estimated` for guessed sizes).
+   - Units are placed with a `place` action: every living model at once, wholly on the board and in the player's deployment zone (12" from their own long edge: player 1 at the bottom, player 2 at the top), not overlapping another model (touching is fine). No dice, so `POST .../undo` can take it back.
+   - Size estimates (decided for step 1): a hull by the model's wounds (up to 8: 4" x 2.5"; up to 14: 5" x 3.5"; more: 7" x 4.5"), a missing base as 32mm; both drawn dashed.
+   - The page drops a picked unit in rows of up to 5, 1" apart (`Core.playFormation`), shifted to fit the player's zone if it can (`Core.playFit`); a drag moves the unit, Shift-drag one model; the wheel zooms (`Core.playZoom`).
 2. **Movement:** normal move, Advance and Fall Back, with move distance, coherency and engagement range enforced.
 3. **Shooting:**
    - visible targets in range

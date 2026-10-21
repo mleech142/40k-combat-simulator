@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Play - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Play <span class="play-badge">Experimental</span></h2>
+</div>
+<p class="data-note">A game between two saved armies on one PC, taking turns. So far: set up each unit in your
+    deployment zone (12" from your own edge). Pick a unit on the right, click the board to place it, then drag it
+    (hold Shift to move one model). The mouse wheel zooms.</p>
+
+<div class="play-layout">
+    <aside class="card play-games">
+        <h3>Games</h3>
+        <div id="game-list"><p class="empty-message">No games yet</p></div>
+        <h3 class="play-new-title">New game</h3>
+        <div class="form-group">
+            <label for="new-red">Player 1 (bottom edge)</label>
+            <select id="new-red" class="filter-select"></select>
+        </div>
+        <div class="form-group">
+            <label for="new-blue">Player 2 (top edge)</label>
+            <select id="new-blue" class="filter-select"></select>
+        </div>
+        <div class="form-group">
+            <label for="new-name">Name</label>
+            <input type="text" id="new-name" class="filter-input" maxlength="200" placeholder="Army 1 vs Army 2">
+        </div>
+        <button class="btn btn-primary" id="new-game-btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> Start game</button>
+        <p class="play-hint" id="new-game-hint"></p>
+    </aside>
+
+    <section class="card play-board-card">
+        <div class="play-toolbar">
+            <strong id="game-title">Choose or start a game</strong>
+            <span class="play-message" id="play-message" role="status"></span>
+            <span class="play-toolbar-actions">
+                <button class="btn-small" id="undo-btn" disabled><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Undo</button>
+                <button class="btn-small" id="fit-btn"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Fit board</button>
+            </span>
+        </div>
+        <svg id="play-board" class="play-board" xmlns="http://www.w3.org/2000/svg" role="img"
+             aria-label="The battlefield, seen from above"></svg>
+    </section>
+
+    <aside class="card play-units">
+        <h3>Units</h3>
+        <div id="unit-list"><p class="empty-message">No game open</p></div>
+        <div id="unit-detail" class="play-detail"></div>
+    </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/play.js') }}"></script>
+{% endblock %}

@@ -12,6 +12,7 @@ import math
 from dataclasses import dataclass
 
 MM_PER_INCH = 25.4
+BOARD_WIDTH, BOARD_DEPTH = 60, 44
 OVAL_POINTS = 96  # An oval's edge as a polygon: within 0.002" of the true edge for the largest bases
 SIGHT_POINTS = 16  # Points around each base that lines of sight are drawn between
 
@@ -138,3 +139,29 @@ def _sight_points(shape):
     step = max(1, len(shape.points) // SIGHT_POINTS)
     centre = (sum(x for x, _ in shape.points) / len(shape.points), sum(y for _, y in shape.points) / len(shape.points))
     return [centre] + shape.points[::step]
+
+
+def overlaps(a, b):
+    """Whether two shapes overlap (bases that only touch don't)."""
+    eps = 1e-6
+    if a.radius and b.radius:
+        return math.dist(a.points[0], b.points[0]) < a.radius + b.radius - eps
+    if a.radius or b.radius:
+        circle, polygon = (a, b) if a.radius else (b, a)
+        centre = circle.points[0]
+        if _inside(centre, polygon.points):
+            return True
+        return min(_point_segment(centre, p, q) for p, q in _edges(polygon.points)) < circle.radius - eps
+    return (any(_strictly_inside(v, b.points) for v in a.points)
+            or any(_strictly_inside(v, a.points) for v in b.points)
+            or any(_crosses(p, q, r, s) for p, q in _edges(a.points) for r, s in _edges(b.points)))
+
+
+def _strictly_inside(v, polygon):
+    return all(_side(p, q, v) > 1e-6 for p, q in _edges(polygon))
+
+
+def bounds(shape):
+    """(left, bottom, right, top) of a shape."""
+    xs, ys = [x for x, _ in shape.points], [y for _, y in shape.points]
+    return min(xs) - shape.radius, min(ys) - shape.radius, max(xs) + shape.radius, max(ys) + shape.radius

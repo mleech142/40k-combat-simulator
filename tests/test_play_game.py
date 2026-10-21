@@ -10,7 +10,7 @@ import pytest
 from conftest import BSDATA_FIXTURES
 from test_play_dice import FixedRolls
 from combat_sim.play.dice import Dice
-from combat_sim.play.game import apply_event, new_game, replay, resolve_action, unit_by_id
+from combat_sim.play.game import apply_event, new_game, outline, replay, resolve_action, unit_by_id
 from combat_sim.play.snapshot import freeze_army
 
 APP_DATA = {'schema_version': 2, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [],
@@ -202,3 +202,15 @@ def test_replaying_saved_events_rebuilds_the_game_without_dice():
     saved = json.loads(json.dumps(events))  # As the game file / relay would keep them
     assert replay(armies, saved) == state
     assert wounds(state, 'p1-squad') == ['dead', 'dead', 'dead', 5]
+
+
+# --- How each model is drawn ----------------------------------------------------------------
+
+def test_outline_in_inches_with_estimates_marked():
+    assert outline(part('A', 1, 2, base={'shape': 'round', 'length_mm': 25.4, 'width_mm': 25.4})) == {
+        'shape': 'round', 'length': 1, 'width': 1, 'estimated': False}
+    assert outline(part('B', 1, 2, base={'shape': 'oval', 'length_mm': 120, 'width_mm': 92, 'approx': True})) == {
+        'shape': 'oval', 'length': 120 / 25.4, 'width': 92 / 25.4, 'estimated': True}
+    assert outline(part('Tank', 1, 12, base={'shape': 'hull'})) == {
+        'shape': 'rect', 'length': 5, 'width': 3.5, 'estimated': True}  # Up to 14 wounds
+    assert outline(part('C', 1, 2)) == {'shape': 'round', 'length': 32 / 25.4, 'width': 32 / 25.4, 'estimated': True}

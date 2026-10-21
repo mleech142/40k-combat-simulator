@@ -45,6 +45,7 @@ The v2 workbook `40KCombatSimulator_v2.xlsx` is frozen; it is now only the simul
 - `/` - Single combat simulator
 - `/analytics` - Attacker units × defender units matrix + Army Analysis
 - `/scenarios` - Saved scenarios
+- `/play` - Play mode (experimental; in the menu only when ticked on the Setup page): games between two saved armies on a top-down board. Code in `src/combat_sim/play/` (routes in `play/routes.py`); games are `SavedGame` rows (database only). Design and status: `docs/play-mode-design.md`
 - `/armies` - Army lists: build, save, copy, export as text, send to Analytics (`/analytics?army=<id>&side=attacker|defender`). Pricing and checks are in `armies.py` (`POST /api/armies/price` on every change): points, detachments' DP and Unique Tags, copies of a datasheet (`Unit.max_in_army`, else the core rule), leaders and support units (`Unit.can_support`), the Warlord and enhancements. Lists are `SavedArmy` rows (database only, not the app data JSON)
 - `/setup` - Choose, download or re-import the BSData folder; download Wahapedia's rules and stratagems; import notes. `/` redirects here until BSData loads or setup is skipped
 - `/data` - BSData import status; factions (with rules and stratagems), units and weapons (BSData read-only, custom editable); read-only Keywords and Target Profiles

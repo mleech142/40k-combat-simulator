@@ -690,7 +690,56 @@
         };
     }
 
+    // -------------------------------------------------------------------------
+    // Play mode: board layout (inches; the server checks every placement)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Where a unit's models go when it is dropped at (cx, cy): rows of up to 5, each model 1" from the
+     * next (spaced by the biggest base), the rows centred on the point. `sizes` are base lengths in inches.
+     */
+    function playFormation(sizes, cx, cy) {
+        const spacing = Math.max(...sizes) + 1;
+        const rows = Math.ceil(sizes.length / 5);
+        const round = v => Math.round(v * 100) / 100;
+        return sizes.map((_, i) => {
+            const row = Math.floor(i / 5);
+            const inRow = Math.min(5, sizes.length - row * 5);
+            return {
+                x: round(cx + ((i % 5) - (inRow - 1) / 2) * spacing),
+                y: round(cy + ((rows - 1) / 2 - row) * spacing),
+            };
+        });
+    }
+
+    /**
+     * A formation moved (as little as possible) to lie wholly inside `area` ({left, bottom, right, top}),
+     * each model reaching `reach[i]` inches from its centre. Left where it is if it can't fit either way.
+     */
+    function playFit(positions, reach, area) {
+        const round = v => Math.round(v * 100) / 100;
+        const shift = (low, high, min, max) => {
+            if (high - low > max - min) return 0;
+            if (low < min) return min - low;
+            if (high > max) return max - high;
+            return 0;
+        };
+        const lows = (axis) => Math.min(...positions.map((p, i) => p[axis] - reach[i]));
+        const highs = (axis) => Math.max(...positions.map((p, i) => p[axis] + reach[i]));
+        const dx = shift(lows('x'), highs('x'), area.left, area.right);
+        const dy = shift(lows('y'), highs('y'), area.bottom, area.top);
+        return positions.map(p => ({ x: round(p.x + dx), y: round(p.y + dy) }));
+    }
+
+    /** The board view ({x, y, w, h} in inches) zoomed by `factor` about the point (px, py), 10" to 72" wide. */
+    function playZoom(view, factor, px, py) {
+        const w = Math.min(72, Math.max(10, view.w * factor));
+        const scale = w / view.w;
+        return { x: px - (px - view.x) * scale, y: py - (py - view.y) * scale, w, h: view.h * scale };
+    }
+
     return {
+        playFormation, playFit, playZoom,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

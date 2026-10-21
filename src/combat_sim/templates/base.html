@@ -21,6 +21,7 @@
             <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}"><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> Simulator</a>
             <a href="/analytics" class="nav-link {% if request.path == '/analytics' %}active{% endif %}"><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Analytics</a>
             <a href="/armies" class="nav-link {% if request.path == '/armies' %}active{% endif %}"><i class="fa-solid fa-chess-rook" aria-hidden="true"></i> Armies</a>
+            {% if show_play %}<a href="/play" class="nav-link {% if request.path == '/play' %}active{% endif %}"><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Play</a>{% endif %}
             <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}"><i class="fa-solid fa-bookmark" aria-hidden="true"></i> Scenarios</a>
             <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}"><i class="fa-solid fa-database" aria-hidden="true"></i> Data</a>
             <a href="/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</a>

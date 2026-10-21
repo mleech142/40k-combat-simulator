@@ -1,0 +1,128 @@
+"""
+Play mode's games API (/api/play/...): games made from two saved armies, kept as their frozen
+armies and event log, actions checked and logged, undo. Built on the made-up BSData factions.
+"""
+
+import pytest
+
+from conftest import BSDATA_FIXTURES
+
+APP_DATA = {'schema_version': 2, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [],
+            'faction_rules': [], 'stratagems': [], 'unit_modifiers': [], 'keywords': [], 'target_profiles': []}
+
+
+@pytest.fixture
+def client(make_client):
+    return make_client(APP_DATA, bsdata=BSDATA_FIXTURES)[0]
+
+
+def saved_army(client, name, *units):
+    factions = {f['name']: f['id'] for f in client.get('/api/data/factions').get_json()}
+    ids = {u['name']: u['id'] for u in client.get(f'/api/units?faction_id={factions["Starfarers"]}').get_json()}
+    body = {'name': name, 'faction_id': factions['Starfarers'], 'points_limit': 2000,
+            'units': [dict(unit, unit_id=ids[unit.pop('unit')]) for unit in units]}
+    response = client.post('/api/armies', json=body)
+    assert response.status_code == 200, response.get_json()
+    return response.get_json()['id']
+
+
+@pytest.fixture
+def game(client):
+    red = saved_army(client, 'Red', {'uid': 'w', 'unit': 'Void Warriors'}, {'uid': 'c', 'unit': 'Star Captain'})
+    blue = saved_army(client, 'Blue', {'uid': 'g', 'unit': 'Gun Crew'})
+    response = client.post('/api/play/games', json={'name': 'First game', 'armies': [red, blue]})
+    assert response.status_code == 200, response.get_json()
+    return response.get_json()
+
+
+# --- Games ------------------------------------------------------------------------------
+
+def test_new_game_from_two_saved_armies(client, game):
+    assert game['name'] == 'First game' and game['events'] == []
+    assert [p['name'] for p in game['state']['players']] == ['Red', 'Blue']
+    assert [u['id'] for u in game['state']['units']] == ['p1-w', 'p1-c', 'p2-g']
+    assert all(m['position'] is None for u in game['state']['units'] for m in u['models'])  # Not placed yet
+    assert game['board'] == {'width': 60, 'depth': 44, 'deployment_depth': 12}
+    assert game['outlines']['p1-w'] == [{'shape': 'round', 'length': 32 / 25.4, 'width': 32 / 25.4, 'estimated': False}]
+    listed = client.get('/api/play/games').get_json()
+    assert [(g['id'], g['name'], g['players']) for g in listed] == [(game['id'], 'First game', ['Red', 'Blue'])]
+    assert client.get(f'/api/play/games/{game["id"]}').get_json() == game
+
+
+def test_deleting_a_game(client, game):
+    assert client.delete(f'/api/play/games/{game["id"]}').status_code == 200
+    assert client.get('/api/play/games').get_json() == []
+    assert client.get(f'/api/play/games/{game["id"]}').status_code == 404
+
+
+def test_a_game_needs_two_saved_armies(client):
+    red = saved_army(client, 'Red', {'uid': 'w', 'unit': 'Void Warriors'})
+    response = client.post('/api/play/games', json={'name': 'Solo', 'armies': [red]})
+    assert response.status_code == 400 and 'two' in response.get_json()['error']
+    response = client.post('/api/play/games', json={'name': 'Ghost', 'armies': [red, 99999]})
+    assert response.status_code == 400
+
+
+# --- Placing units -----------------------------------------------------------------------
+# Red deploys within 12" of the bottom edge (y 0-12), Blue within 12" of the top (y 32-44).
+# Void Warriors are 5 models on 32mm (1.26") bases.
+
+def place(client, game, unit, spots, angle=0):
+    models = [m['id'] for u in game['state']['units'] if u['id'] == unit for m in u['models']]
+    body = {'type': 'place', 'unit': unit,
+            'models': [{'id': m, 'x': x, 'y': y, 'angle': angle} for m, (x, y) in zip(models, spots)]}
+    return client.post(f'/api/play/games/{game["id"]}/actions', json=body)
+
+
+ROW = [(10 + 1.5 * i, 6) for i in range(5)]
+
+
+def test_placing_a_unit_in_its_deployment_zone(client, game):
+    response = place(client, game, 'p1-w', ROW)
+    assert response.status_code == 200, response.get_json()
+    after = response.get_json()
+    assert len(after['events']) == 1 and after['events'][0]['rolls'] == []
+    warriors = after['state']['units'][0]
+    assert [m['position'] for m in warriors['models']][:2] == [{'x': 10, 'y': 6, 'angle': 0}, {'x': 11.5, 'y': 6, 'angle': 0}]
+    assert client.get(f'/api/play/games/{game["id"]}').get_json() == after  # Saved
+
+
+@pytest.mark.parametrize('spots,message', [
+    ([(10 + 1.5 * i, 20) for i in range(5)], 'deployment zone'),  # Middle of the board
+    ([(10 + 1.5 * i, 11.8) for i in range(5)], 'deployment zone'),  # Bases stick out past 12"
+    ([(0.3 + 1.5 * i, 6) for i in range(5)], 'board'),  # Off the left edge
+    ([(10 + 0.5 * i, 6) for i in range(5)], 'overlap'),  # Bases on top of each other
+    (ROW[:4], 'every model'),  # One left out
+])
+def test_placements_the_rules_dont_allow_are_refused(client, game, spots, message):
+    response = place(client, game, 'p1-w', spots)
+    assert response.status_code == 400 and message in response.get_json()['error']
+    assert client.get(f'/api/play/games/{game["id"]}').get_json()['events'] == []
+
+
+def test_a_unit_cant_be_placed_on_another(client, game):
+    assert place(client, game, 'p1-w', ROW).status_code == 200
+    on_top = place(client, game, 'p1-c', [(10, 6)])
+    assert on_top.status_code == 400 and 'overlap' in on_top.get_json()['error']
+    assert place(client, game, 'p1-c', [(10, 8)]).status_code == 200
+    assert place(client, game, 'p1-w', [(x + 0.5, y) for x, y in ROW]).status_code == 200  # Its own old spots don't count
+
+
+def test_undo_takes_back_the_last_placement(client, game):
+    place(client, game, 'p1-w', ROW)
+    response = client.post(f'/api/play/games/{game["id"]}/undo')
+    assert response.status_code == 200 and response.get_json()['events'] == []
+    assert client.post(f'/api/play/games/{game["id"]}/undo').status_code == 400  # Nothing left to undo
+
+
+# --- The experimental setting ------------------------------------------------------------
+
+def test_play_link_shows_only_when_the_setting_is_on(client):
+    assert 'href="/play"' not in client.get('/armies').get_data(as_text=True)
+    assert 'id="play-setting"' in client.get('/setup').get_data(as_text=True)
+    response = client.post('/api/play/setting', json={'enabled': True})
+    assert response.status_code == 200 and response.get_json() == {'enabled': True}
+    assert 'href="/play"' in client.get('/armies').get_data(as_text=True)
+    assert 'js/play.js' in client.get('/play').get_data(as_text=True)
+    client.post('/api/play/setting', json={'enabled': False})
+    assert 'href="/play"' not in client.get('/armies').get_data(as_text=True)

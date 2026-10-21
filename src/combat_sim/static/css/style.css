@@ -3595,3 +3595,101 @@ h4 .fa-solid,
         grid-template-columns: 1fr 1fr;
     }
 }
+
+/* Play (experimental): the top-down board */
+:root {
+    --play-p1: #e8722f;            /* Player 1: Blaze Orange */
+    --play-p2: #5fa8d3;            /* Player 2: a cool blue that reads against the board */
+    --play-field: #1d1d16;
+}
+
+.play-badge {
+    font-size: 0.7rem;
+    vertical-align: middle;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid var(--accent-dim);
+    border-radius: 999px;
+    color: var(--text-secondary);
+}
+
+.play-layout {
+    display: grid;
+    grid-template-columns: 230px minmax(0, 1fr) 260px;
+    gap: 1rem;
+    align-items: start;
+}
+
+.play-layout .card h3 { margin-bottom: 0.6rem; }
+.play-new-title { margin-top: 1.25rem; }
+.play-games .filter-select, .play-games .filter-input { width: 100%; }
+.play-hint { color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem; }
+
+.play-game-row { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem; }
+.play-game-row.active .play-game-open { border-color: var(--accent); background: var(--accent-tint); }
+.play-game-open {
+    flex: 1;
+    text-align: left;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
+}
+.play-game-open small { display: block; color: var(--text-muted); }
+.btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.3rem; }
+.btn-icon:hover { color: var(--error); }
+
+.play-toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.play-toolbar-actions { margin-left: auto; display: flex; gap: 0.4rem; }
+.play-message { color: var(--text-secondary); font-size: 0.9rem; }
+.play-message.error { color: var(--error); }
+
+.play-board {
+    display: block;
+    width: 100%;
+    aspect-ratio: 62 / 46;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    touch-action: none;
+    user-select: none;
+}
+.play-field { fill: var(--play-field); stroke: var(--border); stroke-width: 0.08; }
+.play-zone { opacity: 0.12; }
+.play-zone.play-p1 { fill: var(--play-p1); }
+.play-zone.play-p2 { fill: var(--play-p2); }
+.play-grid line { stroke: #ffffff; stroke-opacity: 0.05; stroke-width: 0.03; }
+.play-grid line.major { stroke-opacity: 0.12; }
+
+.play-unit-group { --player: var(--play-p1); }
+.play-unit-group.play-p2 { --player: var(--play-p2); }
+.play-model { fill: var(--player); fill-opacity: 0.85; stroke: #000; stroke-width: 0.06; cursor: grab; }
+.play-model.leader { stroke: var(--text-primary); stroke-width: 0.12; }
+.play-model.estimated { stroke-dasharray: 0.25 0.15; stroke: var(--text-primary); }
+.play-unit-outline { fill: none; stroke: var(--player); stroke-opacity: 0.35; stroke-width: 0.06; }
+.play-unit-group.selected .play-unit-outline { stroke-opacity: 1; stroke-width: 0.12; }
+.play-label { fill: var(--text-primary); font-size: 0.8px; text-anchor: middle; pointer-events: none; }
+
+.play-player { margin-bottom: 0.9rem; }
+.play-player h4 { margin-bottom: 0.35rem; border-left: 4px solid var(--play-p1); padding-left: 0.4rem; }
+.play-player.play-p2 h4 { border-left-color: var(--play-p2); }
+.play-unit {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.35rem 0.55rem;
+    margin-bottom: 0.25rem;
+    cursor: pointer;
+}
+.play-unit small { display: block; color: var(--text-muted); }
+.play-unit.selected { border-color: var(--accent); background: var(--accent-tint); }
+.play-detail .play-part { border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem; }
+.play-stats { color: var(--text-secondary); font-size: 0.9rem; }
+
+@media (max-width: 1100px) {
+    .play-layout { grid-template-columns: minmax(0, 1fr); }
+}

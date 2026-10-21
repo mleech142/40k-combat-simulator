@@ -74,6 +74,13 @@
         <div class="setup-message" id="reimport-message"></div>
     </section>
 
+    <section class="setup-card">
+        <h3>Play (experimental)</h3>
+        <p>Full games against a friend on a top-down board. Still being built: turn it on to try what's there so far.</p>
+        <label class="setup-row"><input type="checkbox" id="play-setting" {% if show_play %}checked{% endif %}
+            onchange="setPlay(this.checked)"> Show Play in the menu</label>
+    </section>
+
     <section class="setup-card" id="report-card" style="display:none">
         <h3>Import notes</h3>
         <p>Things the importers couldn't read fully. The units and rules still import; these are worth knowing when a
@@ -182,6 +189,12 @@ document.addEventListener('toggle', async e => {
 }, true);
 
 /** POST and show the outcome in a message line; returns the new status or null. */
+async function setPlay(enabled) {
+    await fetch('/api/play/setting', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                      body: JSON.stringify({enabled})});
+    location.reload();
+}
+
 async function run(button, messageId, url, body, working, done = null) {
     const message = document.getElementById(messageId);
     const buttons = document.querySelectorAll('.setup-page button');

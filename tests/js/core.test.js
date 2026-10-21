@@ -517,3 +517,38 @@ test('createPageState survives unavailable storage', () => {
     assert.equal(state.load('x'), null);
     assert.equal(Core.createPageState(null, 'run-1').load('x'), null);
 });
+
+// ---------------------------------------------------------------------------
+// Play mode: board layout
+// ---------------------------------------------------------------------------
+
+test('playFormation sets a unit out in rows of up to 5, 1" apart, centred where it is dropped', () => {
+    // 32mm bases (1.26"): 2.26" from centre to centre
+    const five = Core.playFormation(Array(5).fill(1.26), 20, 6);
+    assert.deepEqual(five.map(p => p.x), [15.48, 17.74, 20, 22.26, 24.52]);
+    assert.ok(five.every(p => p.y === 6));
+    const seven = Core.playFormation(Array(7).fill(1.26), 20, 6);
+    assert.deepEqual(seven.map(p => [p.x, p.y]), [
+        [15.48, 7.13], [17.74, 7.13], [20, 7.13], [22.26, 7.13], [24.52, 7.13], [18.87, 4.87], [21.13, 4.87]]);
+    // Mixed sizes (a leader on a bigger base) space out by the biggest
+    assert.deepEqual(Core.playFormation([1, 2], 10, 10).map(p => p.x), [8.5, 11.5]);
+});
+
+test('playZoom zooms about the pointer and keeps the view between 10" and the board plus a margin', () => {
+    const view = { x: 0, y: 0, w: 60, h: 44 };
+    assert.deepEqual(Core.playZoom(view, 0.5, 30, 22), { x: 15, y: 11, w: 30, h: 22 });
+    assert.deepEqual(Core.playZoom(view, 0.5, 0, 0), { x: 0, y: 0, w: 30, h: 22 });  // The corner stays put
+    assert.equal(Core.playZoom(view, 0.01, 30, 22).w, 10);
+    assert.equal(Core.playZoom(view, 10, 30, 22).w, 72);
+});
+
+test('playFit shifts a dropped formation to lie wholly inside an area when it can', () => {
+    const area = { left: 0, bottom: 0, right: 60, top: 12 };
+    // Two models 1" across (0.5" from centre to edge) dropped too close to the zone's top edge
+    assert.deepEqual(Core.playFit([{ x: 10, y: 11.8 }, { x: 12, y: 11.8 }], [0.5, 0.5], area),
+                     [{ x: 10, y: 11.5 }, { x: 12, y: 11.5 }]);
+    assert.deepEqual(Core.playFit([{ x: 0.2, y: 6 }], [0.5], area), [{ x: 0.5, y: 6 }]);  // Off the left edge
+    assert.deepEqual(Core.playFit([{ x: 10, y: 6 }], [0.5], area), [{ x: 10, y: 6 }]);  // Already inside
+    // Too deep to fit: left where it was dropped (the server says why)
+    assert.deepEqual(Core.playFit([{ x: 10, y: 1 }, { x: 10, y: 14 }], [0.5, 0.5], area), [{ x: 10, y: 1 }, { x: 10, y: 14 }]);
+});

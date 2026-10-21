@@ -12,8 +12,15 @@ from dataclasses import asdict
 from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
+from .geometry import BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_shape, bounds, hull_shape, overlaps
 
 STATE_VERSION = 1
+DEPLOYMENT_DEPTH = 12  # Until missions: each player sets up within this many inches of their own long edge
+MODEL_FIELDS = ('wounds_left', 'alive', 'position')  # What an event can change about a model
+
+
+class ActionError(ValueError):
+    """An action the rules don't allow; its message says why, for the player."""
 
 
 def new_game(armies):
@@ -24,7 +31,7 @@ def new_game(armies):
         for unit in army['units']:
             unit_id = f'p{player + 1}-{unit["uid"]}'
             models = [{'id': f'{unit_id}-{part_index}-{n + 1}', 'part': part_index,
-                       'wounds_left': part['stats']['wounds'], 'alive': True,
+                       'wounds_left': part['stats']['wounds'], 'alive': True, 'position': None,
                        # The part's weapons this model carries: the first `qty` models carry each
                        'weapons': [i for i, w in enumerate(part['weapons']) if n < w['qty']]}
                       for part_index, part in enumerate(unit['parts']) for n in range(part['models'])]
@@ -39,14 +46,22 @@ def unit_by_id(state, unit_id):
 
 def resolve_action(state, action, dice):
     """Roll an action and return its event ({'action', 'rolls', 'models', ...}); `state` is not changed."""
+    before = {m['id']: {k: m[k] for k in MODEL_FIELDS} for u in state['units'] for m in u['models']}
     state = copy.deepcopy(state)
     start = len(dice.log)
-    if action['type'] == 'shoot':
+    kind = action.get('type')
+    if kind == 'shoot':
         detail = _shoot(state, action, dice)
+    elif kind == 'place':
+        detail = _place(state, action)
     else:
-        raise ValueError(f'Unknown action: {action["type"]}')
-    changed = {m['id']: {'wounds_left': m['wounds_left'], 'alive': m['alive']}
-               for m in unit_by_id(state, action['target'])['models']}
+        raise ActionError(f'Unknown action: {kind}')
+    changed = {}
+    for unit in state['units']:
+        for m in unit['models']:
+            now = {k: m[k] for k in MODEL_FIELDS}
+            if now != before[m['id']]:
+                changed[m['id']] = now
     return {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]], 'models': changed, **detail}
 
 
@@ -143,3 +158,80 @@ def replay(armies, events):
     for event in events:
         state = apply_event(state, event)
     return state
+
+
+def outline(part):
+    """How a part's models are drawn and measured: {'shape': 'round'|'oval'|'rect', 'length', 'width'}
+    in inches, 'estimated' when the size is a guess (a hull with no size yet, a missing or approximate
+    base: a rectangle by the model's wounds, or 32mm round)."""
+    base = part.get('base')
+    if base is None:
+        return {'shape': 'round', 'length': 32 / MM_PER_INCH, 'width': 32 / MM_PER_INCH, 'estimated': True}
+    if base['shape'] == 'hull':
+        length, width = estimated_hull(part['stats']['wounds'])
+        return {'shape': 'rect', 'length': length, 'width': width, 'estimated': True}
+    return {'shape': base['shape'], 'length': base['length_mm'] / MM_PER_INCH, 'width': base['width_mm'] / MM_PER_INCH,
+            'estimated': bool(base.get('approx'))}
+
+
+def model_shape(part, position):
+    """A model's base (or hull) at its position, for measuring."""
+    drawn = outline(part)
+    x, y, angle = position['x'], position['y'], position.get('angle') or 0
+    if drawn['shape'] == 'rect':
+        return hull_shape(drawn['length'], drawn['width'], x, y, angle)
+    return base_shape({'length_mm': drawn['length'] * MM_PER_INCH, 'width_mm': drawn['width'] * MM_PER_INCH}, x, y, angle)
+
+
+def estimated_hull(wounds):
+    """A vehicle's hull size (length, width) in inches, until its real size is entered."""
+    if wounds <= 8:
+        return 4, 2.5
+    if wounds <= 14:
+        return 5, 3.5
+    return 7, 4.5
+
+
+def _unit_or_error(state, unit_id):
+    unit = next((u for u in state['units'] if u['id'] == unit_id), None)
+    if unit is None:
+        raise ActionError('That unit is not in this game.')
+    return unit
+
+
+def _place(state, action):
+    """Set up a unit: every living model, wholly on the board and in its player's deployment zone,
+    overlapping no other model."""
+    unit = _unit_or_error(state, action.get('unit'))
+    living = {m['id']: m for m in unit['models'] if m['alive']}
+    spots = {}
+    for spot in action.get('models') or []:
+        try:
+            spots[spot['id']] = {'x': float(spot['x']), 'y': float(spot['y']), 'angle': float(spot.get('angle') or 0)}
+        except (KeyError, TypeError, ValueError):
+            raise ActionError('Each model needs an id, x and y.')
+    if set(spots) != set(living):
+        raise ActionError(f'Place every model of {unit["name"]} at once.')
+    for spot in spots.values():  # Whole numbers stay whole in the saved game
+        for key in ('x', 'y', 'angle'):
+            if spot[key].is_integer():
+                spot[key] = int(spot[key])
+
+    shapes = {mid: model_shape(unit['parts'][living[mid]['part']], spot) for mid, spot in spots.items()}
+    zone = (0, DEPLOYMENT_DEPTH) if unit['player'] == 0 else (BOARD_DEPTH - DEPLOYMENT_DEPTH, BOARD_DEPTH)
+    for shape in shapes.values():
+        left, bottom, right, top = bounds(shape)
+        if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
+            raise ActionError('Every model must be wholly on the board.')
+        if bottom < zone[0] or top > zone[1]:
+            raise ActionError(f'Every model must be wholly within your deployment zone '
+                              f'({DEPLOYMENT_DEPTH}" from your edge).')
+    others = [model_shape(u['parts'][m['part']], m['position']) for u in state['units'] if u is not unit
+              for m in u['models'] if m['alive'] and m['position']]
+    placed = list(shapes.values())
+    for i, shape in enumerate(placed):
+        if any(overlaps(shape, other) for other in placed[i + 1:] + others):
+            raise ActionError("Models' bases can't overlap.")
+    for mid, spot in spots.items():
+        living[mid]['position'] = spot
+    return {}
