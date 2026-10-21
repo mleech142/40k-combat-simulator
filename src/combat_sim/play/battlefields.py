@@ -106,3 +106,90 @@ def outline_points(shape, steps=24):
 def wholly_inside(shape, polygon):
     """Whether a model's whole base is inside a polygon (checked round its edge)."""
     return all(inside(p, polygon) for p in outline_points(shape))
+
+
+# --- Checking battlefields saved in the editor --------------------------------------------------------------
+
+KINDS = ('home', 'central', 'expansion')
+CATEGORIES = ('exposed', 'light', 'dense')
+
+
+class BattlefieldError(ValueError):
+    """A battlefield that doesn't make sense; the message says why."""
+
+
+def _number(value, what, low=None, high=None):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise BattlefieldError(f'{what} must be a number.')
+    if (low is not None and number < low) or (high is not None and number > high):
+        raise BattlefieldError(f'{what} must be on the board ({low} to {high}).')
+    return int(number) if number.is_integer() else round(number, 3)
+
+
+def _point(value, what):
+    try:
+        x, y = value
+    except (TypeError, ValueError):
+        raise BattlefieldError(f'{what} must be a point [x, y].')
+    return [_number(x, f'{what} x', 0, BOARD[0]), _number(y, f'{what} y', 0, BOARD[1])]
+
+
+BOARD = (60, 44)
+
+
+def clean(data):
+    """
+    A battlefield from the editor, checked and tidied: {'name', 'zones', 'divider', 'objectives',
+    'terrain'}. Objectives under a terrain piece become terrain objectives (as when terrain is set up over
+    objective points). Raises BattlefieldError.
+    """
+    from .geometry import FOOTPRINTS, footprint  # (geometry doesn't import this module)
+    if not isinstance(data, dict):
+        raise BattlefieldError('Send the battlefield as a JSON object.')
+    name = str(data.get('name') or '').strip()[:200]
+    if not name:
+        raise BattlefieldError('Give the battlefield a name.')
+    zones = {}
+    for role in ('attacker', 'defender'):
+        points = (data.get('zones') or {}).get(role)
+        if not isinstance(points, list) or len(points) < 3:
+            raise BattlefieldError(f'The {role}\'s zone needs at least 3 corners.')
+        zones[role] = [_point(p, f'A corner of the {role}\'s zone') for p in points]
+    divider = data.get('divider') or [[0, 22], [60, 22]]
+    if not isinstance(divider, list) or len(divider) != 2:
+        raise BattlefieldError('The dividing line needs two points.')
+    divider = [_point(p, 'The dividing line') for p in divider]
+    terrain, ids = [], set()
+    for i, piece in enumerate(data.get('terrain') or []):
+        if not isinstance(piece, dict):
+            raise BattlefieldError('Each terrain piece must be an object.')
+        if piece.get('footprint') not in FOOTPRINTS:
+            raise BattlefieldError(f'Unknown terrain footprint: {piece.get("footprint")} (one of {", ".join(FOOTPRINTS)}).')
+        if piece.get('category') not in CATEGORIES:
+            raise BattlefieldError(f'Terrain category must be one of {", ".join(CATEGORIES)}.')
+        id_ = str(piece.get('id') or f't{i + 1}')[:40]
+        while id_ in ids:
+            id_ += '+'
+        ids.add(id_)
+        terrain.append({'id': id_, 'footprint': piece['footprint'], 'x': _number(piece.get('x'), 'Terrain x', 0, BOARD[0]),
+                        'y': _number(piece.get('y'), 'Terrain y', 0, BOARD[1]),
+                        'angle': _number(piece.get('angle') or 0, 'Terrain angle', -360, 360),
+                        'category': piece['category'], 'height': _number(piece.get('height') or 0, 'Terrain height', 0, 30)})
+    objectives, seen = [], set()
+    for i, objective in enumerate(data.get('objectives') or []):
+        if not isinstance(objective, dict) or objective.get('kind') not in KINDS:
+            raise BattlefieldError(f'Objective kind must be one of {", ".join(KINDS)}.')
+        role = objective.get('role') if objective['kind'] == 'home' else None
+        if objective['kind'] == 'home' and role not in ('attacker', 'defender'):
+            raise BattlefieldError('A home objective belongs to the attacker or the defender.')
+        id_ = str(objective.get('id') or f'{objective["kind"]}-{i + 1}')[:40]
+        while id_ in seen:
+            id_ += '+'
+        seen.add(id_)
+        x, y = _point([objective.get('x'), objective.get('y')], 'An objective')
+        under = next((t['id'] for t in terrain
+                      if inside((x, y), footprint(t['footprint'], t['x'], t['y'], t['angle']).points)), None)
+        objectives.append({'id': id_, 'kind': objective['kind'], 'role': role, 'x': x, 'y': y, 'terrain': under})
+    return {'name': name, 'zones': zones, 'divider': divider, 'objectives': objectives, 'terrain': terrain}

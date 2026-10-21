@@ -618,6 +618,18 @@ class SavedGame(db.Model):
     name = db.Column(db.String(200), nullable=False)
     armies = db.Column(JSON, nullable=False)  # [snapshot.freeze_army(...), ...], one per player
     events = db.Column(JSON, nullable=False, default=list)
+    battlefield = db.Column(JSON, nullable=True)  # The game's own copy of its battlefield (None: the default map)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SavedBattlefield(db.Model):
+    """A battlefield saved in the Play page's editor (play/battlefields.py's format). Database only."""
+    __tablename__ = 'saved_battlefields'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    data = db.Column(JSON, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -661,7 +673,7 @@ def add_missing_columns():
     (create_all only makes missing tables). Anything else still needs a manual ALTER TABLE.
     """
     inspector = db.inspect(db.engine)
-    for model in (SavedScenario, SavedComparison, SavedArmy, SavedGame, StableId):
+    for model in (SavedScenario, SavedComparison, SavedArmy, SavedGame, SavedBattlefield, StableId):
         table = model.__table__
         if not inspector.has_table(table.name):
             continue

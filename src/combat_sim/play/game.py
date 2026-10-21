@@ -742,9 +742,9 @@ def _carried(unit):
             for part in unit['parts'] if part.get('enhancement')]
 
 
-def replay(armies, events):
-    """A game rebuilt from its frozen armies and its events, in order (no dice)."""
-    state = new_game(armies)
+def replay(armies, events, battlefield=None):
+    """A game rebuilt from its frozen armies (on its battlefield) and its events, in order (no dice)."""
+    state = new_game(armies, battlefield)
     for event in events:
         state = apply_event(state, event)
     return state
