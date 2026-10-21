@@ -214,7 +214,7 @@ def test_replaying_saved_events_rebuilds_the_game_without_dice():
                                                                    for i, m in enumerate(squad)]}, []),
                ({'type': 'end_deployment'}, []), ({'type': 'next_phase'}, []), ({'type': 'next_phase'}, []),
                (shoot_squad, [3, 3, 3, 1, 4, 4, 4, 1, 1, 6])]
-    actions += [({'type': 'next_phase'}, [])] * 10 + [(shoot_squad, [6, 6, 6, 6, 4, 4, 4, 4, 1, 1, 1, 1])]
+    actions += [({'type': 'next_phase'}, [])] * 14 + [(shoot_squad, [6, 6, 6, 6, 4, 4, 4, 4, 1, 1, 1, 1])]  # A round on
     state, events = new_game(armies), []
     for action, faces in actions:
         event = resolve_action(state, action, Dice(FixedRolls(*faces)))

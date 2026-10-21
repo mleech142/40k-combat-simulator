@@ -155,7 +155,7 @@ def test_shooting_through_the_api_logs_each_attack_with_its_dice(client, game):
     place(client, game, 'p2-g', [(10, 38), (11.5, 38)])  # Crew guns (36") reach the Void Warriors (~30.7")
     place(client, game, 'p1-c', [(30, 6)])
     assert act({'type': 'end_deployment'}).status_code == 200
-    for _ in range(7):  # Red's five phases, then Blue's Command and Movement
+    for _ in range(9):  # Red's phases (the Fight phase has three steps), then Blue's Command and Movement
         assert act({'type': 'next_phase'}).status_code == 200
     options = client.get(f'/api/play/games/{game["id"]}/shooting/p2-g').get_json()
     assert options['reason'] is None

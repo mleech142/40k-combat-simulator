@@ -84,10 +84,12 @@ PHASES = ['command', 'movement', 'shooting', 'charge', 'fight']
 def test_phases_and_turns_follow_in_order():
     state = deployed()
     seen = []
-    for _ in range(11):
-        seen.append((state['turn']['round'], state['turn']['player'], state['turn']['phase']))
+    for _ in range(15):
+        turn = state['turn']
+        seen.append((turn['round'], turn['player'], turn['phase'] + ('/' + turn['step'] if 'step' in turn else '')))
         state, _ = act(state, {'type': 'next_phase'})
-    assert seen == [(1, 0, p) for p in PHASES] + [(1, 1, p) for p in PHASES] + [(2, 0, 'command')]
+    steps = PHASES[:-1] + ['fight/pile_in', 'fight/fight', 'fight/consolidate']
+    assert seen == [(1, 0, p) for p in steps] + [(1, 1, p) for p in steps] + [(2, 0, 'command')]
 
 
 # --- Movement ---------------------------------------------------------------------------------
@@ -252,6 +254,6 @@ def test_remaining_stationary_is_recorded():
 
 def test_a_new_turn_clears_what_units_did():
     state, _ = act(movement(), {'type': 'stationary', 'unit': 'p1-squad'})
-    for _ in range(4):
+    for _ in range(6):  # Shooting, Charge, then the Fight phase's three steps, to Blue's turn
         state, _ = act(state, {'type': 'next_phase'})
     assert state['turn']['player'] == 1 and unit_by_id(state, 'p1-squad')['activity'] == {}
