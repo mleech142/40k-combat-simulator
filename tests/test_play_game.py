@@ -10,7 +10,7 @@ import pytest
 from conftest import BSDATA_FIXTURES
 from test_play_dice import FixedRolls
 from combat_sim.play.dice import Dice
-from combat_sim.play.game import apply_event, new_game, replay, resolve_action
+from combat_sim.play.game import apply_event, new_game, replay, resolve_action, unit_by_id
 from combat_sim.play.snapshot import freeze_army
 
 APP_DATA = {'schema_version': 2, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [],
@@ -136,7 +136,16 @@ def test_shooting_wounds_an_already_damaged_model_first():
     # Hits on 3+: 3, 3, 3, 1 -> 3 hits. Wounds on 4+: 4, 4, 4. Saves on 3+, one at a time: 1 (fails), 1 (fails), 6
     state = duel()
     event = shoot(state, [3, 3, 3, 1, 4, 4, 4, 1, 1, 6])
-    assert wounds(apply_event(state, event), 'p1-squad') == ['dead', 2, 2, 5]
+    assert wounds(apply_event(state, event), 'p1-squad') == [2, 2, 'dead', 5]
+
+
+def test_models_carrying_special_weapons_are_the_last_to_be_removed():
+    # The first model carries the squad's one heavy gun; one failed save kills the last-listed model instead
+    squad = (part('Squad', 3, 1, weapons=[gun('Heavy gun', qty=1), gun('Rifle', qty=3)]),)
+    state = duel(squad=squad)
+    state = apply_event(state, shoot(state, [3, 1, 1, 1, 4, 1]))
+    alive = [m['weapons'] for m in unit_by_id(state, 'p1-squad')['models'] if m['alive']]
+    assert alive == [[0, 1], [1]]
 
 
 def test_leader_takes_wounds_only_when_the_bodyguard_is_gone():

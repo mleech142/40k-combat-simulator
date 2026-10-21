@@ -90,8 +90,12 @@ def _first_alive(unit):
 
 
 def _allocate(unit):
-    """The model the next wound goes to: one already damaged, else bodyguard before leaders, in listed order."""
-    alive = [m for m in unit['models'] if m['alive']]
+    """
+    The model the next wound goes to: one already damaged, else bodyguard before leaders and, within
+    each, the last-listed model first (the first models carry the special weapons; see new_game).
+    """
+    alive = [m for m in reversed(unit['models']) if m['alive']]
+    alive.sort(key=lambda m: m['part'])  # Stable: last-listed first within each part
     if not alive:
         return None
     full = {m['id']: unit['parts'][m['part']]['stats']['wounds'] for m in alive}

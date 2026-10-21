@@ -181,7 +181,7 @@ Version 1 is hot-seat play (two players on one PC).
 
 ### Rules decisions made while building
 
-- **Wound allocation before the board exists:** a model already damaged first, then bodyguard models before leaders, then the order models are listed. When positions arrive, the last step becomes the "remove from the back" standing order.
+- **Wound allocation before the board exists:** a model already damaged first, then bodyguard models before leaders, then the last-listed model first (the first-listed models carry the special weapons, so they're removed last). When positions arrive, the last step becomes the "remove from the back" standing order.
 - **Devastating Wounds don't carry over:** extra damage is lost at the model it hits, as in the Simulator.
 
 ## Open questions
