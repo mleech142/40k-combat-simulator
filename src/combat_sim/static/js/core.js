@@ -695,11 +695,11 @@
     // -------------------------------------------------------------------------
 
     /**
-     * Where a unit's models go when it is dropped at (cx, cy): rows of up to 5, each model 1" from the
-     * next (spaced by the biggest base), the rows centred on the point. `sizes` are base lengths in inches.
+     * Where a unit's models go when it is dropped at (cx, cy): rows of up to 5, bases almost touching
+     * (0.1" apart, spaced by the biggest base), the rows centred on the point. `sizes` are base lengths in inches.
      */
     function playFormation(sizes, cx, cy) {
-        const spacing = Math.max(...sizes) + 1;
+        const spacing = Math.max(...sizes) + 0.1;
         const rows = Math.ceil(sizes.length / 5);
         const round = v => Math.round(v * 100) / 100;
         return sizes.map((_, i) => {

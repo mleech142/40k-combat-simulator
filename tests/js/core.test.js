@@ -522,16 +522,16 @@ test('createPageState survives unavailable storage', () => {
 // Play mode: board layout
 // ---------------------------------------------------------------------------
 
-test('playFormation sets a unit out in rows of up to 5, 1" apart, centred where it is dropped', () => {
-    // 32mm bases (1.26"): 2.26" from centre to centre
+test('playFormation sets a unit out in rows of up to 5, bases 0.1" apart, centred where it is dropped', () => {
+    // 32mm bases (1.26"): 1.36" from centre to centre
     const five = Core.playFormation(Array(5).fill(1.26), 20, 6);
-    assert.deepEqual(five.map(p => p.x), [15.48, 17.74, 20, 22.26, 24.52]);
+    assert.deepEqual(five.map(p => p.x), [17.28, 18.64, 20, 21.36, 22.72]);
     assert.ok(five.every(p => p.y === 6));
     const seven = Core.playFormation(Array(7).fill(1.26), 20, 6);
     assert.deepEqual(seven.map(p => [p.x, p.y]), [
-        [15.48, 7.13], [17.74, 7.13], [20, 7.13], [22.26, 7.13], [24.52, 7.13], [18.87, 4.87], [21.13, 4.87]]);
+        [17.28, 6.68], [18.64, 6.68], [20, 6.68], [21.36, 6.68], [22.72, 6.68], [19.32, 5.32], [20.68, 5.32]]);
     // Mixed sizes (a leader on a bigger base) space out by the biggest
-    assert.deepEqual(Core.playFormation([1, 2], 10, 10).map(p => p.x), [8.5, 11.5]);
+    assert.deepEqual(Core.playFormation([1, 2], 10, 10).map(p => p.x), [8.95, 11.05]);
 });
 
 test('playZoom zooms about the pointer and keeps the view between 10" and the board plus a margin', () => {

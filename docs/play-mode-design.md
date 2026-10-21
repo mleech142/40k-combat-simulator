@@ -179,7 +179,7 @@ Version 1 is hot-seat play (two players on one PC).
    - A game is a `SavedGame` row (database only): its two frozen armies and its event log. The API (`play/routes.py`) always answers with the replayed state, the board size and each part's outline (`game.outline`: inches, `estimated` for guessed sizes).
    - Units are placed with a `place` action: every living model at once, wholly on the board and in the player's deployment zone (12" from their own long edge: player 1 at the bottom, player 2 at the top), not overlapping another model (touching is fine). No dice, so `POST .../undo` can take it back.
    - Size estimates (decided for step 1): a hull by the model's wounds (up to 8: 4" x 2.5"; up to 14: 5" x 3.5"; more: 7" x 4.5"), a missing base as 32mm; both drawn dashed.
-   - The page drops a picked unit in rows of up to 5, 1" apart (`Core.playFormation`), shifted to fit the player's zone if it can (`Core.playFit`); a drag moves the unit, Shift-drag one model; the wheel zooms (`Core.playZoom`).
+   - The page drops a picked unit in rows of up to 5, bases 0.1" apart (`Core.playFormation`), shifted to fit the player's zone if it can (`Core.playFit`); a drag moves the unit, Shift-drag one model; the wheel zooms (`Core.playZoom`).
 2. **Movement:** normal move, Advance and Fall Back, with move distance, coherency and engagement range enforced.
 3. **Shooting:**
    - visible targets in range
