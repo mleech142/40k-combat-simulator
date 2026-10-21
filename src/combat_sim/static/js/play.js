@@ -227,11 +227,11 @@
         const living = unit.models.filter(m => m.alive);
         const outlines = state.game.outlines[unit.id];
         const sizes = living.map(m => Math.max(outlines[m.part].length, outlines[m.part].width));
-        const board = state.game.board;
-        const zone = unit.player === 0 ? { left: 0, right: board.width, bottom: 0, top: board.deployment_depth }
-            : { left: 0, right: board.width, bottom: board.depth - board.deployment_depth, top: board.depth };
-        const spots = Core.playFit(Core.playFormation(sizes, point.x, point.y, unit.player === 1), sizes.map(s => s / 2), zone);
-        const angle = unit.player === 0 ? 0 : 180;
+        // Fitted into the box round the player's zone (the server checks it's wholly within the zone itself)
+        const zone = Core.playBounds(state.game.zones[unit.player]);
+        const topEdge = (zone.bottom + zone.top) / 2 > state.game.board.depth / 2;  // The back row towards their own edge
+        const spots = Core.playFit(Core.playFormation(sizes, point.x, point.y, topEdge), sizes.map(s => s / 2), zone);
+        const angle = topEdge ? 180 : 0;
         if (await place(unit.id, living.map((m, i) => ({ id: m.id, x: spots[i].x, y: spots[i].y, angle })))) {
             state.selected = null;
             render();
@@ -840,12 +840,12 @@
         svg.setAttribute('viewBox', `${state.view.x} ${state.view.y} ${state.view.w} ${state.view.h}`);
         svg.innerHTML = '';
         const game = state.game;
-        const board = game ? game.board : { width: 60, depth: 44, deployment_depth: 12 };
+        const board = game ? game.board : { width: 60, depth: 44 };
         const W = board.width, D = board.depth;
         svgEl('rect', { x: 0, y: 0, width: W, height: D, class: 'play-field' }, svg);
-        // Deployment zones: player 1 at the bottom edge, player 2 at the top (SVG y runs down)
-        svgEl('rect', { x: 0, y: D - board.deployment_depth, width: W, height: board.deployment_depth, class: 'play-zone play-p1' }, svg);
-        svgEl('rect', { x: 0, y: 0, width: W, height: board.deployment_depth, class: 'play-zone play-p2' }, svg);
+        // Each player's deployment zone, as the battlefield draws it (SVG y runs down)
+        (game ? game.zones : []).forEach((zone, p) => svgEl('polygon', {
+            points: zone.map(([x, y]) => `${x},${D - y}`).join(' '), class: `play-zone ${PLAYER_CLASSES[p]}` }, svg));
         const grid = svgEl('g', { class: 'play-grid' }, svg);
         for (let x = 1; x < W; x++) svgEl('line', { x1: x, y1: 0, x2: x, y2: D, class: x % 6 ? '' : 'major' }, grid);
         for (let y = 1; y < D; y++) svgEl('line', { x1: 0, y1: y, x2: W, y2: y, class: y % 6 ? '' : 'major' }, grid);

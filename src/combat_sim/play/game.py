@@ -8,6 +8,7 @@ replaying them on new_game rebuilds the game exactly, with no dice.
 """
 
 import copy
+import json
 import math
 import re
 from dataclasses import asdict
@@ -15,6 +16,7 @@ from dataclasses import asdict
 from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
+from . import battlefields
 from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, hull_shape,
                        overlaps)
 
@@ -29,7 +31,6 @@ PILE_IN_MOVE = 3  # Inches, for pile-in and consolidation moves
 CONSOLIDATE_MOVE = 3
 PILE_IN_REACH = 5  # An unengaged unit that charged piles in towards enemy units this close
 PATH_STEP = 0.2  # Inches between the points a move's path is checked at
-DEPLOYMENT_DEPTH = 12  # Until missions: each player sets up within this many inches of their own long edge
 MODEL_FIELDS = ('wounds_left', 'alive', 'position')  # What an event can change about a model
 PHASES = ('command', 'movement', 'shooting', 'charge', 'fight')  # Each player's turn, in order
 DEFAULT_ORDERS = {'casualties': 'farthest'}  # Standing orders: which models are removed first
@@ -38,15 +39,6 @@ HAZARD_MORTALS = 1  # ...and the unit suffers this many mortal wounds (3 if ever
 BATTLE_ROUNDS = 5
 OBJECTIVE_RANGE = 3  # Inches from an objective marker's edge (11th edition; 5" vertically, ignored on a flat board)
 MARKER_MM = 40  # An objective marker's diameter
-# Until battlefields come in: a home objective in the middle of each deployment zone, one central and two
-# expansion objectives on the centre line
-DEFAULT_OBJECTIVES = [
-    {'id': 'home-1', 'kind': 'home', 'owner': 0, 'x': 30, 'y': 6},
-    {'id': 'home-2', 'kind': 'home', 'owner': 1, 'x': 30, 'y': 38},
-    {'id': 'central-1', 'kind': 'central', 'owner': None, 'x': 30, 'y': 22},
-    {'id': 'expansion-1', 'kind': 'expansion', 'owner': None, 'x': 12, 'y': 22},
-    {'id': 'expansion-2', 'kind': 'expansion', 'owner': None, 'x': 48, 'y': 22},
-]
 DURATIONS = ('phase', 'turn', 'game')  # How long an effect lasts
 # Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
 MANUAL_EFFECTS = {
@@ -75,11 +67,18 @@ class ActionError(ValueError):
     """An action the rules don't allow; its message says why, for the player."""
 
 
-def new_game(armies):
-    """A game between frozen armies (snapshot.freeze_army), the first army's player going first."""
+def new_game(armies, battlefield=None, roles=None):
+    """
+    A game between frozen armies (snapshot.freeze_army) on a battlefield (battlefields.BUILTIN's default
+    if none), the first army's player attacking unless `roles` ({'attacker', 'defender'}: players) says.
+    """
+    battlefield = json.loads(json.dumps(battlefield or battlefields.BUILTIN[battlefields.DEFAULT]))  # Plain data
+    roles = dict(roles or {'attacker': 0, 'defender': 1})
     state = {'version': STATE_VERSION, 'players': [], 'units': [],
              'turn': {'phase': 'deployment', 'round': 0, 'player': 0}, 'pending': None,
-             'objectives': [dict(o, controller=None) for o in DEFAULT_OBJECTIVES]}
+             'battlefield': {k: v for k, v in battlefield.items() if k != 'objectives'}, 'roles': roles,
+             'objectives': [{'id': o['id'], 'kind': o['kind'], 'owner': roles[o['role']] if o.get('role') else None,
+                             'x': o['x'], 'y': o['y'], 'controller': None} for o in battlefield['objectives']]}
     for player, army in enumerate(armies):
         state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0,
                                  'stratagems': copy.deepcopy(army.get('stratagems', []) + army.get('rules', [])),
@@ -760,6 +759,18 @@ def estimated_hull(wounds):
     return 7, 4.5
 
 
+def role_of(state, player):
+    """'attacker' or 'defender'."""
+    roles = state.get('roles') or {'attacker': 0, 'defender': 1}
+    return 'attacker' if roles['attacker'] == player else 'defender'
+
+
+def deployment_zone(state, player):
+    """A player's deployment zone (polygon) on the game's battlefield."""
+    battlefield = state.get('battlefield') or battlefields.BUILTIN[battlefields.DEFAULT]
+    return battlefield['zones'][role_of(state, player)]
+
+
 def _unit_or_error(state, unit_id):
     unit = next((u for u in state['units'] if u['id'] == unit_id), None)
     if unit is None:
@@ -778,14 +789,13 @@ def _place(state, action):
     living = {m['id']: m for m in unit['models'] if m['alive']}
     spots = _spots(unit, action, 'Place')
     shapes = {mid: model_shape(unit['parts'][living[mid]['part']], spot) for mid, spot in spots.items()}
-    zone = (0, DEPLOYMENT_DEPTH) if unit['player'] == 0 else (BOARD_DEPTH - DEPLOYMENT_DEPTH, BOARD_DEPTH)
+    zone = deployment_zone(state, unit['player'])
     for shape in shapes.values():
         left, bottom, right, top = bounds(shape)
         if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
             raise ActionError('Every model must be wholly on the board.')
-        if bottom < zone[0] or top > zone[1]:
-            raise ActionError(f'Every model must be wholly within your deployment zone '
-                              f'({DEPLOYMENT_DEPTH}" from your edge).')
+        if not battlefields.wholly_inside(shape, zone):
+            raise ActionError('Every model must be wholly within your deployment zone.')
     others = [model_shape(u['parts'][m['part']], m['position']) for u in state['units'] if u is not unit
               for m in u['models'] if m['alive'] and m['position']]
     placed = list(shapes.values())

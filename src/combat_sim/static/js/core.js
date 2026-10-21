@@ -793,6 +793,12 @@
         return lines;
     }
 
+    /** The box round some points ([x, y]): {left, bottom, right, top}. */
+    function playBounds(points) {
+        const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+        return { left: Math.min(...xs), bottom: Math.min(...ys), right: Math.max(...xs), top: Math.max(...ys) };
+    }
+
     /** The middle of some positions ({x, y}), or null when there are none. */
     function playCentre(positions) {
         if (!positions.length) return null;
@@ -843,7 +849,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre,
+        playFormation, playFit, playMoveLabel, playZoom, playUsableNow, playResult, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

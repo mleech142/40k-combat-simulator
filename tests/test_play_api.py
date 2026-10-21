@@ -42,7 +42,8 @@ def test_new_game_from_two_saved_armies(client, game):
     assert [p['name'] for p in game['state']['players']] == ['Red', 'Blue']
     assert [u['id'] for u in game['state']['units']] == ['p1-w', 'p1-c', 'p2-g']
     assert all(m['position'] is None for u in game['state']['units'] for m in u['models'])  # Not placed yet
-    assert game['board'] == {'width': 60, 'depth': 44, 'deployment_depth': 12}
+    assert game['board'] == {'width': 60, 'depth': 44}
+    assert game['zones'][0] == [[0, 0], [60, 0], [60, 12], [0, 12]]  # Dawn of War: Red attacks from the bottom edge
     assert game['ready'] == ['p1-w', 'p1-c']  # Red deploys first
     assert game['objective_oc']['central-1'] == [0, 0] and game['objective_size'] == {'marker_mm': 40, 'range': 3}
     assert game['score'] == [0, 0] and {'key': 'cover', 'name': 'Benefit of cover', 'side': 'Target'} in game['manual_effects']

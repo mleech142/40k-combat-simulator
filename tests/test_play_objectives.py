@@ -33,9 +33,11 @@ FAR = (50, 6)  # Nowhere near any objective
 
 def test_a_new_game_has_the_default_objectives_and_nobody_controls_them():
     state = new_game([army('Red', (model('A'),)), army('Blue', (model('B'),))])
+    # Dawn of War, Red attacking: its home objective 10" in from the bottom edge
+    assert state['battlefield']['name'] == 'Dawn of War' and state['roles'] == {'attacker': 0, 'defender': 1}
     assert [(o['id'], o['kind'], o['owner'], o['x'], o['y']) for o in state['objectives']] == [
-        ('home-1', 'home', 0, 30, 6), ('home-2', 'home', 1, 30, 38), ('central-1', 'central', None, 30, 22),
-        ('expansion-1', 'expansion', None, 12, 22), ('expansion-2', 'expansion', None, 48, 22)]
+        ('home-attacker', 'home', 0, 30, 10), ('home-defender', 'home', 1, 30, 34), ('central-1', 'central', None, 30, 22),
+        ('expansion-1', 'expansion', None, 10, 25), ('expansion-2', 'expansion', None, 50, 19)]
     assert all(o['controller'] is None for o in state['objectives'])
     assert OBJECTIVE_RANGE == 3
 

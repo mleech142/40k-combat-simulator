@@ -642,3 +642,8 @@ test('playPhaseTrack marks the phases done, current and to come this turn', () =
     assert.deepEqual(Core.playPhaseTrack({ phase: 'command' }).map(p => p.label),
         ['Command', 'Movement', 'Shooting', 'Charge', 'Fight']);
 });
+
+test('playBounds is the box round some points', () => {
+    assert.deepEqual(Core.playBounds([[0, 0], [20, 0], [20, 22], [12, 22], [12, 44], [0, 44]]),
+                     { left: 0, bottom: 0, right: 20, top: 44 });
+});
