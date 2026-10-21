@@ -58,3 +58,5 @@ API routes in `app.py` under `register_routes()`. `static/js/app.js` is loaded o
 **Game rules live only in Python.** Pages get them via the API (`default_use` and `points_by_model_count` on `/api/units/<id>`, `POST /api/keywords/check`); never re-implement them in JavaScript. Pure page logic belongs in `static/js/core.js` (loaded first on every page, `require()`-able in Node) with tests in `tests/js/core.test.js`.
 
 Module map, invariants, coverage and the maintainability backlog: `docs/architecture.md`.
+
+**Play mode (planned, not built):** full games between friends on a top-down board, live or asynchronous. The agreed design and roadmap are in `docs/play-mode-design.md`; read it before any Play-mode work and don't reopen its settled decisions without asking.

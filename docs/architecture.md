@@ -111,6 +111,15 @@ Line coverage (`python -m coverage run --source=src/combat_sim,scripts -m pytest
 
 **Not covered by automated tests:** the DOM and event-handling code in `app.js`, `analytics.js` and the Data page's inline script (rendering tables, wiring inputs, calling the API). Its logic is in `core.js` and the server, both tested; what remains is checked by using the pages.
 
+## Planned: Play mode
+
+A Play page for full games between friends, on a top-down board, played live or asynchronously. It isn't built yet. The agreed design is in [play-mode-design.md](play-mode-design.md). Several decisions there affect the existing code:
+
+- Game rules stay in Python. The board page asks the API about distances, line of sight and attack resolution.
+- Dice rolls go through `simulation.py`, including attached units.
+- Armies are frozen into each game by BSData ID, never by database ID.
+- Game state is plain JSON that doesn't depend on Flask, so it can later run under Pyodide.
+
 ## Maintainability review
 
 ### Fixed in this review
