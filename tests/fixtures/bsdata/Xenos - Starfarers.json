@@ -380,6 +380,11 @@
        {
         "name": "InSv",
         "$text": ""
+       },
+       {
+        "name": "Base",
+        "$text": "32mm",
+        "typeId": "nr-base-size"
        }
       ]
      },
@@ -1062,6 +1067,11 @@
        {
         "name": "InSv",
         "$text": ""
+       },
+       {
+        "name": "Base",
+        "$text": "Hull",
+        "typeId": "nr-base-size"
        }
       ]
      }
@@ -1402,6 +1412,11 @@
          {
           "name": "InSv",
           "$text": ""
+         },
+         {
+          "name": "Base",
+          "$text": "32mm",
+          "typeId": "nr-base-size"
          }
         ]
        }
@@ -1540,6 +1555,11 @@
            {
             "name": "InSv",
             "$text": ""
+           },
+           {
+            "name": "Base",
+            "$text": "75x42mm Oval",
+            "typeId": "nr-base-size"
            }
           ]
          }

@@ -473,7 +473,7 @@ WAHAPEDIA_COLUMNS = ('source', 'wahapedia_id', 'text', 'parse', 'edited', 'super
 
 # Unit columns only BSData units use, left out of custom units in the data JSON
 BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'added_modifiers', 'leader_buffs_override',
-                  'wargear', 'max_in_army'}
+                  'wargear', 'max_in_army', 'base'}
 
 
 def write_json(path, data, indent=2):

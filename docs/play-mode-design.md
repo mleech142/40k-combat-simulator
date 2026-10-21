@@ -136,7 +136,7 @@ Version 1 is hot-seat play (two players on one PC).
 ### Starting point (October 2026)
 
 - **Move stat.** Units already have it (`Unit.move`).
-- **Base sizes.** BSData has them in each model profile's `nr-base-size` characteristic (about 1,800 entries). The importer doesn't read them yet.
+- **Base sizes.** BSData has them in each model profile's `nr-base-size` characteristic (about 1,800 entries). *Done:* the importer reads them into `Unit.base` (`bsdata.parse_base`), from the most numerous model's stat line, as with its stats. Of 3,277 imported units, 41 have no readable base, and those are listed in the import notes.
   - Most are clean values: `32mm`, `40mm`, `120x92mm` (ovals), `60mm Flying`.
   - Some are approximate (`~40mm`).
   - About 230 are `Hull`: vehicles with no base and no dimensions in BSData.
@@ -160,7 +160,7 @@ Version 1 is hot-seat play (two players on one PC).
 ### Steps
 
 0. **Groundwork, with no page yet:**
-   - The importer reads base sizes (bump `bsdata.IMPORTER_VERSION`).
+   - ~~The importer reads base sizes~~ (done: `Unit.base`, also returned by `/api/units/<id>`).
    - A dice recorder in `simulation.py`: it gets its random numbers from the caller and records each die, while the Excel parity and analytical/Monte Carlo agreement tests stay green.
    - A pure-Python `play` package: frozen army snapshot, game state, action log, `apply(action)`.
    - A geometry module: base-to-base distance (circles and ovals), line of sight against footprints.

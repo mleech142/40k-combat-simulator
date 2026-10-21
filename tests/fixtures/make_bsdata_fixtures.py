@@ -38,10 +38,13 @@ def cons(lo=None, hi=None, scope='parent'):
     return out
 
 
-def unit_profile(pid, name, m, t, sv, w, ld, oc, insv=''):
+def unit_profile(pid, name, m, t, sv, w, ld, oc, insv='', base=None):
     chars = [('M', m), ('T', t), ('Sv', sv), ('W', w), ('LD', ld), ('OC', oc), ('InSv', insv)]
+    characteristics = [{'name': n, '$text': v} for n, v in chars]
+    if base is not None:  # New Recruit's base size column, on most real datasheets
+        characteristics.append({'name': 'Base', '$text': base, 'typeId': 'nr-base-size'})
     return {'name': name, 'id': pid, 'hidden': False, 'typeId': UNIT_T, 'typeName': 'Unit',
-            'characteristics': [{'name': n, '$text': v} for n, v in chars]}
+            'characteristics': characteristics}
 
 
 def weapon(pid, name, kind, rng, a, skill, s, ap, d, keywords):
@@ -136,7 +139,7 @@ void_warriors = {
     'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-inf', 'Infantry'),
                       cat_link('k-bl', 'Battleline')],
     'constraints': [{'id': 'c-void-max', 'field': 'selections', 'scope': 'force', 'shared': True, 'type': 'max', 'value': 6}],
-    'profiles': [unit_profile('p-void', 'Void Warrior', '6"', '4', '3+', '2', '6+', '2'),
+    'profiles': [unit_profile('p-void', 'Void Warrior', '6"', '4', '3+', '2', '6+', '2', base='32mm'),
                  ability('a-void', 'Shield Wall', 'Models in this unit can do things.')],
     'infoLinks': [rule_link('il-void-stealth', 'Stealth', 'r-stealth')],
     'costs': pts(80),
@@ -256,7 +259,7 @@ star_captain = {
 star_walker = {
     'name': 'Star Walker [Legends]', 'id': 'u-walker', 'hidden': False, 'type': 'model',
     'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-veh', 'Vehicle')],
-    'profiles': [unit_profile('p-walker', 'Star Walker', '8"', '9', '3+', '10', '7+', '3')],
+    'profiles': [unit_profile('p-walker', 'Star Walker', '8"', '9', '3+', '10', '7+', '3', base='Hull')],
     'infoLinks': [rule_link('il-walker-fnp', 'Feel No Pain', 'r-fnp', append='6+'),
                   rule_link('il-walker-ds', 'Deep Strike', 'r-ds')],
     'costs': pts(120),
@@ -279,11 +282,11 @@ beast_pack = {
                                    'type': 'someUnknownCheck', 'value': 1}]}],
     'selectionEntries': [
         model('m-beastmaster', 'Beast Master', constraints=cons(1, 1),
-              profiles=[unit_profile('p-beastmaster', 'Beast Master', '6"', '3', '5+', '1', '7+', '1')],
+              profiles=[unit_profile('p-beastmaster', 'Beast Master', '6"', '3', '5+', '1', '7+', '1', base='32mm')],
               links=[link('l-bm-ccw', 'Close combat weapon', 'e-ccw')]),
     ],
     'selectionEntryGroups': [group('g-beasts', 'Beasts', constraints=cons(3, 3), default='m-beast', children=[
-        model('m-beast', 'Beast', profiles=[unit_profile('p-beast', 'Beast', '10"', '5', '6+', '2', '8+', '0')],
+        model('m-beast', 'Beast', profiles=[unit_profile('p-beast', 'Beast', '10"', '5', '6+', '2', '8+', '0', base='75x42mm Oval')],
               children=[upgrade('e-claws', 'Claws', constraints=cons(1, 1), profiles=[
                   weapon('p-claws', 'Claws', 'melee', 'Melee', '3', '4+', '5', '-1', '1', None)])],
               costs=0)])],
@@ -391,7 +394,7 @@ write('Xenos - Starfarers Library', {'catalogue': {
              weapon('p-drone-gun', 'Drone gun', 'ranged', '18"', '3', '4+', '4', '0', '1', 'Assault')])]},
         {'name': 'Field Bunker', 'id': 'u-bunker', 'hidden': False, 'type': 'model',
          'categoryLinks': [cat_link('k-veh', 'Vehicle')],
-         'profiles': [unit_profile('p-bunker', 'Field Bunker', '-', '10', '3+', '15', '-', '0')],
+         'profiles': [unit_profile('p-bunker', 'Field Bunker', '-', '10', '3+', '15', '-', '0', base='-')],
          'costs': pts(100)},
         # No catalogue's own faction (like Aeldari Harlequins): it joins every army that links it
         {'name': 'Wandering Troupe', 'id': 'u-troupe', 'hidden': False, 'type': 'unit',

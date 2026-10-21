@@ -60,7 +60,7 @@ from pathlib import Path
 from .rules_text import tidy_text, plain_text, parse_leader_buffs, parse_enhancement  # noqa: F401 (also used by importers of bsdata)
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 9  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 10  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -722,6 +722,34 @@ def _plus(text):
     return _int(text) if text and '+' in text else None
 
 
+def parse_base(text):
+    """
+    A model's Base characteristic ('32mm', '120x92mm', '60mm Flying', '~40mm') as
+    {'shape', 'length_mm', 'width_mm', 'text'}, plus 'flying' and 'approx' when they apply.
+    'Hull' (a model with no base) has no size; anything else unreadable ('-', 'Unique') is None.
+    """
+    text = (text or '').strip()
+    if text == 'Hull':
+        return {'shape': 'hull', 'text': text}
+    m = re.match(r'^(~?)(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?mm( Oval)?( Flying)?$', text)
+    if not m:
+        return None
+    approx, length, width, _, flying = m.groups()
+    length, width = _mm(length), _mm(width or length)
+    base = {'shape': 'round' if length == width else 'oval', 'length_mm': length, 'width_mm': width}
+    if flying:
+        base['flying'] = True
+    if approx:
+        base['approx'] = True
+    return {**base, 'text': text}
+
+
+def _mm(value):
+    """'32' -> 32, '28.5' -> 28.5."""
+    size = float(value)
+    return int(size) if size.is_integer() else size
+
+
 def weapon_record(profile, kind):
     chars = characteristics(profile)
     name = re.sub(r'^[➤>\s]+', '', profile.get('name', '')).strip()
@@ -795,6 +823,10 @@ def build_unit(entry, faction_cat, report, known_keywords):
     if None in (toughness, save, wounds):
         report.add('skipped_unit', faction, entry.name, f'unreadable T/Sv/W: {stats}')
         return None
+    base = parse_base(stats.get('Base'))
+    if base is None:
+        text = stats.get('Base')
+        report.add('base_size', faction, entry.name, f'unreadable base size "{text}"' if text else 'no base size')
 
     # Abilities, rules and the defensive values the maths uses
     ability_lines, rules, modifiers, fnp = [], [], [], None
@@ -899,6 +931,7 @@ def build_unit(entry, faction_cat, report, known_keywords):
         'move': (stats.get('M') or '').replace('"', '') if re.search(r'\d', stats.get('M') or '') else None,
         'oc': _int(stats.get('OC')),
         'leadership': _plus(stats.get('LD')),
+        'base': base,
         'points_cost': sizes[0]['points'],
         'default_models': default_models,
         'points_by_size': sizes,

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from combat_sim.bsdata import BSDataError, _leader_targets, import_folder
+from combat_sim.bsdata import BSDataError, _leader_targets, import_folder, parse_base
 
 FIXTURES = Path(__file__).resolve().parent / 'fixtures' / 'bsdata'
 KNOWN = ['Pistol', 'Rapid Fire', 'Hazardous', 'Heavy', 'Anti', 'Lethal Hits', 'Sustained Hits', 'Torrent',
@@ -135,6 +135,43 @@ def test_leader_targets_listed_with_dash_bullets():
     text = ('This model can be attached to the following units:\n- **GUARDIAN DEFENDERS**\n'
             '- **YNNARI KABALITE WARRIORS**\n- **TERRAX-PATTERN TERMITE**')
     assert _leader_targets(text) == ['GUARDIAN DEFENDERS', 'YNNARI KABALITE WARRIORS', 'TERRAX-PATTERN TERMITE']
+
+
+# --- Base sizes --------------------------------------------------------------------
+
+def test_round_base_in_millimetres():
+    assert parse_base('32mm') == {'shape': 'round', 'length_mm': 32, 'width_mm': 32, 'text': '32mm'}
+    assert parse_base('28.5mm')['length_mm'] == 28.5
+
+
+@pytest.mark.parametrize('text', ['120x92mm', '120x92mm Oval'])
+def test_oval_base_is_length_by_width(text):
+    assert parse_base(text) == {'shape': 'oval', 'length_mm': 120, 'width_mm': 92, 'text': text}
+
+
+def test_flying_and_approximate_bases_are_flagged():
+    assert parse_base('60mm Flying') == {'shape': 'round', 'length_mm': 60, 'width_mm': 60, 'flying': True,
+                                         'text': '60mm Flying'}
+    assert parse_base('~105x70mm') == {'shape': 'oval', 'length_mm': 105, 'width_mm': 70, 'approx': True,
+                                       'text': '~105x70mm'}
+
+
+def test_hull_has_no_size_and_unreadable_bases_are_none():
+    assert parse_base('Hull') == {'shape': 'hull', 'text': 'Hull'}
+    for text in ('-', '', None, 'Unique'):
+        assert parse_base(text) is None
+
+
+def test_unit_base_from_its_stat_line(result):
+    assert unit(result, 'Void Warriors')['base'] == {'shape': 'round', 'length_mm': 32, 'width_mm': 32, 'text': '32mm'}
+    assert unit(result, 'Star Walker [Legends]')['base'] == {'shape': 'hull', 'text': 'Hull'}
+    assert unit(result, 'Beast Pack')['base']['text'] == '75x42mm Oval'  # 3 Beasts over 1 Beast Master
+
+
+def test_missing_or_unreadable_base_is_none_and_reported(result):
+    assert unit(result, 'Field Bunker')['base'] is None
+    assert unit(result, 'Star Lord')['base'] is None
+    assert any(r[1] == 'Field Bunker' and '"-"' in r[2] for r in reported(result, 'base_size'))
 
 
 def test_mixed_stat_lines_use_the_most_numerous_model(result):

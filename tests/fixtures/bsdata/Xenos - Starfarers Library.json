@@ -201,6 +201,11 @@
        {
         "name": "InSv",
         "$text": ""
+       },
+       {
+        "name": "Base",
+        "$text": "-",
+        "typeId": "nr-base-size"
        }
       ]
      }

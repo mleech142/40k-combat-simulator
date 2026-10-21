@@ -111,6 +111,7 @@ class Unit(db.Model):
     move = db.Column(db.String(10), nullable=True)  # e.g. "5" or "20+"
     oc = db.Column(db.Integer, nullable=True)
     leadership = db.Column(db.Integer, nullable=True)  # 6+ = 6
+    base = db.Column(JSON, nullable=True)  # BSData: bsdata.parse_base of the stat line's Base, e.g. {"shape": "round", ...}
     points_cost = db.Column(db.Integer, nullable=True)  # Points at the datasheet model count
     default_models = db.Column(db.Integer, nullable=True)  # Models in the unit per the datasheet
     # Cost of each legal unit size, e.g. [{"models": 5, "points": 90}, {"models": 10, "points": 170}].
@@ -232,6 +233,7 @@ class Unit(db.Model):
             'move': self.move,
             'oc': self.oc,
             'leadership': self.leadership,
+            'base': self.base,
             'points_cost': self.points_cost,
             'default_models': self.default_models,
             'points_by_size': self.size_brackets(),

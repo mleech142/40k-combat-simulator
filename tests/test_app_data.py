@@ -68,6 +68,15 @@ def test_bsdata_and_custom_factions_side_by_side(app_client):
     assert by_name['Starfarers']['rule_count'] == 1  # Saved by catalogue ID, linked on load
 
 
+def test_bsdata_unit_base_size(app_client):
+    client, _ = app_client
+    by_name = units(client)
+    void = client.get(f'/api/units/{by_name["Void Warriors"]["id"]}').get_json()
+    assert void['base'] == {'shape': 'round', 'length_mm': 32, 'width_mm': 32, 'text': '32mm'}
+    bunker = client.get(f'/api/units/{by_name["Field Bunker"]["id"]}').get_json()
+    assert bunker['base'] is None
+
+
 def test_bsdata_unit_detail(app_client):
     client, _ = app_client
     void = units(client)['Void Warriors']
