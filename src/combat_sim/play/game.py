@@ -19,8 +19,10 @@ from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, bas
                        overlaps)
 
 STATE_VERSION = 1
-ENGAGEMENT_RANGE = 1  # Inches, measured base to base (height is ignored on a flat board)
-COHERENCY_RANGE = 2  # Each model within this of 1 other model in its unit (2 others with 7+ models)
+ENGAGEMENT_RANGE = 2  # Inches, measured base to base (11th edition; height is ignored on a flat board)
+COHERENCY_RANGE = 2  # Each model within this of at least one other model in its unit...
+COHERENCY_SPREAD = 9  # ...and within this of every other model in it
+HEAVY_MOVE = 3  # Heavy: +1 to hit if no model in the unit moved more than this
 PATH_STEP = 0.2  # Inches between the points a move's path is checked at
 DEPLOYMENT_DEPTH = 12  # Until missions: each player sets up within this many inches of their own long edge
 MODEL_FIELDS = ('wounds_left', 'alive', 'position')  # What an event can change about a model
@@ -174,6 +176,22 @@ def _big(unit):
     return any(_has(part['keywords'], 'Monster') or _has(part['keywords'], 'Vehicle') for part in unit['parts'])
 
 
+def _close_quarters(weapon):
+    """Close-Quarters weapons (Pistol is the same thing in 11th edition)."""
+    return _has(weapon['abilities'], 'Pistol') or _has(weapon['abilities'], 'Close-Quarters')
+
+
+def _is_engaged(state, unit):
+    return bool(_engaged_units(state, unit))
+
+
+def moved_distance(unit):
+    """The farthest any model of the unit has moved from where it started this turn's Movement phase."""
+    start = unit['activity'].get('start') or {}
+    return max((math.dist((start[m['id']]['x'], start[m['id']]['y']), (m['position']['x'], m['position']['y']))
+                for m in unit['models'] if m['alive'] and m['position'] and start.get(m['id'])), default=0)
+
+
 def _engaged_units(state, unit):
     """The enemy units in engagement range of `unit`."""
     mine = _placed_shapes(unit)
@@ -212,19 +230,29 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
         raise ActionError(f'{target["name"]} is not on the battlefield.')
     activity = shooter['activity']
     abilities = weapon['abilities'] or []
-    pistol = _has(abilities, 'Pistol')
+    close = _close_quarters(weapon)
     engaged_with = _engaged_units(state, shooter)
     big = _big(shooter)
-    if activity.get('moved') == 'advance' and not _has(abilities, 'Assault'):
+    advanced = activity.get('moved') == 'advance'
+    target_engaged = _is_engaged(state, target)
+    extra = []
+    if engaged_with:  # Close-quarters shooting
+        if advanced:
+            raise ActionError(f'{shooter["name"]} Advanced, so it can\'t shoot while engaged.')
+        if not big and not close:
+            raise ActionError(f'{shooter["name"]} is engaged: it can only fire Close-Quarters weapons (Pistols).')
+        if not big and target not in engaged_with:
+            raise ActionError(f'Close-Quarters weapons fired while engaged must target a unit engaged with {shooter["name"]}.')
+        if big and not (close and target in engaged_with):
+            extra = ['Hit Modifier -1']
+    elif advanced and not _has(abilities, 'Assault'):  # Assault shooting
         raise ActionError(f'{shooter["name"]} Advanced: it can only fire Assault weapons ({weapon["name"]} isn\'t one).')
-    if engaged_with and not big and not pistol:
-        raise ActionError(f'{shooter["name"]} is in engagement range: it can only fire Pistols.')
-    if engaged_with and pistol and target not in engaged_with:
-        raise ActionError(f'Pistols fired while engaged must target the unit {shooter["name"]} is engaged with.')
-    if target not in engaged_with and not _big(target):
-        friendly = [u for u in state['units'] if u['player'] == shooter['player']]
-        if any(target in _engaged_units(state, u) for u in friendly):
-            raise ActionError(f'{target["name"]} is in engagement range of your units: only Monsters and Vehicles can be shot then.')
+    if target_engaged and target not in engaged_with:
+        if not _big(target):
+            raise ActionError(f'{target["name"]} is engaged: only engaged Monsters and Vehicles can be shot.')
+        extra = ['Hit Modifier -1']
+    if target_engaged and _has(abilities, 'Blast'):
+        raise ActionError(f'Blast weapons can\'t target an engaged unit ({target["name"]}).')
     reach = weapon.get('range') or 0
     targets = _placed_models(target)
     near, far = [], []
@@ -236,7 +264,6 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
             (near if min(seen) <= reach / 2 + 1e-9 else far).append(model)
     if not near and not far:
         raise ActionError(f'No model carrying {weapon["name"]} has {target["name"]} in range ({reach}") and in sight.')
-    extra = ['Hit Modifier -1'] if engaged_with and big and not pistol else []  # Big Guns Never Tire
     return near, far, extra
 
 
@@ -285,7 +312,7 @@ def _shoot(state, action, dice):
                  for w, weapon in enumerate(part['weapons']) if weapon['default_use'] and weapon['type'] == 'ranged']
     if not picks:
         raise ActionError(f'{shooter["name"]} has no ranged weapons to fire.')
-    stationary = activity.get('moved') in (None, 'stationary')
+    stationary = moved_distance(shooter) <= HEAVY_MOVE + 1e-9 and not _is_engaged(state, shooter)  # Heavy
     plans = []
     for pick in picks:
         if not isinstance(pick, dict) or 'part' not in pick or 'weapon' not in pick:
@@ -293,6 +320,13 @@ def _shoot(state, action, dice):
         target = _unit_or_error(state, pick.get('target') or action.get('target'))
         near, far, extra = _weapon_plan(state, shooter, pick['part'], pick['weapon'], target)
         part_index, weapon_index = int(pick['part']), int(pick['weapon'])
+        if not _big(shooter):  # Each model fires either its Close-Quarters weapons or its others
+            for model in shooter['models']:
+                chosen = [shooter['parts'][int(p['part'])]['weapons'][int(p['weapon'])] for p in picks
+                          if int(p['part']) == model['part'] and int(p['weapon']) in model['weapons']]
+                if any(_close_quarters(w) for w in chosen) and not all(_close_quarters(w) for w in chosen):
+                    raise ActionError('Each model fires either its Close-Quarters weapons (Pistols) or its other '
+                                      'ranged weapons, not both.')
         plans.append((part_index, weapon_index, shooter['parts'][part_index]['weapons'][weapon_index], target, near, far, extra))
 
     attacks, hazardous = [], []
@@ -604,6 +638,10 @@ def _move(state, action):
         raise ActionError('Choose a Normal move, Advance or Fall Back.')
     enemies = _enemy_shapes(state, unit)
     engaged = _engaged(_start_shapes(unit), enemies)  # Where it started the phase decides
+    if _big(unit) and mode in ('normal', 'advance'):  # Through anything but other Monsters and Vehicles
+        blocking = [shape for u in state['units'] if u['player'] != unit['player'] and _big(u) for shape in _placed_shapes(u)]
+    else:
+        blocking = enemies
     if mode == 'fall_back' and not engaged:
         raise ActionError('Only a unit in engagement range can Fall Back.')
     if mode != 'fall_back' and engaged:
@@ -628,7 +666,7 @@ def _move(state, action):
             t = i / steps
             here = {'x': start['x'] + t * (spot['x'] - start['x']), 'y': start['y'] + t * (spot['y'] - start['y']),
                     'angle': spot['angle']}
-            if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
+            if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
                 raise ActionError(f'{part["name"]} can\'t move through enemy models.')
         shapes[mid] = model_shape(part, spot)
 
@@ -654,14 +692,14 @@ def _move(state, action):
 
 
 def coherency_problem(shapes):
-    """Why a unit's models (shapes) are out of coherency, or None: each must be within 2" of another
-    model of the unit (of 2 others when the unit has 7 or more)."""
+    """Why a unit's models (shapes) are out of coherency, or None: each must be within 2" of at least
+    one other model of the unit, and within 9" of every other model of it."""
     if len(shapes) < 2:
         return None
-    needed = 2 if len(shapes) >= 7 else 1
     for i, shape in enumerate(shapes):
-        near = sum(1 for j, other in enumerate(shapes) if j != i and base_distance(shape, other) <= COHERENCY_RANGE + 1e-9)
-        if near < needed:
-            return (f'Every model must end within {COHERENCY_RANGE}" of '
-                    f'{"two other models" if needed == 2 else "another model"} in its unit (unit coherency).')
+        gaps = [base_distance(shape, other) for j, other in enumerate(shapes) if j != i]
+        if min(gaps) > COHERENCY_RANGE + 1e-9:
+            return f'Every model must end within {COHERENCY_RANGE}" of another model in its unit (unit coherency).'
+        if max(gaps) > COHERENCY_SPREAD + 1e-9:
+            return f'Every model must end within {COHERENCY_SPREAD}" of every other model in its unit (unit coherency).'
     return None

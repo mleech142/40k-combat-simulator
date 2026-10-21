@@ -68,31 +68,50 @@ def test_a_unit_that_fell_back_cant_shoot_and_one_that_advanced_fires_only_assau
     assert [a['name'] for a in event['attacks']] == ['Carbine']
 
 
-def test_engaged_units_fire_pistols_at_the_unit_theyre_fighting():
+def test_engaged_units_fire_close_quarters_weapons_at_the_unit_theyre_fighting():
     pistol = gun('Pistol', attacks='1', range=12, abilities=['Pistol'])
     squad = (model('Squad', 3), (10, 18.2), (11.5, 18.2), (13, 18.2))  # 0.54" from the gunner: engaged
     other = (model('Other', 1), (40, 10))
     state = game([squad, other], [gunner(BOLTER, pistol)])
-    assert 'Pistol' in refused(state, shoot('p2-gunner', 'p1-squad', [{'part': 0, 'weapon': 0}]))
-    assert 'engaged' in refused(state, shoot('p2-gunner', 'p1-other', [{'part': 0, 'weapon': 1}]))
+    assert 'Close-Quarters' in refused(state, shoot('p2-gunner', 'p1-squad', [{'part': 0, 'weapon': 0}]))
+    assert 'engaged with' in refused(state, shoot('p2-gunner', 'p1-other', [{'part': 0, 'weapon': 1}]))
     _, event = act(state, shoot('p2-gunner', 'p1-squad', [{'part': 0, 'weapon': 1}]), 1)
     assert event['attacks'][0]['name'] == 'Pistol'
+    unit_by_id(state, 'p2-gunner')['activity'] = {'moved': 'advance', 'advance_roll': 2}
+    assert 'Advanced' in refused(state, shoot('p2-gunner', 'p1-squad', [{'part': 0, 'weapon': 1}]))
+
+
+def test_a_model_fires_either_its_close_quarters_weapons_or_its_other_guns():
+    pistol = gun('Pistol', attacks='1', range=12, abilities=['Pistol'])
+    state = game([SQUAD], [gunner(BOLTER, pistol)])
+    assert 'either' in refused(state, shoot('p2-gunner', 'p1-squad', [{'part': 0, 'weapon': 0}, {'part': 0, 'weapon': 1}]))
+    act(state, shoot('p2-gunner', 'p1-squad', [{'part': 0, 'weapon': 1}]), 1)
+    # Monsters and Vehicles may fire both
+    tank = gunner(BOLTER, pistol, name='Tank', keywords=['Vehicle'])
+    act(game([SQUAD], [tank]), shoot('p2-tank', 'p1-squad', [{'part': 0, 'weapon': 0}, {'part': 0, 'weapon': 1}]), 1, 1)
 
 
 def test_engaged_monsters_and_vehicles_fire_everything_at_minus_one_to_hit():
+    pistol = gun('Pistol', attacks='1', range=12, abilities=['Pistol'])
     squad = (model('Squad', 3), (10, 18.2), (11.5, 18.2), (13, 18.2))
-    tank = gunner(BOLTER, name='Tank', keywords=['Vehicle'])
-    _, event = act(game([squad], [tank]), shoot('p2-tank', 'p1-squad'), 1)
+    tank = gunner(BOLTER, pistol, name='Tank', keywords=['Vehicle'])
+    state = game([squad], [tank])
+    _, event = act(state, shoot('p2-tank', 'p1-squad', [{'part': 0, 'weapon': 0}]), 1)
     assert event['rolls'][0]['purpose'] == 'hit' and event['rolls'][0]['need'] == 4  # BS3+, -1
+    _, event = act(state, shoot('p2-tank', 'p1-squad', [{'part': 0, 'weapon': 1}]), 1)
+    assert event['rolls'][0]['need'] == 3  # A Close-Quarters weapon at the unit it's engaged with: no -1
 
 
-def test_units_fighting_your_own_cant_be_shot_unless_monsters_or_vehicles():
+def test_engaged_units_cant_be_shot_unless_monsters_or_vehicles_and_never_with_blast():
     squad = (model('Squad', 3), (10, 10), (11.5, 10), (13, 10))
-    blue_brawler = (model('Brawler', 1), (11.5, 11.7))  # In engagement range of Red's Squad
+    blue_brawler = (model('Brawler', 1), (11.5, 11.7))  # Engaged with Red's Squad
     state = game([squad], [gunner(), blue_brawler])
-    assert 'engagement range' in refused(state, shoot('p2-gunner', 'p1-squad'))
+    assert 'engaged' in refused(state, shoot('p2-gunner', 'p1-squad'))
     walker = (model('Walker', 3, keywords=['Vehicle']), (10, 10), (11.5, 10), (13, 10))
-    act(game([walker], [gunner(), blue_brawler]), shoot('p2-gunner', 'p1-walker'), 1)
+    _, event = act(game([walker], [gunner(), blue_brawler]), shoot('p2-gunner', 'p1-walker'), 1)
+    assert event['rolls'][0]['need'] == 4  # An engaged Monster or Vehicle: -1 to hit
+    blast = gunner(gun('Mortar', attacks='1', range=48, abilities=['Blast']))
+    assert 'Blast' in refused(game([walker], [blast, blue_brawler]), shoot('p2-gunner', 'p1-walker'))
 
 
 # --- Range and conditions, model by model -----------------------------------------------------------
@@ -115,14 +134,18 @@ def test_models_within_half_range_roll_separately_for_rapid_fire():
     assert sorted((a['half_range'], a['models'], a['attacks']) for a in event['attacks']) == [(False, 1, 1), (True, 1, 2)]
 
 
-def test_heavy_weapons_hit_more_easily_when_the_unit_stayed_still():
+def test_heavy_weapons_hit_more_easily_when_no_model_moved_more_than_3_inches():
     heavy = gun('Cannon', attacks='1', skill=4, range=36, abilities=['Heavy'])
     state = game([SQUAD], [gunner(heavy)])
     _, event = act(state, shoot('p2-gunner', 'p1-squad'), 1)
-    assert event['rolls'][0]['need'] == 3  # Didn't move: stationary
-    unit_by_id(state, 'p2-gunner')['activity'] = {'moved': 'normal'}
+    assert event['rolls'][0]['need'] == 3  # Didn't move
+    gunner_unit = unit_by_id(state, 'p2-gunner')
+    gunner_unit['activity'] = {'moved': 'normal', 'start': {'p2-gunner-0-1': {'x': 11.5, 'y': 23, 'angle': 0}}}
     _, event = act(state, shoot('p2-gunner', 'p1-squad'), 1)
-    assert event['rolls'][0]['need'] == 4
+    assert event['rolls'][0]['need'] == 3  # Moved 3"
+    gunner_unit['activity']['start']['p2-gunner-0-1']['y'] = 23.5
+    _, event = act(state, shoot('p2-gunner', 'p1-squad'), 1)
+    assert event['rolls'][0]['need'] == 4  # Moved 3.5"
 
 
 # --- Which models take the wounds ---------------------------------------------------------------------
