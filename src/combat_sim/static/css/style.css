@@ -3640,9 +3640,12 @@ h4 .fa-solid,
 .btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.3rem; }
 .btn-icon:hover { color: var(--error); }
 
-.play-toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-.play-toolbar-actions { margin-left: auto; display: flex; gap: 0.4rem; }
-.play-message { color: var(--text-secondary); font-size: 0.9rem; order: 10; flex-basis: 100%; min-height: 1.35rem; }
+.play-toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; flex-wrap: wrap; }
+/* The message on the left and the phase track in the middle share one row above the board */
+.play-subbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
+               gap: 0.75rem; margin-bottom: 0.35rem; min-height: 1.4rem; }
+.play-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.3rem; }
+.play-message { color: var(--text-secondary); font-size: 0.85rem; line-height: 1.3; }
 .play-turn { font-size: 0.9rem; padding-left: 0.5rem; border-left: 4px solid var(--play-p1); }
 .play-turn.play-p2 { border-left-color: var(--play-p2); }
 .play-move-modes { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0 0.4rem; }
@@ -3742,17 +3745,16 @@ h4 .fa-solid,
 .play-die.critical { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .play-die.fail { opacity: 0.55; }
 .play-die.value { border-color: var(--text-secondary); color: var(--text-primary); }
-.play-phases { --player: var(--play-p1); display: flex; align-items: flex-start; justify-content: center; gap: 0;
-               margin: 0 0 0.6rem; }
+.play-phases { --player: var(--play-p1); display: flex; align-items: flex-start; justify-content: center; gap: 0; margin: 0; }
 .play-phases.play-p2 { --player: var(--play-p2); }
-.play-phase { display: flex; flex-direction: column; align-items: center; width: 4.5rem; }
+.play-phase { display: flex; flex-direction: column; align-items: center; width: 4.2rem; }
 .play-phase-box {
     position: relative; display: flex; align-items: center; justify-content: center;
     width: 2.4rem; height: 2.4rem; border-radius: 6px; font-size: 1rem;
     background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-muted);
     transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
-.play-phase-label { margin-top: 0.2rem; font-size: 0.72rem; color: var(--text-muted); text-align: center; line-height: 1.15; }
+.play-phase-label { margin-top: 0.1rem; font-size: 0.7rem; color: var(--text-muted); text-align: center; line-height: 1.15; }
 .play-phase-label small { display: block; color: var(--player); font-weight: 600; }
 .play-phase.done .play-phase-box { color: var(--text-secondary); border-color: var(--accent-dim); opacity: 0.7; }
 .play-phase-done { position: absolute; right: -0.3rem; bottom: -0.3rem; font-size: 0.6rem; padding: 0.12rem;
@@ -3760,7 +3762,7 @@ h4 .fa-solid,
 .play-phase.current .play-phase-box { background: var(--player); border-color: var(--player); color: var(--on-accent);
                                       box-shadow: 0 0 0 3px color-mix(in srgb, var(--player) 30%, transparent); }
 .play-phase.current .play-phase-label { color: var(--text-primary); font-weight: 600; }
-.play-phase-link { width: 1.2rem; height: 2px; margin-top: 1.2rem; background: var(--border); }
+.play-phase-link { width: 1rem; height: 2px; margin-top: 1.2rem; background: var(--border); }
 .play-scoreboard { display: flex; gap: 0.75rem; font-size: 0.85rem; color: var(--text-secondary); }
 .play-scoreboard .play-p1 { border-bottom: 2px solid var(--play-p1); }
 .play-scoreboard .play-p2 { border-bottom: 2px solid var(--play-p2); }
