@@ -33,7 +33,9 @@ DEPLOYMENT_DEPTH = 12  # Until missions: each player sets up within this many in
 MODEL_FIELDS = ('wounds_left', 'alive', 'position')  # What an event can change about a model
 PHASES = ('command', 'movement', 'shooting', 'charge', 'fight')  # Each player's turn, in order
 DEFAULT_ORDERS = {'casualties': 'farthest'}  # Standing orders: which models are removed first
-HAZARDOUS_DAMAGE = 3  # Mortal wounds to a model whose Hazardous roll is a 1
+HAZARD_FAILS_ON = 2  # A hazard roll of this or less fails...
+HAZARD_MORTALS = 1  # ...and the unit suffers this many mortal wounds (3 if every model is a Monster or Vehicle)
+BATTLE_ROUNDS = 5
 
 
 class ActionError(ValueError):
@@ -45,7 +47,7 @@ def new_game(armies):
     state = {'version': STATE_VERSION, 'players': [], 'units': [],
              'turn': {'phase': 'deployment', 'round': 0, 'player': 0}}
     for player, army in enumerate(armies):
-        state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS)})
+        state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0})
         for unit in army['units']:
             unit_id = f'p{player + 1}-{unit["uid"]}'
             models = [{'id': f'{unit_id}-{part_index}-{n + 1}', 'part': part_index,
@@ -54,7 +56,8 @@ def new_game(armies):
                        'weapons': [i for i, w in enumerate(part['weapons']) if n < w['qty']]}
                       for part_index, part in enumerate(unit['parts']) for n in range(part['models'])]
             state['units'].append({'id': unit_id, 'player': player, 'name': unit['name'],
-                                   'parts': copy.deepcopy(unit['parts']), 'models': models, 'activity': {}})
+                                   'parts': copy.deepcopy(unit['parts']), 'models': models, 'activity': {},
+                                   'status': {'shocked': False}})
     return state
 
 
@@ -63,10 +66,12 @@ def unit_by_id(state, unit_id):
 
 
 def _snapshot(state):
-    """What events record: each model's MODEL_FIELDS, each unit's activity, players' orders and the turn."""
+    """What events record: each model's MODEL_FIELDS, each unit's activity and status, players' orders
+    and Command points, and the turn."""
     return {'models': {m['id']: {k: m[k] for k in MODEL_FIELDS} for u in state['units'] for m in u['models']},
-            'units': {u['id']: {'activity': u.get('activity', {})} for u in state['units']},
-            'players': [p.get('orders', DEFAULT_ORDERS) for p in state['players']],
+            'units': {u['id']: {'activity': u.get('activity', {}), 'status': u.get('status', {'shocked': False})}
+                      for u in state['units']},
+            'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0)} for p in state['players']],
             'turn': state.get('turn')}
 
 
@@ -76,7 +81,7 @@ def resolve_action(state, action, dice):
     (changed units' activity), 'turn' (when it changed), ...}. `state` is not changed.
     """
     handlers = {'shoot': lambda s: _shoot(s, action, dice), 'place': lambda s: _place(s, action),
-                'end_deployment': _end_deployment, 'next_phase': _next_phase,
+                'end_deployment': lambda s: _end_deployment(s, dice), 'next_phase': lambda s: _next_phase(s, dice),
                 'move': lambda s: _move(s, action), 'advance': lambda s: _advance(s, action, dice),
                 'stationary': lambda s: _stationary(s, action), 'reset_move': lambda s: _reset_move(s, action),
                 'charge': lambda s: _charge(s, action, dice), 'charge_move': lambda s: _charge_move(s, action),
@@ -97,7 +102,7 @@ def resolve_action(state, action, dice):
     if after['turn'] != before['turn']:
         event['turn'] = after['turn']
     if after['players'] != before['players']:
-        event['orders'] = after['players']
+        event['players'] = after['players']
     return event
 
 
@@ -111,8 +116,10 @@ def apply_event(state, event):
                 model.update(event['models'][model['id']])
     if 'turn' in event:
         state['turn'] = dict(event['turn'])
-    for player, orders in zip(state['players'], event.get('orders', [])):
+    for player, orders in zip(state['players'], event.get('orders', [])):  # Games saved before Command points
         player['orders'] = dict(orders)
+    for player, changes in zip(state['players'], event.get('players', [])):
+        player.update(copy.deepcopy(changes))
     return state
 
 
@@ -131,18 +138,22 @@ def _unplaced(state, player):
     return [u for u in state['units'] if u['player'] == player and any(m['alive'] and not m['position'] for m in u['models'])]
 
 
-def _end_deployment(state):
+def _end_deployment(state, dice):
     _require(state, 'deployment')
     if _unplaced(state, 0) or _unplaced(state, 1):
         raise ActionError('Place every unit before deployment ends.')
-    _start_turn(state, 1, 0)
+    _start_turn(state, 1, 0, dice)
 
 
-def _next_phase(state):
+def _next_phase(state, dice):
     """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate)."""
     turn = state['turn']
+    if turn['phase'] == 'ended':
+        raise ActionError('The battle is over.')
     if turn['phase'] not in PHASES:
         raise ActionError('The battle has not started yet.')
+    if turn['phase'] == 'movement':
+        _desperate_escapes(state, dice)
     if turn['phase'] == 'fight' and turn.get('step') == 'pile_in':
         turn['step'] = 'fight'
         turn['fight'] = {'stage': 'fights_first', 'picker': turn['player']}
@@ -161,16 +172,81 @@ def _next_phase(state):
         if turn['phase'] == 'fight':
             turn['step'] = 'pile_in'
     elif turn['player'] == 0:
-        _start_turn(state, turn['round'], 1)
+        _start_turn(state, turn['round'], 1, dice)
+    elif turn['round'] >= BATTLE_ROUNDS:
+        state['turn'] = {'phase': 'ended', 'round': turn['round'], 'player': turn['player']}
     else:
-        _start_turn(state, turn['round'] + 1, 0)
+        _start_turn(state, turn['round'] + 1, 0, dice)
 
 
-def _start_turn(state, round_number, player):
-    """A player's turn begins: Command phase, and every unit's record of this turn cleared."""
+def _start_turn(state, round_number, player, dice):
+    """
+    A player's turn begins in the Command phase: every unit's record of this turn is cleared, both
+    players gain 1 Command point, and the player makes a battle-shock roll for each of their units
+    that is battle-shocked or at or below half strength.
+    """
     state['turn'] = {'phase': 'command', 'round': round_number, 'player': player}
     for unit in state['units']:
         unit['activity'] = {}
+    for each in state['players']:
+        each['cp'] = each.get('cp', 0) + 1
+    for unit in state['units']:
+        status = unit.setdefault('status', {'shocked': False})
+        if unit['player'] == player and _placed_shapes(unit) and (status['shocked'] or half_strength(unit)):
+            leadership = min(unit['parts'][m['part']]['stats'].get('leadership') or 7 for m in unit['models'] if m['alive'])
+            status['shocked'] = dice.roll_value('2D6', 'battle-shock') < leadership
+
+
+def half_strength(unit):
+    """At or below half strength: half its starting models left, or (one model) half its wounds."""
+    alive = [m for m in unit['models'] if m['alive']]
+    if len(unit['models']) > 1:
+        return len(alive) * 2 <= len(unit['models'])
+    return bool(alive) and alive[0]['wounds_left'] * 2 <= unit['parts'][alive[0]['part']]['stats']['wounds']
+
+
+def _desperate_escapes(state, dice):
+    """As the Movement phase ends, a battle-shocked unit that Fell Back (Desperate Escape) makes a hazard
+    roll for each of its models."""
+    for unit in state['units']:
+        if unit['activity'].get('desperate') and unit['activity'].get('moved') == 'fall_back':
+            _hazard(state, unit, sum(m['alive'] for m in unit['models']), dice)
+
+
+def _hazard(state, unit, rolls, dice):
+    """Hazard rolls: each that fails (1-2) costs the unit 1 mortal wound, or 3 if every model is a Monster
+    or Vehicle. The models it kills."""
+    group = dice.roll(rolls, 'hazard', HAZARD_FAILS_ON + 1, crit_on=7)
+    every_big = all(_has(unit['parts'][m['part']]['keywords'], 'Monster') or _has(unit['parts'][m['part']]['keywords'], 'Vehicle')
+                    for m in unit['models'] if m['alive'])
+    fails = sum(not d.success for d in group.dice)
+    return _mortal_wounds(state, unit, fails * (3 if every_big else HAZARD_MORTALS), dice)
+
+
+def _mortal_wounds(state, unit, count, dice):
+    """Mortal wounds allocated one at a time like any wound (no saves; Feel No Pain still rolls)."""
+    killed = []
+    for _ in range(count):
+        model = _allocate(unit)
+        if model is None:
+            break
+        fnp = unit['parts'][model['part']]['stats'].get('feel_no_pain')
+        if fnp and dice.roll(1, 'feel no pain', fnp, crit_on=7).successes:
+            continue
+        model['wounds_left'] -= 1
+        model['alive'] = model['wounds_left'] > 0
+        if not model['alive']:
+            killed.append(model['id'])
+    return killed
+
+
+def score(state):
+    """Each player's kill points: the points of the enemy units they have destroyed."""
+    points = [0, 0]
+    for unit in state['units']:
+        if unit['models'] and not any(m['alive'] for m in unit['models']):
+            points[1 - unit['player']] += sum(part.get('points') or 0 for part in unit['parts'])
+    return points
 
 
 def _orders(state, action):
@@ -368,15 +444,11 @@ def _shoot(state, action, dice):
                             'rolls': [first, len(dice.log)]})
         if _has(weapon['abilities'], 'Hazardous'):
             hazardous += near + far
-    if hazardous:
+    if hazardous:  # A hazard roll for each Hazardous weapon fired
         first = len(dice.log)
-        roll = dice.roll(len(hazardous), 'hazardous', 2, crit_on=7)
-        for model, die in zip(hazardous, roll.dice):
-            if not die.success and model['alive']:
-                model['wounds_left'] = max(0, model['wounds_left'] - HAZARDOUS_DAMAGE)
-                model['alive'] = model['wounds_left'] > 0
+        killed = _hazard(state, shooter, len(hazardous), dice)
         attacks.append({'name': 'Hazardous', 'target': shooter['id'], 'models': len(hazardous),
-                        'killed': [m['id'] for m in hazardous if not m['alive']], 'rolls': [first, len(dice.log)]})
+                        'killed': killed, 'rolls': [first, len(dice.log)]})
     activity['shot'] = True
     return {'attacks': attacks}
 
@@ -815,6 +887,8 @@ def _move(state, action):
     engaged = _engaged(_start_shapes(unit), enemies)  # Where it started the phase decides
     if _big(unit) and mode in ('normal', 'advance'):  # Through anything but other Monsters and Vehicles
         blocking = [shape for u in state['units'] if u['player'] != unit['player'] and _big(u) for shape in _placed_shapes(u)]
+    elif mode == 'fall_back' and unit.get('status', {}).get('shocked'):  # Desperate Escape: through enemy models
+        blocking = []
     else:
         blocking = enemies
     if mode == 'fall_back' and not engaged:
@@ -864,6 +938,10 @@ def _move(state, action):
     for mid, spot in spots.items():
         living[mid]['position'] = spot
     activity['moved'] = mode
+    if mode == 'fall_back' and unit.get('status', {}).get('shocked'):
+        activity['desperate'] = True  # Hazard rolls when the Movement phase ends
+    else:
+        activity.pop('desperate', None)
 
 
 def coherency_problem(shapes):
@@ -1045,15 +1123,11 @@ def _fight_with(state, unit, picks, explicit, default_target, engaged_with, figh
                         'half_range': False, **asdict(pool), 'killed': killed, 'rolls': [first, len(dice.log)]})
         if _has(weapon['abilities'], 'Hazardous'):
             hazardous += models
-    if hazardous:
+    if hazardous:  # A hazard roll for each Hazardous weapon used
         first = len(dice.log)
-        roll = dice.roll(len(hazardous), 'hazardous', 2, crit_on=7)
-        for model, die in zip(hazardous, roll.dice):
-            if not die.success and model['alive']:
-                model['wounds_left'] = max(0, model['wounds_left'] - HAZARDOUS_DAMAGE)
-                model['alive'] = model['wounds_left'] > 0
+        killed = _hazard(state, unit, len(hazardous), dice)
         attacks.append({'name': 'Hazardous', 'target': unit['id'], 'models': len(hazardous),
-                        'killed': [m['id'] for m in hazardous if not m['alive']], 'rolls': [first, len(dice.log)]})
+                        'killed': killed, 'rolls': [first, len(dice.log)]})
     unit['activity']['fought'] = True
     fight['picker'] = 1 - unit['player']
     _settle_picker(state)

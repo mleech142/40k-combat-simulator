@@ -48,6 +48,7 @@ def _part(entry, role, catalogue, warlord):
         'name': unit.name,
         'role': role,
         'models': entry['models'],
+        'points': entry['points'] or 0,  # Including its enhancement
         'stats': {name: getattr(unit, name) for name in STATS},
         'keywords': unit.target_keywords,
         'base': unit.base,

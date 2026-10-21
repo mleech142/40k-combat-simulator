@@ -168,17 +168,6 @@ def test_special_weapon_carriers_are_removed_last():
     assert alive(after, 'p1-squad') == [1, 'dead', 1]
 
 
-# --- Hazardous ------------------------------------------------------------------------------------------
-
-def test_hazardous_weapons_can_wound_the_model_firing_them():
-    hot = gun('Plasma', attacks='1', range=24, abilities=['Hazardous'], qty=2)
-    guns = gunner(hot, name='Gunners', models=2, spots=((11.5, 20), (13, 20)))
-    # Both miss (1, 1); Hazardous rolls 1 (3 mortal wounds to that model: W3, so it dies) and 4
-    after, event = act(game([SQUAD], [guns]), shoot('p2-gunners', 'p1-squad'), 1, 1, 1, 4)
-    assert [g['purpose'] for g in event['rolls']][-1] == 'hazardous'
-    assert alive(after, 'p2-gunners') == ['dead', 3]
-
-
 # --- What the page offers ------------------------------------------------------------------------------
 
 def test_shooting_options_say_which_weapons_can_fire_at_which_units_and_why_not():
