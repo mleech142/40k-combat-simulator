@@ -3763,6 +3763,15 @@ h4 .fa-solid,
                                       box-shadow: 0 0 0 3px color-mix(in srgb, var(--player) 30%, transparent); }
 .play-phase.current .play-phase-label { color: var(--text-primary); font-weight: 600; }
 .play-phase-link { width: 1rem; height: 2px; margin-top: 1.2rem; background: var(--border); }
+/* Units that can still act this phase: a soft pulse on the board, a marker in the list; those done, dimmed */
+.play-unit-group.ready .play-unit-outline { stroke-opacity: 0.9; stroke-width: 0.14; filter: drop-shadow(0 0 0.25px var(--player));
+                                            animation: play-ready 1.8s ease-in-out infinite; }
+@keyframes play-ready { 50% { stroke-opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .play-unit-group.ready .play-unit-outline { animation: none; } }
+.play-ready { font-style: normal; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+              margin-left: 0.4rem; padding: 0 0.3rem; border-radius: 3px; vertical-align: middle;
+              background: var(--success); color: var(--on-accent); }
+.play-unit.acted { opacity: 0.55; }
 .play-scoreboard { display: flex; gap: 0.75rem; font-size: 0.85rem; color: var(--text-secondary); }
 .play-scoreboard .play-p1 { border-bottom: 2px solid var(--play-p1); }
 .play-scoreboard .play-p2 { border-bottom: 2px solid var(--play-p2); }

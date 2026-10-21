@@ -43,6 +43,7 @@ def test_new_game_from_two_saved_armies(client, game):
     assert [u['id'] for u in game['state']['units']] == ['p1-w', 'p1-c', 'p2-g']
     assert all(m['position'] is None for u in game['state']['units'] for m in u['models'])  # Not placed yet
     assert game['board'] == {'width': 60, 'depth': 44, 'deployment_depth': 12}
+    assert game['ready'] == ['p1-w', 'p1-c']  # Red deploys first
     assert game['score'] == [0, 0] and {'key': 'cover', 'name': 'Benefit of cover', 'side': 'Target'} in game['manual_effects']
     assert game['moves'] == {'p1-w': [6], 'p1-c': [6], 'p2-g': [5]}  # Each part's Move, in inches
     assert game['outlines']['p1-w'] == [{'shape': 'round', 'length': 32 / 25.4, 'width': 32 / 25.4, 'estimated': False}]

@@ -326,8 +326,10 @@
                        u.status && u.status.shocked ? 'BATTLE-SHOCKED' : '',
                        (u.effects || []).length ? `${u.effects.length} effect${u.effects.length === 1 ? '' : 's'}` : '']
                         .filter(Boolean).join(' · ');
-                return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''}" data-unit="${u.id}">
-                    <span>${escapeHtml(u.name)}</span>
+                const ready = game.ready.includes(u.id);
+                const acted = actedThisPhase(u, game.state.turn);
+                return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''} ${ready ? 'ready' : ''} ${acted ? 'acted' : ''}" data-unit="${u.id}">
+                    <span>${escapeHtml(u.name)}${ready ? '<em class="play-ready">Ready</em>' : ''}</span>
                     <small>${living.length} model${living.length === 1 ? '' : 's'}${done ? ' · ' + escapeHtml(done) : ''}</small>
                 </button>`;
             }).join('')}</div>`;
@@ -336,6 +338,18 @@
         $('unit-list').querySelectorAll('[data-orders]').forEach(s => s.addEventListener('change', () =>
             send({ type: 'orders', player: Number(s.dataset.orders), casualties: s.value })));
         renderDetail();
+    }
+
+    /** Whether a unit has already done this phase's (or step's) thing: moved, shot, charged, piled in, fought... */
+    function actedThisPhase(unit, turn) {
+        const a = unit.activity;
+        if (turn.phase === 'movement') return turn.player === unit.player && !!a.moved;
+        if (turn.phase === 'shooting') return !!a.shot;
+        if (turn.phase === 'charge') return !!a.charged || (a.charge_roll != null && !state.game.ready.includes(unit.id));
+        if (turn.phase === 'fight' && turn.step === 'pile_in') return !!a.pile_start;
+        if (turn.phase === 'fight' && turn.step === 'fight') return !!a.fought;
+        if (turn.phase === 'fight' && turn.step === 'consolidate') return !!a.consolidate_start;
+        return false;
     }
 
     function select(unitId) {
@@ -832,7 +846,8 @@
                 && Object.entries(state.targets).some(([key, id]) => id === unit.id && state.fire[key]))
                 || (game.state.turn.phase === 'charge' && state.charge && state.chargeTargets.includes(unit.id));
             const shocked = unit.status && unit.status.shocked ? 'shocked' : '';
-            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked}`,
+            const ready = game.ready.includes(unit.id) ? 'ready' : '';
+            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked} ${ready}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
             const reach = m => Math.max(game.outlines[unit.id][m.part].length, game.outlines[unit.id][m.part].width) / 2 + 0.4;

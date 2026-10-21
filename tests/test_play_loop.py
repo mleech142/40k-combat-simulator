@@ -241,3 +241,31 @@ def test_a_correction_can_only_change_what_exists():
     assert 'model' in refused(shooting_game(), {'type': 'correction', 'player': 0, 'models': {'nobody': {'alive': False}}})
     assert 'wounds' in refused(shooting_game(), {'type': 'correction', 'player': 0,
                                                  'models': {'p2-squad-0-1': {'wounds_left': 9}}})
+
+
+# --- Which units can still act -------------------------------------------------------------------------------
+
+def test_ready_units_are_those_that_can_still_act_this_phase():
+    from combat_sim.play.game import ready_units
+    gunner = (model('Gunner', 1, 3, weapons=[gun(attacks='1', range=24)]), (11.5, 20))
+    far_gunner = (model('Far', 1, 3, weapons=[gun(attacks='1', range=6)]), (40, 6))
+    squad = (model('Squad', 3), *row(10, 30))
+    state = battle([gunner, far_gunner], [squad], phase='movement')
+    assert ready_units(state) == ['p1-gunner', 'p1-far']  # Neither has moved
+    unit_by_id(state, 'p1-gunner')['activity'] = {'moved': 'normal'}
+    assert ready_units(state) == ['p1-far']
+    state['turn']['phase'] = 'shooting'
+    assert ready_units(state) == ['p1-gunner']  # The other has nothing in range
+    unit_by_id(state, 'p1-gunner')['activity']['shot'] = True
+    assert ready_units(state) == []
+    state['turn']['phase'] = 'command'
+    assert ready_units(state) == []
+
+
+def test_ready_units_in_the_fight_follow_whose_pick_it_is():
+    from combat_sim.play.game import ready_units
+    from test_play_fight import fighters, to_step
+    state = to_step(fighters(), 'pile_in')
+    assert sorted(ready_units(state)) == ['p1-guard', 'p1-squad', 'p2-brute', 'p2-mob']  # Both players pile in
+    state = to_step(state, 'fight')
+    assert ready_units(state) == ['p1-squad']  # Fights First: Red's charged Squad

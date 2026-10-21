@@ -1428,3 +1428,60 @@ def _answer(state, action, accept):
     for key, value in pending['cp'].items():
         state['players'][int(key)]['cp'] = value
     return {'corrected': pending['note']}
+
+
+# --- Which units can still act -------------------------------------------------------------------------------
+
+def ready_units(state):
+    """
+    For the page: the units that can still act in the current phase (or Fight step), in order. Units
+    that already moved, shot, charged or fought this phase aren't listed, nor units that can't (no
+    target in range, nothing to charge, not engaged).
+    """
+    turn = state['turn']
+    phase, step, active = turn['phase'], turn.get('step'), turn['player']
+    on_board = [u for u in state['units'] if any(m['alive'] for m in u['models'])]
+    mine = [u for u in on_board if u['player'] == active]
+
+    def quietly(check, unit):
+        try:
+            return check(unit)
+        except ActionError:
+            return False
+
+    if phase == 'deployment':
+        return [u['id'] for u in _unplaced(state, active)]
+    if phase == 'movement':
+        return [u['id'] for u in mine if 'moved' not in u['activity'] and _placed_shapes(u)]
+    if phase == 'shooting':
+        def can_shoot(unit):
+            options = shooting_options(state, unit['id'])
+            return options['reason'] is None and any(t['ok'] for w in options['weapons'] for t in w['targets'].values())
+        return [u['id'] for u in mine if can_shoot(u)]
+    if phase == 'charge':
+        def can_charge(unit):
+            if unit['activity'].get('charged'):
+                return False
+            if 'charge_roll' in unit['activity']:
+                return bool(charge_options(state, unit['id'])['targets'])
+            _charge_checks(state, unit)
+            return True
+        return [u['id'] for u in mine if quietly(can_charge, u)]
+    if phase == 'fight' and step == 'pile_in':
+        return [u['id'] for u in on_board if 'pile_start' not in u['activity'] and _placed_shapes(u)
+                and (_is_engaged(state, u) or u['activity'].get('charged'))]
+    if phase == 'fight' and step == 'fight':
+        fight = turn.get('fight') or {}
+        if fight.get('picker') is None:
+            return []
+        first = fight['stage'] == 'fights_first'
+        return [u['id'] for u in on_board if u['player'] == fight['picker'] and _can_fight(state, u)
+                and (_fights_first(u) or not first)]
+    if phase == 'fight' and step == 'consolidate':
+        def can_consolidate(unit):
+            enemies = [e for e in on_board if e['player'] != unit['player'] and _placed_shapes(e)]
+            mine_shapes = _placed_shapes(unit)
+            return any(_unit_distance(mine_shapes, _placed_shapes(e)) <= CONSOLIDATE_MOVE + 1e-9 for e in enemies)
+        return [u['id'] for u in on_board if u['activity'].get('fought') and 'consolidate_start' not in u['activity']
+                and can_consolidate(u)]
+    return []
