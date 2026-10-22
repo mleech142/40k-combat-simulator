@@ -247,6 +247,22 @@ def test_monsters_and_vehicles_move_through_enemy_models_but_not_other_monsters_
     assert 'through' in refused(walkers, move('p1-squad', 'normal', *row(10, 14, 3), state=walkers))
 
 
+def test_monsters_and_vehicles_fall_back_through_enemy_models_too():
+    """Core rules 17.01 and its FAQ: Monsters and Vehicles pass through models on every kind of move."""
+    base = {'shape': 'round', 'length_mm': 32, 'width_mm': 32}
+    for keywords, through in ((['Vehicle'], True), (['Infantry'], False)):
+        state = new_game([army('Red', (part('Tank', 1, 1, base=base, stats={'move': '12'}, keywords=keywords),)),
+                          army('Blue', (part('Mob', 2, 1, base=base),))])
+        state['turn'] = {'phase': 'movement', 'round': 1, 'player': 0}
+        put(state, 'p1-tank', (10, 10))
+        put(state, 'p2-mob', (10, 11.9), (10, 7))  # One engaged with it, one behind it
+        back = move('p1-tank', 'fall_back', (10, 3), state=state)
+        if through:
+            act(state, back)
+        else:
+            assert 'through' in refused(state, back)
+
+
 def test_remaining_stationary_is_recorded():
     state, _ = act(movement(), {'type': 'stationary', 'unit': 'p1-squad'})
     assert unit_by_id(state, 'p1-squad')['activity']['moved'] == 'stationary'

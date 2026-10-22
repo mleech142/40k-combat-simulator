@@ -1077,6 +1077,18 @@ def _enemy_shapes(state, unit):
     return [shape for u in state['units'] if u['player'] != unit['player'] for shape in _placed_shapes(u)]
 
 
+def _blocking(state, unit, through_all=False):
+    """
+    The enemy models a unit's models can't move through: all of them, but a Monster or Vehicle passes
+    through any that aren't Monsters or Vehicles on every kind of move (core rules 17.01 and its FAQ),
+    and none block a unit taking to the skies or making a Desperate Escape.
+    """
+    if through_all:
+        return []
+    big = _big(unit)
+    return [shape for u in state['units'] if u['player'] != unit['player'] and (not big or _big(u)) for shape in _placed_shapes(u)]
+
+
 def _engaged(shapes, enemies):
     return any(base_distance(a, b) <= ENGAGEMENT_RANGE + 1e-9 for a in shapes for b in enemies)
 
@@ -1247,7 +1259,7 @@ def _charge_move(state, action):
     living = {m['id']: m for m in unit['models'] if m['alive']}
     spots = _spots(unit, action, 'Move')
     skies = _skies(unit, action)
-    enemies = [] if skies else _enemy_shapes(state, unit)
+    enemies = _blocking(state, unit, through_all=skies)
     target_shapes = [shape for t in targets for shape in _placed_shapes(t)]
     shapes = {}
     for mid, spot in spots.items():
@@ -1317,14 +1329,8 @@ def _move(state, action):
     enemies = _enemy_shapes(state, unit)
     engaged = _engaged(_start_shapes(unit), enemies)  # Where it started the phase decides
     skies = _skies(unit, action)
-    if skies:  # Through all models
-        blocking = []
-    elif _big(unit) and mode in ('normal', 'advance'):  # Through anything but other Monsters and Vehicles
-        blocking = [shape for u in state['units'] if u['player'] != unit['player'] and _big(u) for shape in _placed_shapes(u)]
-    elif mode == 'fall_back' and unit.get('status', {}).get('shocked'):  # Desperate Escape: through enemy models
-        blocking = []
-    else:
-        blocking = enemies
+    desperate = mode == 'fall_back' and unit.get('status', {}).get('shocked')  # Desperate Escape: through enemy models
+    blocking = _blocking(state, unit, through_all=skies or desperate)
     if mode == 'fall_back' and not engaged:
         raise ActionError('Only a unit in engagement range can Fall Back.')
     if mode != 'fall_back' and engaged:
@@ -1627,6 +1633,7 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
     living = {m['id']: m for m in unit['models'] if m['alive']}
     spots = _spots(unit, action, verb.capitalize())
     enemies = _enemy_shapes(state, unit)
+    blocking = _blocking(state, unit)
     target_shapes = [shape for t in targets for shape in _placed_shapes(t)]
     shapes = {}
     for mid, spot in spots.items():
@@ -1648,7 +1655,7 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
             t = i / steps
             here = {'x': start['x'] + t * (spot['x'] - start['x']), 'y': start['y'] + t * (spot['y'] - start['y']),
                     'angle': spot['angle']}
-            if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
+            if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
                 raise ActionError(f'{part["name"]} can\'t move through enemy models.')
         if target_shapes:
             before = min(base_distance(start_shape, t) for t in target_shapes)

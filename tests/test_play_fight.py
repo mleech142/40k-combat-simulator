@@ -65,6 +65,19 @@ def test_who_can_declare_a_charge():
     assert "Red's turn" in refused(battle([SQUAD], [MOB]), {'type': 'charge', 'unit': 'p2-mob'}, 6, 6)
 
 
+def test_monsters_and_vehicles_charge_through_enemy_models():
+    """Core rules 17.01 and its FAQ: Monsters and Vehicles pass through models (but not other Monsters and Vehicles)."""
+    for keywords, through in ((['Vehicle'], True), (['Infantry'], False)):
+        tank = (model('Tank', 1, keywords=keywords), (10, 10))
+        blocker = (model('Blocker', 1), (10, 13.4))  # In the way, 2.14" off, not charged
+        state, _ = act(battle([tank], [MOB, blocker]), {'type': 'charge', 'unit': 'p1-tank'}, 3, 5)
+        go = charge_move('p1-tank', ['p2-mob'], (10, 16.7), state=state)  # Engaged with the Mob, 2.04" past the Blocker
+        if through:
+            act(state, go)
+        else:
+            assert 'through' in refused(state, go)
+
+
 def test_charge_targets_are_enemy_units_within_the_roll():
     state, _ = act(battle([SQUAD], [MOB]), {'type': 'charge', 'unit': 'p1-squad'}, 1, 3)  # 4": the Mob is 6.74" away
     assert 'within' in refused(state, charge_move('p1-squad', ['p2-mob'], *row(10, 13), state=state))

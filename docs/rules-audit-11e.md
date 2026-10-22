@@ -24,7 +24,7 @@ Tick each item when the engine matches (with a test).
 - [ ] **Consolidation modes** (12.08), in order: Ongoing (engaged: stay engaged with them), Engaging (enemies
   within 3": end engaged with the ones chosen), Objective (an objective within 3": end within its range). The
   engine has no Objective consolidation.
-- [ ] **Monsters and Vehicles move through models on every move** (17.01 and its FAQ), except other Monsters and
+- [x] **Monsters and Vehicles move through models on every move** (17.01 and its FAQ), except other Monsters and
   Vehicles. The engine allows it only for Normal and Advance moves.
 
 ## Smaller mismatches
