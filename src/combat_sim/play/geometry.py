@@ -66,6 +66,16 @@ def base_distance(a, b):
     return max(0.0, _polygon_distance(a.points, b.points) - a.radius - b.radius)
 
 
+def farther_than(a, b, gap):
+    """A quick check that two shapes are more than `gap` apart (their bounding boxes are); False means
+    "maybe not", for base_distance to settle."""
+    ax, ay = [p[0] for p in a.points], [p[1] for p in a.points]
+    bx, by = [p[0] for p in b.points], [p[1] for p in b.points]
+    reach = gap + a.radius + b.radius
+    return (min(ax) - max(bx) > reach or min(bx) - max(ax) > reach
+            or min(ay) - max(by) > reach or min(by) - max(ay) > reach)
+
+
 def _place(points, x, y, angle):
     """Points turned `angle` degrees anticlockwise about (0, 0), then moved by (x, y)."""
     c, s = math.cos(math.radians(angle)), math.sin(math.radians(angle))

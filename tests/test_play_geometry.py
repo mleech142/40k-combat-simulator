@@ -5,7 +5,7 @@ bottom-left corner, models placed by the centre of their base. Pure maths, no ga
 
 import pytest
 
-from combat_sim.play.geometry import FOOTPRINTS, base_distance, base_shape, can_see, clear_line, footprint, hull_shape
+from combat_sim.play.geometry import FOOTPRINTS, base_distance, base_shape, can_see, clear_line, farther_than, footprint, hull_shape
 
 ROUND_32 = {'shape': 'round', 'length_mm': 32, 'width_mm': 32, 'text': '32mm'}
 
@@ -85,3 +85,20 @@ def test_a_model_can_see_another_if_any_line_between_their_bases_is_clear():
     # Centres just below the wall's end, but the tops of both bases (y 10.43) see over it
     assert can_see(base_shape(ROUND_32, 15, 9.8), base_shape(ROUND_32, 25, 9.8), wall)
     assert can_see(base_shape(OVAL, 10, 5), base_shape(ROUND_32, 25, 5), [])
+
+
+def test_farther_than_is_a_quick_check_that_never_rules_out_shapes_within_the_gap():
+    """Range checks skip the exact distance for shapes whose bounding boxes are already farther apart."""
+    round32 = {'length_mm': 32, 'width_mm': 32}
+    model = base_shape(round32, 10, 10)
+    assert farther_than(model, base_shape(round32, 20, 10), 3)  # About 8.7" apart, edge to edge
+    assert not farther_than(model, base_shape(round32, 14, 10), 3)  # About 2.7"
+    area = footprint('large', 10.5, 9)  # Overlaps the model's base
+    assert not farther_than(model, area, 0) and base_distance(model, area) == 0
+    # Corner to corner on a diagonal: the boxes are closer than the shapes, so it's left to the exact check
+    a, b = base_shape(round32, 0, 0), base_shape(round32, 1, 1)
+    assert not farther_than(a, b, 0) and base_distance(a, b) > 0
+    for x in range(0, 30, 3):
+        other = footprint('polygon', x, 12, angle=37)
+        if farther_than(model, other, 3):
+            assert base_distance(model, other) > 3

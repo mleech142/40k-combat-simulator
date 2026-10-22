@@ -21,6 +21,7 @@
 
     const state = {
         game: null,  // /api/play/games/<id> answer
+        working: false,  // A request that changes the game hasn't answered yet (see whileWorking)
         selected: null,  // Unit id picked in the list
         view: null,  // The board's viewBox, in SVG units (inches, y down)
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
@@ -65,7 +66,7 @@
                 closeModal((open.find(m => m.id === 'battlefields-modal') || open[0]).id);
                 return;
             }
-            if (open.length || !state.placing || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            if (open.length || !state.placing || state.working || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
             const key = e.key.toLowerCase();
             if (key === 'q') pivotPlacing(15);
             else if (key === 'e') pivotPlacing(-15);
@@ -220,27 +221,57 @@
 
     // --- Actions -----------------------------------------------------------------------
 
-    async function send(action) {
-        const resp = await fetch(`/api/play/games/${state.game.id}/actions`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-            message(data.error || 'That move was not allowed.', true);
-            render();  // Put any dragged models back
-            return false;
+    /**
+     * Run a request that changes the game, one at a time: until it answers, the game ignores clicks, drags
+     * and keys (so a second click can't send the action twice), and after a moment says it's working.
+     * Answers the task's result, or null when another request was still going or the app couldn't be reached.
+     */
+    async function whileWorking(task) {
+        if (state.working) return null;
+        state.working = true;
+        const page = $('tab-games');
+        page.classList.add('play-busy');
+        page.setAttribute('aria-busy', 'true');
+        const shown = setTimeout(() => page.classList.add('play-busy-shown'), 150);
+        try {
+            return await task();
+        } catch (error) {
+            message("Couldn't reach the app: is it still running?", true);
+            return null;
+        } finally {
+            clearTimeout(shown);
+            page.classList.remove('play-busy', 'play-busy-shown');
+            page.removeAttribute('aria-busy');
+            state.working = false;
         }
-        message('');
-        show(data);
-        return true;
+    }
+
+    async function send(action) {
+        const done = await whileWorking(async () => {
+            const resp = await fetch(`/api/play/games/${state.game.id}/actions`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action),
+            });
+            const data = await resp.json();
+            if (!resp.ok) {
+                message(data.error || 'That move was not allowed.', true);
+                return false;
+            }
+            message('');
+            show(data);
+            return true;
+        });
+        if (!done) render();  // Put any dragged models back
+        return !!done;
     }
 
     async function undo() {
-        const resp = await fetch(`/api/play/games/${state.game.id}/undo`, { method: 'POST' });
-        const data = await resp.json();
-        if (!resp.ok) return message(data.error, true);
-        message('Undone.');
-        show(data);
+        await whileWorking(async () => {
+            const resp = await fetch(`/api/play/games/${state.game.id}/undo`, { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) return message(data.error, true);
+            message('Undone.');
+            show(data);
+        });
     }
 
     function place(unitId, positions) {

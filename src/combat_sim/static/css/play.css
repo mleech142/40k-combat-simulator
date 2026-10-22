@@ -224,3 +224,12 @@
     color: var(--text-primary); background: color-mix(in srgb, var(--player) 22%, var(--bg-tertiary));
     border: 1px solid color-mix(in srgb, var(--player) 50%, var(--border)); }
 .play-line-vp small { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+
+/* While a request that changes the game is going: no clicks or drags, and after a moment a "Working…" pill */
+.play-layout-game.play-busy { cursor: progress; }
+.play-layout-game.play-busy > * { pointer-events: none; }
+.play-working { position: absolute; left: 50%; top: 1rem; transform: translateX(-50%); z-index: 6; display: none; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.9rem; border-radius: 999px; font-weight: 700; font-size: 0.85rem; background: var(--bg-primary);
+    border: 1px solid var(--accent); color: var(--text-primary); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+.play-busy-shown .play-working { display: inline-flex; }
+.play-busy-shown .play-go { opacity: 0.6; }

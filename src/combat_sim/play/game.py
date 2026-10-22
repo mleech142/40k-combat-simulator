@@ -8,6 +8,7 @@ replaying them on new_game rebuilds the game exactly, with no dice.
 """
 
 import copy
+import functools
 import json
 import math
 import re
@@ -20,7 +21,7 @@ from . import battlefields, mission_state, tactical
 from .missions import MIRRORED_PRIMARIES, NIGHT_VISIBILITY
 from .geometry import clear_line
 from .geometry import footprint as footprint_shape
-from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, hull_shape,
+from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, farther_than, hull_shape,
                        overlaps)
 
 STATE_VERSION = 1
@@ -228,7 +229,11 @@ def resolve_action(state, action, dice):
 
 def apply_event(state, event):
     """The state after an event: its results applied, no dice rolled."""
-    state = copy.deepcopy(state)
+    return _apply(copy.deepcopy(state), event)
+
+
+def _apply(state, event):
+    """Apply an event's results to `state` itself (copying what it takes from the event) and return it."""
     for unit in state['units']:
         unit.update(copy.deepcopy(event.get('units', {}).get(unit['id'], {})))
         for model in unit['models']:
@@ -928,8 +933,10 @@ def _carried(unit):
 def replay(armies, events, battlefield=None, setup=False, twist=None):
     """A game rebuilt from its frozen armies (on its battlefield, with its twist) and its events, in order (no dice)."""
     state = new_game(armies, battlefield, setup=setup, twist=twist)
-    for event in events:
-        state = apply_event(state, event)
+    # Applied in place (copying the whole state for every event made long games slow), from a copy of the
+    # events so the state never shares their objects
+    for event in copy.deepcopy(events):
+        _apply(state, event)
     return state
 
 
@@ -1780,7 +1787,10 @@ def in_range(model_shape_, objective, state=None):
         area = next((a for piece, a in terrain_areas(state) if piece['id'] == objective['terrain']), None)
         if area is not None:
             return within(model_shape_, area)
-    return base_distance(model_shape_, objective_shape(objective)) <= OBJECTIVE_RANGE + 1e-9
+    marker = objective_shape(objective)
+    if farther_than(model_shape_, marker, OBJECTIVE_RANGE + 1e-9):
+        return False
+    return base_distance(model_shape_, marker) <= OBJECTIVE_RANGE + 1e-9
 
 
 def objective_control(state, objective):
@@ -1814,11 +1824,19 @@ def terrain_areas(state):
     """[(piece, shape)] for the battlefield's terrain: each piece one of the 5 footprints, with its category
     ('exposed', 'light' or 'dense') and height (inches)."""
     pieces = (state.get('battlefield') or {}).get('terrain') or []
-    return [(p, footprint_shape(p['footprint'], p['x'], p['y'], p.get('angle') or 0, p.get('flip', False))) for p in pieces]
+    return [(p, _terrain_shape(p['footprint'], p['x'], p['y'], p.get('angle') or 0, p.get('flip', False))) for p in pieces]
+
+
+@functools.lru_cache(maxsize=512)
+def _terrain_shape(footprint, x, y, angle, flip):
+    """A terrain piece's area, worked out once: range and visibility checks ask for it again and again."""
+    return footprint_shape(footprint, x, y, angle, flip)
 
 
 def within(shape, area):
     """Whether a model (any part of its base) is within a terrain area."""
+    if farther_than(shape, area, 1e-9):
+        return False
     return overlaps(shape, area) or base_distance(shape, area) <= 1e-9
 
 

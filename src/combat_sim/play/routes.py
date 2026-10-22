@@ -12,16 +12,17 @@ from ..models import SavedArmy, SavedBattlefield, SavedGame, db
 from . import battlefields, mission_state, missions, tactical
 from .dice import Dice
 from ..settings import update_settings
-from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
+from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, apply_event, charge_options,
                    deployment_zone, fight_options, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
                    score, shooting_options, terrain_areas)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army
 
 
-def game_response(saved):
-    """A game with its state, and what the page needs to draw it: the board and each part's outline."""
-    state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
+def game_response(saved, state=None):
+    """A game with its state (`state`, else replayed), and what the page needs to draw it: the board and each part's outline."""
+    if state is None:
+        state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
                     'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH},
                     'zones': [deployment_zone(state, p) for p in (0, 1)],
@@ -255,7 +256,7 @@ def register_play_routes(app):
             return jsonify({'error': str(error)}), 400
         saved.events = (saved.events or []) + [event]
         db.session.commit()
-        return game_response(saved)
+        return game_response(saved, apply_event(state, event))
 
     @app.route('/api/play/games/<int:game_id>/undo', methods=['POST'])
     def api_undo(game_id):
