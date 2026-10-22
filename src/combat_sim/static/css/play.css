@@ -99,7 +99,7 @@
 .play-place .btn { padding: 0.25rem 0.8rem; }
 
 /* The game takes the page; games and battlefields are pop-ups */
-.play-layout.play-layout-game { grid-template-columns: minmax(0, 1fr) 280px; }
+.play-layout.play-layout-game { grid-template-columns: 280px minmax(0, 1fr) 280px; }
 .page-header #games-btn { margin-left: auto; }
 .play-modal-actions { display: flex; align-items: center; gap: 0.75rem; }
 .play-games-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; padding: 1.25rem 1.5rem; }
@@ -108,8 +108,12 @@
 .modal-content.play-bf-modal { max-width: 1500px; width: 96%; }
 .play-bf-modal .play-bf-layout { padding: 1rem; }
 .play-bf-modal .play-bf-layout .card { margin: 0; }
+@media (max-width: 1400px) {
+    .play-layout.play-layout-game { grid-template-columns: 250px minmax(0, 1fr) 250px; }
+}
 @media (max-width: 1100px) {
-    .play-layout.play-layout-game { grid-template-columns: minmax(0, 1fr); }
+    .play-layout.play-layout-game { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .play-layout-game .play-board-card { grid-column: 1 / -1; order: -1; }
     .play-games-body { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -153,3 +157,35 @@
     font-weight: 700; font-size: 1rem; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
 .play-go:hover { background: var(--accent-hover); }
 .play-go[hidden] { display: none; }
+
+/* Each army's panel, either side of the board: a header in its colour, then the selected unit, missions,
+   units and stratagems */
+.play-army { --player: var(--play-p1); min-width: 0; align-self: start; padding: 0; overflow: hidden;
+    border-color: color-mix(in srgb, var(--player) 45%, var(--border)); background: color-mix(in srgb, var(--player) 5%, var(--bg-secondary)); }
+.play-army.play-p2 { --player: var(--play-p2); }
+.play-army.active { box-shadow: 0 0 0 2px var(--player), 0 0 16px color-mix(in srgb, var(--player) 35%, transparent); }
+.play-army-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.15rem 0.6rem; padding: 0.55rem 0.75rem;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--player) 55%, transparent), color-mix(in srgb, var(--player) 15%, transparent)); }
+.play-army.play-p2 .play-army-head { background: linear-gradient(270deg, color-mix(in srgb, var(--player) 55%, transparent), color-mix(in srgb, var(--player) 15%, transparent)); }
+.play-army-name { font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; min-width: 0; overflow-wrap: anywhere; }
+.play-army-name small { display: block; font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 0.72rem; color: var(--text-secondary); }
+.play-army-stats { display: flex; gap: 0.7rem; align-items: baseline; }
+.play-army-cp, .play-army-vp { font-weight: 800; font-variant-numeric: tabular-nums; }
+.play-army-cp { font-size: 1rem; color: var(--text-secondary); }
+.play-army-vp { font-size: 1.5rem; }
+.play-army-cp small, .play-army-vp small { font-size: 0.6rem; margin-left: 0.15rem; color: var(--text-muted); }
+.play-army-split { grid-column: 1 / -1; font-size: 0.72rem; color: var(--text-secondary); }
+.play-army-detail:empty, .play-army-detail:has(> #unit-detail:empty) { display: none; }
+.play-army-detail { padding: 0.55rem 0.75rem; background: var(--bg-tertiary); border-top: 1px solid var(--border); }
+.play-army-sec { border-top: 1px solid color-mix(in srgb, var(--player) 25%, var(--border)); }
+.play-army-sec[hidden] { display: none; }
+.play-army-sec > summary { cursor: pointer; padding: 0.4rem 0.75rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--player); display: flex; justify-content: space-between; }
+.play-army-sec > div { padding: 0 0.75rem 0.6rem; }
+.play-army-count { color: var(--text-muted); font-weight: 600; letter-spacing: 0; }
+.play-army .play-player { margin-bottom: 0; }
+.play-army .play-player-stratagems { margin: 0; }
+.play-army .play-player-stratagems select { width: auto; font-size: 0.8rem; padding: 0.1rem 0.3rem; }
+.play-mission-block { margin-bottom: 0.5rem; }
+.play-mission-block h6 { margin: 0.2rem 0 0.1rem; font-size: 0.85rem; display: flex; justify-content: space-between; gap: 0.5rem; }
+.play-mission-block .play-hint { margin: 0 0 0.2rem; }

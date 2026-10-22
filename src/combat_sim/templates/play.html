@@ -3,11 +3,27 @@
 {% block title %}Play - 40K Combat Simulator{% endblock %}
 
 {% block content %}
+{# Each army's panel, either side of the board: its scores, the selected unit, missions, units, stratagems #}
+{% macro army_panel(p) %}
+<aside class="card play-army {{ 'play-p1' if p == 0 else 'play-p2' }}" id="army-{{ p }}" aria-label="Player {{ p + 1 }}'s army">
+    <header class="play-army-head" id="army-head-{{ p }}"><span class="play-army-name">Player {{ p + 1 }}</span></header>
+    <div class="play-army-detail" id="army-detail-{{ p }}">{% if p == 0 %}<div id="unit-detail" class="play-detail"></div>{% endif %}</div>
+    <details class="play-army-sec" id="army-missions-sec-{{ p }}" open hidden>
+        <summary>Missions</summary><div id="army-missions-{{ p }}"></div></details>
+    <details class="play-army-sec" open>
+        <summary>Units <span class="play-army-count" id="army-units-count-{{ p }}"></span></summary>
+        <div id="army-units-{{ p }}"><p class="empty-message">No game open</p></div></details>
+    <details class="play-army-sec" id="army-strats-sec-{{ p }}" open hidden>
+        <summary>Stratagems and rules <span class="play-army-count" id="army-strats-count-{{ p }}"></span></summary>
+        <div id="army-strats-{{ p }}"></div></details>
+</aside>
+{% endmacro %}
 <div class="page-header">
     <h2><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Play <span class="play-badge">Experimental</span></h2>
     <button class="btn-small" id="games-btn"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Games</button>
 </div>
 <div class="play-layout play-layout-game" id="tab-games">
+    {{ army_panel(0) }}
 
     <section class="card play-board-card">
         <div class="play-hud">
@@ -47,13 +63,7 @@
         </div>
     </section>
 
-    <aside class="card play-units">
-        <h3>Units</h3>
-        <div id="unit-list"><p class="empty-message">No game open</p></div>
-        <div id="unit-detail" class="play-detail"></div>
-        <div id="mission-panel" class="play-mission" hidden></div>
-        <div id="stratagem-panel" class="play-stratagems"></div>
-    </aside>
+    {{ army_panel(1) }}
 </div>
 
 

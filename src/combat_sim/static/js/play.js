@@ -459,6 +459,7 @@
                 : turn.phase === 'fight' ? (turn.step === 'consolidate' ? 'End turn' : 'Next step') : 'Next phase';
         }
         renderPhaseTrack();
+        renderArmies();
         renderUnits();
         drawBoard();
         renderLog();
@@ -474,13 +475,12 @@
      * now), VP against the caps, and Punishment's condemned units and choice. */
     function renderMission() {
         const game = state.game;
-        const panel = $('mission-panel');
         const m = game && game.mission;
-        panel.hidden = !m;
+        [0, 1].forEach(i => { $(`army-missions-sec-${i}`).hidden = !m; });
         if (!m) return;
         const turn = game.state.turn;
         const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
-        panel.innerHTML = '<h3>Missions</h3>' + m.primaries.map((p, i) => {
+        m.primaries.forEach((p, i) => {
             const caps = Core.playVpCaps(m.vp[i], turn.round, m.caps);
             const lines = p.lines.map(line => {
                 const now = (m.now[i] || {})[line.id];
@@ -507,17 +507,14 @@
                 ${m.condemn_options.any ? 'no enemy unit qualifies, so condemn any one.' : 'condemn 1 to 3 enemy units within range of objectives or that destroyed one of yours last turn.'}
                 ${m.condemn_options.units.map(id => `<label><input type="checkbox" data-condemn="${escapeHtml(id)}"> ${escapeHtml(name(id))}</label>`).join('')}
                 <button class="btn-small" id="condemn-btn">Condemn</button></div>` : '';
-            const asked = m.choice && m.choice.player === i;
-            return `<details class="play-mission-player ${PLAYER_CLASSES[i]}" ${turn.player === i || choosing || locating || asked ? 'open' : ''}>
-                <summary><strong>${escapeHtml(game.state.players[i].name)} · ${escapeHtml(p.name)}</strong>
-                    <span class="play-mission-vp">${caps.total} VP</span></summary>
-                <p class="play-hint">${escapeHtml(p.disposition)} · this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
-                    · primary ${caps.primary}/${caps.gameCap}</p>
-                ${choice}${locate}${beacon}${tempting}
+            $(`army-missions-${i}`).innerHTML = `${choice}${locate}${beacon}${tempting}
+                <div class="play-mission-block"><h6>Primary · ${escapeHtml(p.name)} <span class="play-mission-vp">${caps.primary} VP</span></h6>
+                <p class="play-hint">This round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''} · game ${caps.primary}/${caps.gameCap}</p>
                 ${condemned.length ? `<p class="play-hint">Condemned: ${condemned.map(id => escapeHtml(name(id))).join(', ')}</p>` : ''}
-                <ul class="play-mission-lines">${lines}</ul>
-                ${secondaryCards(m, i, turn)}</details>`;
-        }).join('');
+                <ul class="play-mission-lines">${lines}</ul></div>
+                ${secondaryCards(m, i, turn)}`;
+        });
+        const panel = $('tab-games');
         panel.querySelectorAll('[data-card-op]').forEach(b => b.addEventListener('click', async () => {
             const result = await send({ type: 'tactical', player: Number(b.dataset.player), card: b.dataset.card, op: b.dataset.cardOp });
             if (result) message(b.dataset.cardOp === 'redraw' || b.dataset.cardOp === 'redraw_cp' ? 'Card redrawn.' : 'Done.');
@@ -559,15 +556,15 @@
         if (!chosen.cards) return '<p class="play-hint">Secondary missions chosen: shown once both players have chosen.</p>';
         const caps = Core.playSecondaryCaps(m.vp[i], turn.round, m.secondary_caps);
         if (chosen.mode === 'tactical') return tacticalCards(m, i, turn, chosen, caps);
-        return `<p class="play-hint play-secondary-head">Secondary (${escapeHtml(chosen.mode)}) · ${caps.total} VP ·
-                this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''} · ${caps.total}/${caps.gameCap}</p>
+        return `<div class="play-mission-block"><h6>Secondary · ${escapeHtml(chosen.mode)} <span class="play-mission-vp">${caps.total} VP</span></h6>
+            <p class="play-hint play-secondary-head">This round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''} · game ${caps.total}/${caps.gameCap}</p>
             ${chosen.cards.map(c => `<div class="play-secondary-card"><strong>${escapeHtml(c.name)}</strong>
                 <span class="play-mission-vp">${(m.vp[i].cards || {})[c.key] || 0}/${caps.cardCap} VP</span>
                 <ul class="play-mission-lines">${c.lines.map(line => {
                     const now = (m.now[i] || {})[line.id];
                     const badge = now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
                     return `<li><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
-                }).join('')}</ul></div>`).join('')}`;
+                }).join('')}</ul></div>`).join('')}</div>`;
     }
 
     /** A Tactical player's active cards: each line and what it would score now, Hold, discard at the end of
@@ -597,9 +594,10 @@
             return `<div class="play-secondary-card ${c.hold ? 'held' : ''}"><strong>${escapeHtml(c.name)}</strong>
                 <div class="play-card-buttons">${buttons}</div>${extra}<ul class="play-mission-lines">${lines}</ul></div>`;
         }).join('');
-        return `<p class="play-hint play-secondary-head">Secondary (tactical) · ${caps.total} VP · this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
-                · ${caps.total}/${caps.gameCap} · deck ${chosen.deck}, discarded ${chosen.discarded}</p>
-            ${cards || '<p class="play-hint">No active cards: two are drawn at the start of your Command phase.</p>'}`;
+        return `<div class="play-mission-block"><h6>Secondary · tactical <span class="play-mission-vp">${caps.total} VP</span></h6>
+            <p class="play-hint play-secondary-head">This round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
+                · game ${caps.total}/${caps.gameCap} · deck ${chosen.deck}, discarded ${chosen.discarded}</p>
+            ${cards || '<p class="play-hint">No active cards: two are drawn at the start of your Command phase.</p>'}</div>`;
     }
 
     /** Burden of Trust: which unit guards each objective (until the start of your next turn). */
@@ -666,7 +664,7 @@
         const game = state.game;
         const turn = game && game.state.turn;
         const playing = turn && !['setup', 'deployment'].includes(turn.phase);
-        const acting = turn && (turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player);
+        const acting = actingPlayer(turn);
         [0, 1].forEach(i => {
             const side = $(`hud-side-${i}`);
             const player = game && game.state.players[i];
@@ -678,6 +676,35 @@
         $('hud-score').title = game ? (game.mission ? 'Victory points' : 'Kill points') : '';
         $('hud-pips').innerHTML = game ? [1, 2, 3, 4, 5].map(r =>
             `<span class="play-pip ${r < turn.round || turn.phase === 'ended' ? 'done' : r === turn.round && playing ? 'now' : ''}"></span>`).join('') : '';
+    }
+
+    /** Who is acting: the player whose turn it is, or whoever picks the next unit to fight. */
+    function actingPlayer(turn) {
+        return turn && (turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player);
+    }
+
+    /** Each army panel's header: name, faction and disposition, CP and VP (primary and secondary), lit up for
+     * the player acting. */
+    function renderArmies() {
+        const game = state.game;
+        const turn = game && game.state.turn;
+        const playing = turn && !['setup', 'deployment', 'ended'].includes(turn.phase);
+        [0, 1].forEach(i => {
+            const player = game && game.state.players[i];
+            $(`army-${i}`).classList.toggle('active', !!playing && actingPlayer(turn) === i);
+            if (!player) {
+                $(`army-head-${i}`).innerHTML = `<span class="play-army-name">Player ${i + 1}</span>`;
+                return;
+            }
+            const m = game.mission;
+            const split = m ? `Primary ${Core.playVpCaps(m.vp[i], turn.round, m.caps).primary}
+                · Secondary ${Core.playSecondaryCaps(m.vp[i], turn.round, m.secondary_caps).total}` : '';
+            $(`army-head-${i}`).innerHTML = `<span class="play-army-name">${escapeHtml(player.name)}
+                    <small>${escapeHtml(player.faction || '')}${player.disposition ? ` · ${escapeHtml(player.disposition)}` : ''}</small></span>
+                <span class="play-army-stats"><span class="play-army-cp" title="Command points">${player.cp ?? 0}<small>CP</small></span>
+                    <span class="play-army-vp" title="${m ? 'Victory points' : 'Kill points'}">${game.score[i]}<small>${m ? 'VP' : 'pts'}</small></span></span>
+                ${split ? `<span class="play-army-split">${split}</span>` : ''}`;
+        });
     }
 
     /** The squares above the board: this turn's phases, the current one lit in the active player's colour. */
@@ -704,14 +731,19 @@
     function renderUnits() {
         const game = state.game;
         if (!game) {
-            $('unit-list').innerHTML = '<p class="empty-message">No game open</p>';
+            [0, 1].forEach(p => {
+                $(`army-units-${p}`).innerHTML = '<p class="empty-message">No game open</p>';
+                $(`army-units-count-${p}`).textContent = '';
+            });
             $('unit-detail').innerHTML = '';
             return;
         }
-        $('unit-list').innerHTML = game.state.players.map((player, p) => {
+        game.state.players.forEach((player, p) => {
             const units = game.state.units.filter(u => u.player === p);
             const orders = (player.orders || {}).casualties || 'farthest';
-            return `<div class="play-player ${PLAYER_CLASSES[p]}"><h4>${escapeHtml(player.name)}</h4>
+            const standing = units.filter(u => u.models.some(m => m.alive)).length;
+            $(`army-units-count-${p}`).textContent = `${standing}/${units.length}`;
+            $(`army-units-${p}`).innerHTML = `<div class="play-player ${PLAYER_CLASSES[p]}">
                 <label class="play-orders">Casualties
                     <select data-orders="${p}" class="filter-select">
                         <option value="farthest" ${orders === 'farthest' ? 'selected' : ''}>farthest from the attacker first</option>
@@ -734,10 +766,10 @@
                     <small>${living.length} model${living.length === 1 ? '' : 's'}${done ? ' · ' + escapeHtml(done) : ''}</small>
                 </button>`;
             }).join('')}</div>`;
-        }).join('');
-        $('unit-list').querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => select(b.dataset.unit)));
-        $('unit-list').querySelectorAll('[data-orders]').forEach(s => s.addEventListener('change', () =>
-            send({ type: 'orders', player: Number(s.dataset.orders), casualties: s.value })));
+            $(`army-units-${p}`).querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => select(b.dataset.unit)));
+            $(`army-units-${p}`).querySelectorAll('[data-orders]').forEach(s => s.addEventListener('change', () =>
+                send({ type: 'orders', player: Number(s.dataset.orders), casualties: s.value })));
+        });
         renderDetail();
     }
 
@@ -785,6 +817,8 @@
             $('unit-detail').innerHTML = '';
             return;
         }
+        const home = $(`army-detail-${unit.player}`);
+        if ($('unit-detail').parentNode !== home) home.appendChild($('unit-detail'));
         const turn = state.game.state.turn;
         let controls = '';
         if (turn.phase === 'movement' && unit.player === turn.player) {
@@ -892,21 +926,21 @@
 
     function renderStratagems() {
         const game = state.game;
-        const panel = $('stratagem-panel');
-        if (!game || !['command', 'movement', 'shooting', 'charge', 'fight'].includes(game.state.turn.phase)) {
-            panel.innerHTML = '';
-            return;
-        }
+        const playing = game && ['command', 'movement', 'shooting', 'charge', 'fight'].includes(game.state.turn.phase);
+        [0, 1].forEach(p => { $(`army-strats-sec-${p}`).hidden = !playing; });
+        if (!playing) return;
         const turn = game.state.turn;
         const selected = state.selected && unitById(state.selected);
-        panel.innerHTML = `<h3>Stratagems and rules</h3>
-            <p class="play-hint">${selected ? `Used on <strong>${escapeHtml(selected.name)}</strong> (its player's).` : 'Select a unit first, then use one on it.'}
-                Rules last <select id="rule-until" class="filter-select">${UNTIL.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></p>
-            ${game.state.players.map((pl, p) => {
+        game.state.players.forEach((pl, p) => {
                 const usable = Core.playUsableNow(pl.stratagems || [], turn.phase);
                 const used = pl.used || {};
-                return `<details class="play-player-stratagems ${PLAYER_CLASSES[p]}" ${selected && selected.player === p ? 'open' : ''}>
-                    <summary>${escapeHtml(pl.name)} · ${pl.cp ?? 0} CP · ${usable.length} now</summary>
+                $(`army-strats-count-${p}`).textContent = usable.length ? `${usable.length} now` : '';
+                // Used on the selected unit, so only its own side's are live (and say how long a rule lasts)
+                const hint = selected && selected.player === p
+                    ? `<p class="play-hint">Used on <strong>${escapeHtml(selected.name)}</strong>. Rules last
+                        <select id="rule-until" class="filter-select">${UNTIL.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></p>`
+                    : `<p class="play-hint">Select one of ${escapeHtml(pl.name)}'s units to use these on it.</p>`;
+                $(`army-strats-${p}`).innerHTML = `<div class="play-player-stratagems ${PLAYER_CLASSES[p]}">${hint}
                     ${usable.map(e => {
                         const disabled = !selected || selected.player !== p || (e.kind === 'stratagem' && (e.cp > (pl.cp ?? 0)
                             || Object.values(used).length && used[e.key] === phaseId(turn)));
@@ -914,9 +948,9 @@
                             title="${escapeHtml(e.text || '')}"><span>${escapeHtml(e.name)}</span>
                             <small>${e.kind === 'stratagem' ? e.cp + ' CP' : 'rule'}${e.modifier ? ' · ' + escapeHtml(e.modifier) : ' · apply by hand'}</small></button>`;
                     }).join('') || '<p class="empty-message">Nothing for this phase</p>'}
-                </details>`;
-            }).join('')}`;
-        panel.querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => useEntry(b.dataset.use)));
+                </div>`;
+                $(`army-strats-${p}`).querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => useEntry(b.dataset.use)));
+        });
     }
 
     function phaseId(turn) {
