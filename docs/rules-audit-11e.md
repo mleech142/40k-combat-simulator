@@ -33,14 +33,15 @@ Tick each item when the engine matches (with a test).
 - [ ] Blast against engaged Monsters and Vehicles: 17.03 exempts Blast from their -1 to hit, which suggests it can
   target them; the engine refuses (medium confidence).
 - [ ] Damaged X (24.39): -1 to hit while a model has X or fewer wounds left; not applied in Play.
-- [ ] Precision (24.28): the attacker can make a visible Character's group the current allocation group; Play's
+- [x] Precision (24.28): the attacker can make a visible Character's group the current allocation group; Play's
   allocation ignores it.
 - [ ] Pile in and Consolidate: the active player moves all their units first, then the opponent, once each; the
   engine lets either player go in any order and redo moves.
 - [ ] Charge moves (11.04): models that can end within 1" of, or engaged with, a target must; not enforced.
 - [ ] End-of-turn coherency (03.03): units out of coherency lose models until they're back in it; not done.
-- [ ] Wound allocation (05.03): the defender orders the allocation groups; the engine uses standing orders
-  (Characters last and wounded models first, as the rules say).
+- [x] Wound allocation (05.03): the defender orders the allocation groups; the engine uses standing orders
+  (Characters last and wounded models first, as the rules say). Now: groups by W, Sv and invulnerable save, a
+  wounded leader waits for its bodyguard, and the defender's group order is a standing order (the unit panel).
 - [ ] Starting an action: the engine also refuses a unit that has shot; 16.01 doesn't list that (unverified
   against the mission cards).
 

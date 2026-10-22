@@ -606,7 +606,7 @@ def _mortal_wounds(state, unit, count, dice):
     """Mortal wounds allocated one at a time like any wound (no saves; Feel No Pain still rolls)."""
     killed = []
     for _ in range(count):
-        model = _allocate(unit)
+        model = _allocate(unit, priority=_allocation_priority(state, unit))
         if model is None:
             break
         fnp = unit['parts'][model['part']]['stats'].get('feel_no_pain')
@@ -632,16 +632,29 @@ def score(state):
 
 
 def _orders(state, action):
-    """A player's standing orders (any time): which models are removed first ('farthest' or 'closest'
-    from the attacking unit)."""
+    """
+    A player's standing orders (any time): which models are removed first ('casualties': 'farthest' or
+    'closest' from the attacking unit) and, for units of theirs, the order their allocation groups take
+    wounds ('allocation': {unit id: [part indices]}; core rules 05.03).
+    """
     try:
-        player = state['players'][int(action.get('player'))]
+        index = int(action.get('player'))
+        player = state['players'][index]
     except (TypeError, ValueError, IndexError):
         raise ActionError('Say whose orders these are.')
-    casualties = action.get('casualties')
-    if casualties not in ('farthest', 'closest'):
-        raise ActionError('Casualties are removed farthest or closest first.')
-    player['orders'] = dict(player.get('orders', DEFAULT_ORDERS), casualties=casualties)
+    orders = dict(player.get('orders', DEFAULT_ORDERS))
+    if 'casualties' in action:
+        if action['casualties'] not in ('farthest', 'closest'):
+            raise ActionError('Casualties are removed farthest or closest first.')
+        orders['casualties'] = action['casualties']
+    for unit_id, parts in (action.get('allocation') or {}).items():
+        unit = _unit_or_error(state, unit_id)
+        if unit['player'] != index:
+            raise ActionError(f'Set the allocation order of your own units ({unit["name"]} isn\'t).')
+        if sorted(int(p) for p in parts) != list(range(len(unit['parts']))):
+            raise ActionError(f'List every part of {unit["name"]} once.')
+        orders['allocation'] = dict(orders.get('allocation') or {}, **{unit_id: [int(p) for p in parts]})
+    player['orders'] = orders
 
 
 # --- Shooting -------------------------------------------------------------------------------------
@@ -871,8 +884,14 @@ def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice):
     """Allocate and resolve a wound pool one wound at a time (normal wounds, then mortal); the models killed."""
     killed = []
     order = state['players'][target['player']].get('orders', DEFAULT_ORDERS)['casualties']
+    precision = _has(attacker.abilities, 'Precision')
+    eyes = [shape for _, shape in _placed_models(attacking)]
+
+    def visible(model):  # Precision picks out a Character the attacking unit can see
+        shape = model_shape(target['parts'][model['part']], model['position'])
+        return any(sees(state, eye, shape, target, model)[0] for eye in eyes)
     for mortal in [False] * pool.wounds + [True] * pool.mortal:
-        model = _allocate(target, attacking, order)
+        model = _allocate(target, attacking, order, precision, _allocation_priority(state, target), visible)
         if model is None:
             break
         result = roll_wound(attacker, _defender(target, model['part']), conditions, dice, model['wounds_left'], mortal)
@@ -893,19 +912,45 @@ def _special(unit, model):
     return any(part['weapons'][w]['qty'] < part['models'] for w in model['weapons'])
 
 
-def _allocate(unit, attacking=None, order='farthest'):
+def _is_character(part):
+    return part.get('role') == 'leader' or _keyword(part, ('Character',))
+
+
+def allocation_groups(unit):
+    """A unit's non-Character allocation groups (core rules 05.03): its parts with the same W, Sv and
+    invulnerable save, as lists of part indices in datasheet order."""
+    groups = {}
+    for i, part in enumerate(unit['parts']):
+        if not _is_character(part):
+            groups.setdefault(tuple(part['stats'].get(k) for k in ('wounds', 'save', 'invulnerable_save')), []).append(i)
+    return list(groups.values())
+
+
+def _allocation_priority(state, unit):
+    """The defender's order for a unit's allocation groups (its parts, by index), a standing order."""
+    orders = state['players'][unit['player']].get('orders') or {}
+    return (orders.get('allocation') or {}).get(unit['id'])
+
+
+def _allocate(unit, attacking=None, order='farthest', precision=False, priority=None, visible=None):
     """
-    The model the next wound goes to: one already damaged; else bodyguard before leaders; then models
-    with only the common weapons before special-weapon carriers; then the farthest from (or, by
-    standing order, closest to) the attacking unit; then the last-listed model.
+    The model the next wound goes to (core rules 05.03). Models are grouped: each Character on its own,
+    the rest by the same W, Sv and invulnerable save. A non-Character group with a wounded model comes
+    first; then the other non-Character groups in the defender's order (`priority`: part indices, else
+    the datasheet's order); Characters last, wounded ones first. A Precision attack can go to a visible
+    Character first (24.28). Within a group: a wounded model, then models with only the common weapons
+    before special-weapon carriers, then the farthest from (or, by standing order, closest to) the
+    attacking unit, then the last-listed model.
     """
     alive = [m for m in unit['models'] if m['alive']]
     if not alive:
         return None
-    full = {m['id']: unit['parts'][m['part']]['stats']['wounds'] for m in alive}
-    damaged = [m for m in alive if m['wounds_left'] < full[m['id']]]
-    if damaged:
-        return damaged[0]
+    parts = unit['parts']
+    wounded = lambda m: m['wounds_left'] < parts[m['part']]['stats']['wounds']  # noqa: E731
+    character = lambda m: _is_character(parts[m['part']])  # noqa: E731
+    profile = lambda m: tuple(parts[m['part']]['stats'].get(k) for k in ('wounds', 'save', 'invulnerable_save'))  # noqa: E731
+    rank = {int(p): i for i, p in enumerate(priority or [])}
+    part_rank = lambda m: rank.get(m['part'], len(rank) + m['part'])  # noqa: E731
     attackers = [shape for _, shape in _placed_models(attacking)] if attacking else []
 
     def distance(model):
@@ -916,7 +961,29 @@ def _allocate(unit, attacking=None, order='farthest'):
 
     position = {m['id']: i for i, m in enumerate(unit['models'])}
     sign = -1 if order == 'farthest' else 1
-    return min(alive, key=lambda m: (m['part'], _special(unit, m), round(sign * distance(m), 6), -position[m['id']]))
+
+    def pick(group):
+        hurt = [m for m in group if wounded(m)] or group
+        return min(hurt, key=lambda m: (_special(unit, m), round(sign * distance(m), 6), -position[m['id']]))
+
+    def first_character(group):
+        hurt = [m for m in group if wounded(m)] or group
+        return min(hurt, key=lambda m: (part_rank(m), position[m['id']]))
+
+    if precision:
+        seen = [m for m in alive if character(m) and m['position'] and (visible is None or visible(m))]
+        if seen:
+            return first_character(seen)
+    others = [m for m in alive if not character(m)]
+    if not others:
+        return first_character(alive)
+    hurt = [m for m in others if wounded(m)]
+    if hurt:
+        return pick([m for m in others if profile(m) == profile(hurt[0])])
+    groups = {}
+    for m in others:
+        groups.setdefault(profile(m), []).append(m)
+    return pick(min(groups.values(), key=lambda group: min(part_rank(m) for m in group)))
 
 
 def _attacker(unit, part_index, weapon_index, models):

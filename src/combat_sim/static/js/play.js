@@ -867,6 +867,18 @@
         renderCorrection();
     }
 
+    /** For a unit whose models make more than one allocation group: which group takes wounds first
+     * (the defender's choice, kept as a standing order; Characters always come last). */
+    function allocationControl(unit) {
+        const groups = (state.game.allocation || {})[unit.id];
+        if (!groups) return '';
+        const order = ((state.game.state.players[unit.player].orders || {}).allocation || {})[unit.id] || [];
+        const chosen = Math.max(0, groups.findIndex(g => g.includes(order[0])));
+        return `<label class="play-orders">Wounds go first to
+            <select class="filter-select" data-allocation>${groups.map((g, i) => `<option value="${i}" ${i === chosen ? 'selected' : ''}>${
+                escapeHtml(g.map(p => unit.parts[p].name).join(' and '))}</option>`).join('')}</select></label>`;
+    }
+
     function renderDetail() {
         const unit = state.selected && unitById(state.selected);
         if (!unit) {
@@ -917,7 +929,7 @@
                 ${moved ? '<div class="play-move-modes"><button class="btn-small" data-reset>Reset move</button></div>' : ''}`;
         }
         if (turn.phase !== 'deployment' && turn.phase !== 'ended') controls += effectsControls(unit);
-        $('unit-detail').innerHTML = controls + unit.parts.map((part, i) => {
+        $('unit-detail').innerHTML = controls + allocationControl(unit) + unit.parts.map((part, i) => {
             const s = part.stats;
             const outline = state.game.outlines[unit.id][i];
             const alive = unit.models.filter(m => m.alive && m.part === i).length;
@@ -967,6 +979,15 @@
             addEffect.addEventListener('click', () => send({ type: 'effect', unit: unit.id, effect: $('effect-kind').value,
                                                              until: $('effect-until').value }));
         }
+        $('unit-detail').querySelectorAll('[data-allocation]').forEach(select => select.addEventListener('change', () => {
+            // The chosen group first, then the others in datasheet order, then every other part (Characters)
+            const groups = state.game.allocation[unit.id];
+            const first = groups[Number(select.value)];
+            const rest = groups.filter((_, i) => i !== Number(select.value)).flat();
+            const all = [...first, ...rest];
+            const order = [...all, ...unit.parts.map((_, i) => i).filter(i => !all.includes(i))];
+            send({ type: 'orders', player: unit.player, allocation: { [unit.id]: order } });
+        }));
         $('unit-detail').querySelectorAll('[data-remove-effect]').forEach(b => b.addEventListener('click', () =>
             send({ type: 'remove_effect', unit: unit.id, index: Number(b.dataset.removeEffect) })));
     }

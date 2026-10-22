@@ -168,6 +168,43 @@ def test_leader_takes_wounds_only_when_the_bodyguard_is_gone():
     assert wounds(apply_event(state, event), 'p1-squad') == ['dead', 2]
 
 
+ONE_WOUND = [3, 1, 1, 1, 4, 1]  # Of the gunner's 4 shots: one hits (3+), wounds (4+) and isn't saved (1)
+
+
+def test_a_wounded_leader_waits_until_its_bodyguard_is_gone():
+    """Core rules 05.03: no Character group comes before a non-Character group, wounded or not."""
+    state = duel()
+    unit_by_id(state, 'p1-squad')['models'][3]['wounds_left'] = 3  # The Hero, wounded
+    after = apply_event(state, shoot(state, ONE_WOUND))
+    assert wounds(after, 'p1-squad')[3] == 3 and sorted(wounds(after, 'p1-squad')[:3]) == [1, 2, 2]
+
+
+def test_precision_attacks_can_pick_out_a_visible_leader():
+    """Core rules 24.28: the attacker can make a visible Character's group the one wounds go to."""
+    sniper = (part('Gunner', 1, 3, weapons=[gun(attacks='4', abilities=['Precision'])]),)
+    state = duel(gunner=sniper)
+    after = apply_event(state, shoot(state, ONE_WOUND))
+    assert wounds(after, 'p1-squad') == [2, 2, 2, 4]
+
+
+def test_the_defender_chooses_which_group_takes_wounds_first():
+    """Core rules 05.03: models with the same W, Sv and invulnerable save are one group; the defender orders the
+    groups (a standing order here; the datasheet's order unless changed)."""
+    squad = (part('Troopers', 2, 1, role='bodyguard'), part('Sergeant', 1, 2, role='bodyguard'))
+    state = duel(squad=squad)
+    first = wounds(apply_event(state, shoot(state, ONE_WOUND, target='p1-troopers')), 'p1-troopers')
+    assert 'dead' in first[:2] and first[2] == 2  # A Trooper first
+    state = apply_event(state, resolve_action(state, {'type': 'orders', 'player': 0, 'allocation': {'p1-troopers': [1, 0]}},
+                                              Dice(FixedRolls())))
+    assert wounds(apply_event(state, shoot(state, ONE_WOUND, target='p1-troopers')), 'p1-troopers') == [1, 1, 1]
+    from combat_sim.play.game import allocation_groups
+    assert allocation_groups(unit_by_id(state, 'p1-troopers')) == [[0], [1]]
+    assert allocation_groups(unit_by_id(duel(), 'p1-squad')) == [[0]]  # The Hero is a Character: always last
+    bad = {'type': 'orders', 'player': 0, 'allocation': {'p2-gunner': [0]}}
+    with pytest.raises(Exception, match='own'):
+        resolve_action(state, bad, Dice(FixedRolls()))
+
+
 def test_resolving_an_action_leaves_the_state_unchanged():
     state = duel()
     before = json.dumps(state)
