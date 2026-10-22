@@ -74,3 +74,12 @@ def test_secondaries_are_chosen_in_setup_and_shown_once_both_are_chosen(client):
     assert [c['name'] for c in game['mission']['secondaries'][0]['cards']] == ['Assassination', 'Bring It Down']
     assert game['mission']['secondary_caps'] == {'round': 15, 'game': 45, 'card': 20, 'cards': 2}
     assert game['state']['turn']['phase'] == 'deployment'
+
+
+def test_mission_actions_for_a_unit(client):
+    red = saved_army(client, 'Red', ['d-armada'])  # Priority Assets
+    blue = saved_army(client, 'Blue', ['d-bastion'])  # Take and Hold: Red plays Secure Asset
+    game = client.post('/api/play/games', json={'armies': [red, blue], 'setup': False}).get_json()
+    options = client.get(f'/api/play/games/{game["id"]}/mission-actions/p1-w').get_json()
+    assert [(a['key'], a['reason']) for a in options['actions']] == [('secure-asset', 'Mission actions start in your Shooting phase.')]
+    assert game['mission']['markers'] == [] and game['mission']['locate_options'] is None

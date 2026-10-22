@@ -7,7 +7,10 @@ state['mission'] (None when either army has no force disposition: kill points in
 {'primaries': [key, key], 'secondaries': {'0': None | {'mode': 'fixed', 'cards': [key, key]}, '1': ...},
 'start': {'control': [[ids], [ids]], 'units': {uid: {'in_range', 'central', 'terrain'}}}, 'destroyed': [...],
 'destroyed_before': [...], 'models_destroyed': [...], 'condemned': {'0': [...], '1': [...]},
-'choice': None | {'player', 'kind': 'condemn'}}. Each player's VP: state['players'][p]['vp'] =
+'choice': None | {'player', 'kind': 'condemn' | 'locate'}, 'markers': [operation markers], 'started': [actions
+started this turn], 'actions': [actions under way, to complete at the end of the turn], 'completed': [actions
+completed this turn], 'surveilled': [enemy units surveilled this turn], 'consecration': [consecration units]}.
+Each player's VP: state['players'][p]['vp'] =
 {'primary': n, 'rounds': {'1': n, ...}, 'battle': n, 'secondary': n, 'secondary_rounds': {...},
 'cards': {key: n}, 'adjust': n}.
 game.py calls these hooks; everything here is plain data, replayed through events like the rest.
@@ -16,12 +19,15 @@ game.py calls these hooks; everything here is plain data, replayed through event
 from . import game as g
 from .battlefields import outline_points
 from .geometry import base_distance, base_shape
-from .missions import (FIXED_CARD_CAP, FIXED_CARDS, PRIMARY_GAME_CAP, PRIMARY_ROUND_CAP, SECONDARIES, SECONDARY_GAME_CAP,
-                       SECONDARY_ROUND_CAP, Context, card, primary_for, score_lines)
+from .missions import (ACTIONS, FIXED_CARD_CAP, FIXED_CARDS, LOCATE_MARKERS, PRIMARY_ACTIONS, PRIMARY_GAME_CAP,
+                       PRIMARY_ROUND_CAP, SECONDARIES, SECONDARY_GAME_CAP, SECONDARY_ROUND_CAP, Context, card,
+                       primary_for, score_lines)
 
 CENTRE = (30, 22)
 CENTRE_CLEARANCE = 6  # Reconnaissance Sweep: units not within this of the centre
 CONDEMN_MOST = 3
+SURVEIL_RANGE = 18  # Surveil the Foe: enemy units within this of the surveilling unit, and visible to it
+MARKER_SPACING = 1.2  # Operation markers by an objective are set this far apart
 
 
 def new_mission(armies):
@@ -33,7 +39,9 @@ def new_mission(armies):
     if not all(primaries):
         return None
     return {'primaries': primaries, 'secondaries': {'0': None, '1': None}, 'start': None, 'destroyed': [],
-            'destroyed_before': [], 'models_destroyed': [], 'condemned': {'0': [], '1': []}, 'choice': None}
+            'destroyed_before': [], 'models_destroyed': [], 'condemned': {'0': [], '1': []}, 'choice': None,
+            'markers': [], 'marker_seq': 0, 'started': [], 'actions': [], 'completed': [], 'surveilled': [],
+            'consecration': []}
 
 
 def new_vp():
@@ -50,9 +58,35 @@ def total(state, player):
 def _unit_facts(state, unit):
     shapes = g._placed_shapes(unit)
     objectives = state.get('objectives', [])
+    areas = _areas_within(state, unit)
     return {'in_range': any(g.in_range(s, o, state) for s in shapes for o in objectives),
             'central': any(g.in_range(s, o, state) for s in shapes for o in objectives if o['kind'] == 'central'),
-            'terrain': any(g.within(s, area) for s in shapes for _, area in g.terrain_areas(state))}
+            'terrain': bool(areas), 'terrain_ids': areas}
+
+
+def _areas_within(state, unit):
+    """The ids of the terrain areas a unit is within (any of its models)."""
+    shapes = g._placed_shapes(unit)
+    return [piece['id'] for piece, area in g.terrain_areas(state) if any(g.within(s, area) for s in shapes)]
+
+
+def _in_range_of(state, unit, objective):
+    return any(g.in_range(s, objective, state) for s in g._placed_shapes(unit))
+
+
+def _area_centre(state, terrain_id):
+    area = next(a for piece, a in g.terrain_areas(state) if piece['id'] == terrain_id)
+    return (sum(x for x, _ in area.points) / len(area.points), sum(y for _, y in area.points) / len(area.points))
+
+
+def _area_in_zone(state, terrain_id, player):
+    """Whether a terrain area is within `player`'s deployment zone (its middle is)."""
+    from .battlefields import inside
+    return inside(_area_centre(state, terrain_id), g.deployment_zone(state, player))
+
+
+def _alive(unit):
+    return any(m['alive'] for m in unit['models']) and bool(g._placed_shapes(unit))
 
 
 def _side(state, point):
@@ -116,7 +150,40 @@ def context(state, player):
         presence=quarters(state, player, presence=True),
         enemy_wholly_in_my_territory=any(u['player'] != player and wholly_in_territory(state, u, player)
                                          for u in state['units'] if any(m['alive'] for m in u['models'])),
-        condemned=mission['condemned'][str(player)])
+        condemned=mission['condemned'][str(player)], **_marker_facts(state, player))
+
+
+def _marker_facts(state, player):
+    """What `player`'s action and marker lines read: the markers, actions completed, areas trapped this turn,
+    the lone-marker conditions, surveillance, and markers on the central objectives they hold."""
+    mission = state['mission']
+    markers = mission.get('markers', [])
+    objectives = {o['id']: o for o in state.get('objectives', [])}
+    starts = (mission.get('start') or {}).get('units') or {}
+    trapped = {m['terrain'] for m in markers if m['player'] == player and m['tag'] == 'trapped'}
+    killed_in_trapped = any(d['player'] != player and set(starts.get(d['unit'], {}).get('terrain_ids', [])) & trapped
+                            for d in mission['destroyed'])
+
+    def lone(owner):
+        theirs = [m for m in markers if m['player'] == owner]
+        if len(theirs) != 1 or not theirs[0].get('terrain'):
+            return False
+        area = theirs[0]['terrain']
+        here = [u for u in state['units'] if _alive(u) and area in _areas_within(state, u)]
+        return any(u['player'] == player for u in here) and not any(u['player'] != player for u in here)
+
+    marked = {m['objective'] for m in markers if m.get('objective')}
+    surveilled = [state_unit(state, s['unit']) for s in mission.get('surveilled', []) if s['player'] == player]
+    surveil_ok = any(u is not None and _alive(u) and not any(_in_range_of(state, u, objectives[o]) for o in marked if o in objectives)
+                     for u in surveilled)
+    return {'markers': markers, 'completed': mission.get('completed', []),
+            'trapped_now': [{'terrain': c['terrain'], 'objective': c.get('is_objective', False)}
+                            for c in mission.get('completed', []) if c['player'] == player and c['action'] == 'booby-trap'],
+            'killed_in_trapped': bool(killed_in_trapped), 'lone_mine': lone(player), 'lone_theirs': lone(1 - player),
+            'surveilled': surveil_ok,
+            'markers_on_held_central': sum(1 for m in markers if m['player'] == player and m.get('objective') in objectives
+                                           and objectives[m['objective']]['kind'] == 'central'
+                                           and objectives[m['objective']].get('controller') == player)}
 
 
 # --- Hooks game.py calls -------------------------------------------------------------------------------------
@@ -130,11 +197,287 @@ def start_turn(state):
     mission['start'] = {'control': [[o['id'] for o in state.get('objectives', []) if o.get('controller') == p] for p in (0, 1)],
                         'units': {u['id']: _unit_facts(state, u) for u in state['units'] if g._placed_shapes(u)}}
     mission['destroyed_before'], mission['destroyed'], mission['models_destroyed'] = mission['destroyed'], [], []
+    for key in ('started', 'actions', 'completed', 'surveilled'):
+        mission[key] = []
     player = state['turn']['player']
-    if mission['primaries'][player] == 'punishment':
+    if mission['primaries'][player] == 'punishment' and not mission.get('choice'):
         mission['condemned'][str(player)] = []
         if any(u['player'] != player and g._placed_shapes(u) for u in state['units']):
             mission['choice'] = {'player': player, 'kind': 'condemn'}
+
+
+def start_battle(state):
+    """Deployment is over: a Locate and Deny player places their markers first (a choice in the Mission panel)."""
+    mission = state.get('mission')
+    if not mission:
+        return
+    for player in (0, 1):
+        if mission['primaries'][player] == 'locate-and-deny' and locate_options(state, player):
+            mission['choice'] = {'player': player, 'kind': 'locate'}
+            return
+
+
+def locate_options(state, player):
+    """Terrain areas outside `player`'s deployment zone (where Locate and Deny's markers go)."""
+    return [piece['id'] for piece, _ in g.terrain_areas(state) if not _area_in_zone(state, piece['id'], player)]
+
+
+def place_markers(state, action):
+    """Locate and Deny: a marker in each of five terrain areas outside your deployment zone (all, if fewer)."""
+    mission = state.get('mission') or {}
+    choice = mission.get('choice')
+    if not choice or choice['kind'] != 'locate':
+        raise g.ActionError('There are no markers to place now.')
+    player = choice['player']
+    options = locate_options(state, player)
+    chosen = list(dict.fromkeys(action.get('terrain') or []))
+    needed = min(LOCATE_MARKERS, len(options))
+    if len(chosen) != needed or any(t not in options for t in chosen):
+        raise g.ActionError(f'Choose {needed} terrain areas outside your deployment zone.')
+    for terrain in chosen:
+        _add_marker(state, player, 'asset', terrain=terrain)
+    mission['choice'] = None
+    return {'markers_placed': {'player': player, 'terrain': chosen}}
+
+
+def _add_marker(state, player, tag, objective=None, terrain=None):
+    mission = state['mission']
+    mission['marker_seq'] = mission.get('marker_seq', 0) + 1
+    if objective is not None:
+        o = next(o for o in state['objectives'] if o['id'] == objective)
+        others = sum(1 for m in mission['markers'] if m.get('objective') == objective)
+        x, y = o['x'] + MARKER_SPACING * (others + 1), o['y'] + MARKER_SPACING * 0.6
+        marker = {'objective': objective, 'objective_kind': o['kind'], 'objective_owner': o.get('owner'), 'terrain': o.get('terrain')}
+    else:
+        x, y = _area_centre(state, terrain)
+        marker = {'objective': None, 'objective_kind': None, 'objective_owner': None, 'terrain': terrain}
+    marker.update(id=f'm{mission["marker_seq"]}', player=player, tag=tag, x=round(x, 2), y=round(y, 2))
+    mission['markers'].append(marker)
+    return marker
+
+
+def _remove_markers(state, ids, report, why):
+    mission = state['mission']
+    gone = [m for m in mission['markers'] if m['id'] in ids]
+    mission['markers'] = [m for m in mission['markers'] if m['id'] not in ids]
+    if gone:
+        report.setdefault('markers_removed', []).append({'markers': gone, 'why': why})
+
+
+# --- Mission actions ------------------------------------------------------------------------------------------
+
+def _start_problem(state, unit):
+    """Why a unit can't start an action now (core rules 16), or None."""
+    activity = unit['activity']
+    keywords = lambda name: any(g._has(p['keywords'], name) for p in unit['parts'])  # noqa: E731
+    if state['turn']['phase'] != 'shooting' or unit['player'] != state['turn']['player']:
+        return 'Mission actions start in your Shooting phase.'
+    if not _alive(unit):
+        return 'It is not on the battlefield.'
+    if keywords('Aircraft') or keywords('Fortification'):
+        return 'Aircraft and Fortifications can\'t start actions.'
+    if (unit.get('status') or {}).get('shocked'):
+        return 'It is battle-shocked.'
+    if not any((unit['parts'][m['part']]['stats'].get('oc') or 0) > 0 for m in unit['models'] if m['alive']):
+        return 'Its OC is 0.'
+    if g._is_engaged(state, unit) and not keywords('Titanic'):
+        return 'It is engaged.'
+    if activity.get('moved') in ('advance', 'fall_back'):
+        return f'It {"Advanced" if activity["moved"] == "advance" else "Fell Back"} this turn.'
+    if activity.get('shot'):
+        return 'It has shot this turn.'
+    if activity.get('action'):
+        return 'It started another action this turn.'
+    return None
+
+
+def _targets(state, unit, key):
+    """[(target id, label)] an action could be started on by `unit` now."""
+    mission = state['mission']
+    player = unit['player']
+    spec = ACTIONS[key]
+    objectives = state.get('objectives', [])
+    mine = [m for m in mission['markers'] if m['player'] == player]
+    taken = {s['target'] for s in mission['started'] if s['player'] == player and s['action'] == key} if spec['distinct'] else set()
+
+    def label(o):
+        return f'{o["kind"].title()} objective {o["id"].split("-")[-1]}'
+    if spec['on'] in ('objective', 'central'):
+        found = [o for o in objectives if _in_range_of(state, unit, o)
+                 and not (o['kind'] == 'home' and o.get('owner') == player)
+                 and (spec['on'] == 'objective' or o['kind'] == 'central')]
+        if key == 'decoy':
+            found = [o for o in found if not any(m['objective'] == o['id'] and m['tag'] == 'decoyed' for m in mine)]
+        if key == 'extract-intelligence':
+            found = [o for o in found if not any(m['objective'] == o['id'] for m in mine)]
+        return [(o['id'], label(o)) for o in found if o['id'] not in taken]
+    if spec['on'] == 'trap':
+        areas = [a for a in _areas_within(state, unit) if not _area_in_zone(state, a, player)]
+        areas += [o['terrain'] for o in objectives if o.get('terrain') and _in_range_of(state, unit, o)
+                  and not (o['kind'] == 'home' and o.get('owner') == player)]
+        trapped = {m['terrain'] for m in mine if m['tag'] == 'trapped'}
+        return [(a, f'Terrain area {a}') for a in dict.fromkeys(areas) if a not in trapped and a not in taken]
+    if spec['on'] == 'their_terrain':
+        side = territory_side(state, 1 - player)
+        return [(a, f'Terrain area {a}') for a in _areas_within(state, unit) if _side(state, _area_centre(state, a)) == side]
+    if spec['on'] == 'enemy':
+        surveilled = {s['unit'] for s in mission['surveilled'] if s['player'] == player}
+        found = []
+        for enemy in state['units']:
+            if enemy['player'] == player or not _alive(enemy) or enemy['id'] in surveilled:
+                continue
+            if any(base_distance(a, b) <= SURVEIL_RANGE + 1e-9 and g.sees(state, a, b, enemy, model)[0]
+                   for a in g._placed_shapes(unit) for model, b in g._placed_models(enemy)):
+                found.append((enemy['id'], enemy['name']))
+        return found
+    return []
+
+
+def action_options(state, unit_id):
+    """For the page: [{'key', 'name', 'targets': [{'id', 'label'}], 'markers': [...] (Sensor Sweep),
+    'reason'}] for the mission actions `unit_id` could start now (empty when its primary has none)."""
+    mission = state.get('mission')
+    unit = state_unit(state, unit_id)
+    if not mission or unit is None:
+        return []
+    out = []
+    for key in PRIMARY_ACTIONS.get(mission['primaries'][unit['player']], []):
+        spec = ACTIONS[key]
+        reason = _start_problem(state, unit)
+        if not reason and state['turn']['round'] < spec['from_round']:
+            reason = f'From battle round {spec["from_round"]}.'
+        if not reason and spec['limit'] and sum(1 for s in mission['started'] if s['player'] == unit['player']
+                                                and s['action'] == key) >= spec['limit']:
+            reason = 'Already started this turn (once per turn).'
+        if not reason and key == 'sensor-sweep' and len(mission['markers']) < 2:
+            reason = 'Only one operation marker (or none) is on the battlefield.'
+        targets = [] if reason else _targets(state, unit, key)
+        if not reason and not targets:
+            reason = 'Nothing it could start this on.'
+        out.append({'key': key, 'name': spec['name'], 'reason': reason,
+                    'targets': [{'id': t, 'label': lbl} for t, lbl in targets],
+                    'markers': [{'id': m['id'], 'player': m['player'], 'tag': m['tag']} for m in mission['markers']]
+                    if key == 'sensor-sweep' else []})
+    return out
+
+
+def start_action(state, action):
+    """A unit starts a mission action on a target; Booby Trap and Surveil the Foe complete at once."""
+    unit = g._unit_or_error(state, action.get('unit'))
+    g._require(state, 'shooting', unit)
+    options = {o['key']: o for o in action_options(state, unit['id'])}
+    key = action.get('action')
+    if key not in options:
+        raise g.ActionError(f'{unit["name"]} can\'t start that action.')
+    if options[key]['reason']:
+        raise g.ActionError(f'{unit["name"]} can\'t start {ACTIONS[key]["name"]}: {options[key]["reason"]}')
+    target = action.get('target')
+    if target not in {t['id'] for t in options[key]['targets']}:
+        raise g.ActionError(f'Choose what {unit["name"]} starts {ACTIONS[key]["name"]} on.')
+    mission = state['mission']
+    entry = {'player': unit['player'], 'action': key, 'unit': unit['id'], 'target': target}
+    if key == 'sensor-sweep':
+        if action.get('marker') not in {m['id'] for m in mission['markers']}:
+            raise g.ActionError('Choose the operation marker the sensor sweep removes.')
+        entry['marker'] = action['marker']
+    unit['activity']['action'] = key
+    mission['started'].append(entry)
+    if ACTIONS[key]['completes'] == 'now':
+        return {'action_started': entry, 'action_completed': _complete(state, entry, {})}
+    mission['actions'].append(entry)
+    return {'action_started': entry}
+
+
+def _complete(state, entry, report):
+    """An action's effect: markers placed or removed, statuses, and the completion recorded."""
+    mission = state['mission']
+    key, player = entry['action'], entry['player']
+    done = dict(entry)
+    if key == 'booby-trap':
+        _add_marker(state, player, 'trapped', terrain=entry['target'])
+        done.update(terrain=entry['target'], is_objective=any(o.get('terrain') == entry['target'] for o in state['objectives']))
+    elif key == 'surveil':
+        mission['surveilled'].append({'player': player, 'unit': entry['target']})
+    elif key == 'sensor-sweep':
+        _remove_markers(state, {entry['marker']}, report, 'sensor sweep')
+    elif ACTIONS[key]['tag']:
+        _add_marker(state, player, ACTIONS[key]['tag'], objective=entry['target'])
+    if key == 'sabotage':
+        unit = state_unit(state, entry['unit'])
+        side = territory_side(state, 1 - player)
+        done['their_territory'] = any(_side(state, (o['x'], o['y'])) == side and _in_range_of(state, unit, o)
+                                      for o in state['objectives'])
+    mission['completed'].append(done)
+    return done
+
+
+def complete_actions(state, report):
+    """The end of a turn: the active player's actions under way complete if their units are still there
+    (not battle-shocked) and their conditions hold; Consecrate marks objectives."""
+    mission = state.get('mission')
+    if not mission:
+        return
+    player = state['turn']['player']
+    for entry in [a for a in mission['actions'] if a['player'] == player]:
+        unit = state_unit(state, entry['unit'])
+        spec = ACTIONS[entry['action']]
+        ok = unit is not None and _alive(unit) and not (unit.get('status') or {}).get('shocked')
+        if ok and spec['on'] in ('objective', 'central'):
+            objective = next((o for o in state['objectives'] if o['id'] == entry['target']), None)
+            ok = objective is not None and objective.get('controller') == player and _in_range_of(state, unit, objective)
+        if ok and spec['on'] == 'their_terrain':
+            ok = not any(u['player'] != player and _alive(u) and entry['target'] in _areas_within(state, u) for u in state['units'])
+        if ok:
+            report.setdefault('actions', []).append(dict(_complete(state, entry, report), result='completed'))
+        else:
+            report.setdefault('actions', []).append(dict(entry, result='not completed'))
+    mission['actions'] = [a for a in mission['actions'] if a['player'] != player]
+    if mission['primaries'][player] == 'consecrate':
+        _consecrate(state, player, report)
+
+
+def _consecrate(state, player, report):
+    """Each consecration unit of `player`'s marks an unconsecrated objective in range (not their home),
+    their opponent's home objective first."""
+    mission = state['mission']
+    consecrated = {m['objective'] for m in mission['markers'] if m['tag'] == 'consecrated'}
+    left = []
+    for uid in mission.get('consecration', []):
+        unit = state_unit(state, uid)
+        if unit is None or unit['player'] != player or not _alive(unit):
+            continue
+        choices = [o for o in state['objectives'] if _in_range_of(state, unit, o) and o['id'] not in consecrated
+                   and not (o['kind'] == 'home' and o.get('owner') == player)]
+        if not choices:
+            left.append(uid)
+            continue
+        objective = sorted(choices, key=lambda o: not (o['kind'] == 'home' and o.get('owner') != player))[0]
+        _add_marker(state, player, 'consecrated', objective=objective['id'])
+        consecrated.add(objective['id'])
+        report.setdefault('actions', []).append({'player': player, 'action': 'consecrate', 'unit': uid, 'target': objective['id'],
+                                                 'result': 'consecrated'})
+    mission['consecration'] = left + [u for u in mission.get('consecration', []) if state_unit(state, u)
+                                      and state_unit(state, u)['player'] != player]
+
+
+def surveil_moves(state, start_key, report):
+    """Surveil the Foe: each unit of that player's that moved this phase or step and ends within range of
+    an objective removes the opponent's markers there (when moves lock)."""
+    mission = state.get('mission')
+    if not mission:
+        return
+    for player in (0, 1):
+        if mission['primaries'][player] != 'surveil-the-foe':
+            continue
+        for unit in state['units']:
+            starts = unit['activity'].get(start_key)
+            if unit['player'] != player or not starts or not _alive(unit):
+                continue
+            if all(starts.get(m['id']) == m['position'] for m in unit['models'] if m['alive']):
+                continue  # Didn't move
+            here = {o['id'] for o in state['objectives'] if _in_range_of(state, unit, o)}
+            gone = {m['id'] for m in mission['markers'] if m['player'] != player and m.get('objective') in here}
+            _remove_markers(state, gone, report, f'surveilled by {unit["name"]}')
 
 
 def log_destroyed(state, models_before, action):
@@ -152,6 +495,10 @@ def log_destroyed(state, models_before, action):
                     'model': model['id'], 'unit': unit['id'], 'player': unit['player'],
                     'character': g._has(part['keywords'], 'Character'), 'wounds': part['stats'].get('wounds')})
         alive_before = any(models_before[m['id']]['alive'] for m in unit['models'])
+        if alive_before and not any(m['alive'] for m in unit['models']) and by and mission['primaries'][by['player']] == 'consecrate':
+            mission.setdefault('consecration', [])
+            if by['id'] not in mission['consecration']:
+                mission['consecration'].append(by['id'])  # It destroyed a unit: a consecration unit
         if alive_before and not any(m['alive'] for m in unit['models']):
             facts = ((mission.get('start') or {}).get('units') or {}).get(unit['id'], {})
             mission['destroyed'].append({
@@ -238,6 +585,8 @@ def require_no_choice(state):
     choice = (state.get('mission') or {}).get('choice')
     if choice:
         name = state['players'][choice['player']]['name']
+        if choice['kind'] == 'locate':
+            raise g.ActionError(f'{name} must first place their Locate and Deny markers, in the Mission panel.')
         raise g.ActionError(f'{name} must first condemn 1 to {CONDEMN_MOST} enemy units (Punishment), in the Mission panel.')
 
 
@@ -245,7 +594,7 @@ def condemn_options(state):
     """{'units': [enemy unit ids that can be condemned], 'any': True when none qualify (choose any one)}."""
     mission = state.get('mission') or {}
     choice = mission.get('choice')
-    if not choice:
+    if not choice or choice['kind'] != 'condemn':
         return None
     player = choice['player']
     on_board = [u for u in state['units'] if u['player'] != player and g._placed_shapes(u)]
@@ -257,7 +606,7 @@ def condemn_options(state):
 def condemn(state, action):
     """Punishment: the player whose turn it is condemns 1-3 eligible enemy units (or any one if none are)."""
     options = condemn_options(state)
-    if not options:
+    if not options or state['mission']['choice']['kind'] != 'condemn':
         raise g.ActionError('There is nothing to condemn now.')
     chosen = list(dict.fromkeys(action.get('units') or []))
     most = 1 if options['any'] else CONDEMN_MOST

@@ -265,6 +265,7 @@
 
     function clearOptions() {
         state.shooting = null;
+        state.missionActions = null;
         state.targets = {};
         state.fire = {};
         state.charge = null;
@@ -358,22 +359,33 @@
                     : now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
                 return `<li class="${line.needs ? 'later' : ''}"><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
             }).join('');
+            const locating = m.choice && m.choice.kind === 'locate' && m.choice.player === i;
+            const locate = locating ? `<div class="play-mission-choice"><strong>Locate and Deny:</strong>
+                place a marker in each of ${Math.min(5, m.locate_options.length)} terrain areas outside your deployment zone (named on the board).
+                ${m.locate_options.map(id => `<label><input type="checkbox" data-locate="${escapeHtml(id)}"> Terrain area ${escapeHtml(id)}</label>`).join('')}
+                <button class="btn-small" id="locate-btn">Place markers</button></div>` : '';
             const condemned = m.condemned[String(i)] || [];
             const choosing = m.choice && m.choice.player === i && m.condemn_options;
             const choice = choosing ? `<div class="play-mission-choice"><strong>Punishment:</strong>
                 ${m.condemn_options.any ? 'no enemy unit qualifies, so condemn any one.' : 'condemn 1 to 3 enemy units within range of objectives or that destroyed one of yours last turn.'}
                 ${m.condemn_options.units.map(id => `<label><input type="checkbox" data-condemn="${escapeHtml(id)}"> ${escapeHtml(name(id))}</label>`).join('')}
                 <button class="btn-small" id="condemn-btn">Condemn</button></div>` : '';
-            return `<details class="play-mission-player ${PLAYER_CLASSES[i]}" ${turn.player === i || choosing ? 'open' : ''}>
+            return `<details class="play-mission-player ${PLAYER_CLASSES[i]}" ${turn.player === i || choosing || locating ? 'open' : ''}>
                 <summary><strong>${escapeHtml(game.state.players[i].name)} · ${escapeHtml(p.name)}</strong>
                     <span class="play-mission-vp">${caps.total} VP</span></summary>
                 <p class="play-hint">${escapeHtml(p.disposition)} · this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
                     · primary ${caps.primary}/${caps.gameCap}</p>
-                ${choice}
+                ${choice}${locate}
                 ${condemned.length ? `<p class="play-hint">Condemned: ${condemned.map(id => escapeHtml(name(id))).join(', ')}</p>` : ''}
                 <ul class="play-mission-lines">${lines}</ul>
                 ${secondaryCards(m, i, turn)}</details>`;
         }).join('');
+        if ($('locate-btn')) {
+            $('locate-btn').addEventListener('click', async () => {
+                const terrain = [...panel.querySelectorAll('[data-locate]:checked')].map(cb => cb.dataset.locate);
+                if (await send({ type: 'place_markers', terrain })) message('Locate and Deny markers placed.');
+            });
+        }
         const button = $('condemn-btn');
         if (button) {
             button.addEventListener('click', async () => {
@@ -570,6 +582,9 @@
         if (turn.phase === 'shooting' && unit.player === turn.player && state.shooting && state.shooting.unit === unit.id) {
             controls = shootingControls(unit);
         }
+        if (turn.phase === 'shooting' && state.missionActions && state.missionActions.unit === unit.id) {
+            controls = missionActionControls() + controls;
+        }
         if (turn.phase === 'charge' && unit.player === turn.player && state.charge && state.charge.unit === unit.id) {
             controls = chargeControls(unit);
         }
@@ -595,6 +610,7 @@
             </div>`;
         }).join('');
         $('unit-detail').querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => movementChoice(b.dataset.mode)));
+        $('unit-detail').querySelectorAll('[data-start-action]').forEach(b => b.addEventListener('click', () => startAction(unit, b.dataset.startAction)));
         $('unit-detail').querySelectorAll('[data-fire]').forEach(c => c.addEventListener('change', () => {
             state.fire[c.dataset.fire] = c.checked;
             drawBoard();
@@ -785,7 +801,13 @@
         const resp = await fetch(`/api/play/games/${state.game.id}/${kind}/${unit.id}`);
         if (!resp.ok || state.selected !== unit.id) return;
         const options = { unit: unit.id, ...(await resp.json()) };
-        if (kind === 'shooting') state.shooting = options;
+        if (kind === 'shooting') {
+            state.shooting = options;
+            const actions = state.game.mission
+                ? await fetch(`/api/play/games/${state.game.id}/mission-actions/${unit.id}`).then(r => r.ok ? r.json() : null).catch(() => null)
+                : null;
+            state.missionActions = actions && actions.actions.length ? { unit: unit.id, actions: actions.actions } : null;
+        }
         if (kind === 'charge') {
             state.charge = options;
             state.chargeTargets = state.chargeTargets.filter(id => options.targets[id])
@@ -800,6 +822,35 @@
         }
         renderDetail();
         drawBoard();
+    }
+
+    // --- Mission actions -------------------------------------------------------------------
+
+    /** The selected unit's mission actions: each with its target (and marker, for a sensor sweep), or why not. */
+    function missionActionControls() {
+        const players = state.game.state.players;
+        const rows = state.missionActions.actions.map(a => {
+            if (a.reason) return `<p class="play-hint"><strong>${escapeHtml(a.name)}</strong>: ${escapeHtml(a.reason)}</p>`;
+            const markers = a.markers.length ? `<select class="filter-select" data-action-marker="${a.key}">${a.markers.map(m =>
+                `<option value="${m.id}">Remove ${escapeHtml(players[m.player].name)}'s ${escapeHtml(Core.playMarker(m.tag).label.toLowerCase())} (${m.id})</option>`).join('')}</select>` : '';
+            return `<div class="play-action-row"><strong>${escapeHtml(a.name)}</strong>
+                <select class="filter-select" data-action-target="${a.key}">${a.targets.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.label)}</option>`).join('')}</select>
+                ${markers}<button class="btn-small" data-start-action="${a.key}">Start</button></div>`;
+        }).join('');
+        return `<div class="play-mission-actions"><h4>Mission actions</h4>${rows}
+            <p class="play-hint">A unit that starts an action can't shoot or charge this turn.</p></div>`;
+    }
+
+    async function startAction(unit, key) {
+        const detail = $('unit-detail');
+        const target = detail.querySelector(`[data-action-target="${key}"]`).value;
+        const marker = detail.querySelector(`[data-action-marker="${key}"]`);
+        const name = state.missionActions.actions.find(a => a.key === key).name;
+        if (await send({ type: 'start_action', unit: unit.id, action: key, target, ...(marker ? { marker: marker.value } : {}) })) {
+            message(`${unit.name} started ${name}.`);
+            clearOptions();
+            loadOptions();
+        }
     }
 
     // --- Charges --------------------------------------------------------------------------
@@ -937,10 +988,11 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
-                || (['next_phase', 'end_deployment'].includes(e.action.type) && (e.rolls.length || (e.vp && e.vp.length)))).reverse() : [];
+                || (['next_phase', 'end_deployment'].includes(e.action.type)
+                    && (e.rolls.length || (e.vp && e.vp.length) || (e.actions && e.actions.length) || (e.markers_removed && e.markers_removed.length)))).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
             return;
@@ -961,6 +1013,19 @@
                 </div>`).join('')}
             </details>`;
         }).join('');
+    }
+
+    function actionName(key) {
+        return { consecrate: 'Consecrate', 'booby-trap': 'Booby Trap', decoy: 'Decoy', 'sensor-sweep': 'Sensor Sweep',
+                 triangulate: 'Triangulate', surveil: 'Surveil the Foe', 'extract-intelligence': 'Extract Intelligence',
+                 'secure-asset': 'Secure Asset', 'maintain-control': 'Maintain Control', 'vanguard-operation': 'Vanguard Operation',
+                 sabotage: 'Sabotage' }[key] || key;
+    }
+
+    /** Markers an event removed, for its log line. */
+    function markersRemoved(event) {
+        return (event.markers_removed || []).map(r => `<br>Removed ${r.markers.map(m =>
+            `${escapeHtml(state.game.state.players[m.player].name)}'s ${escapeHtml(Core.playMarker(m.tag).label.toLowerCase())}`).join(', ')} (${escapeHtml(r.why)})`).join('');
     }
 
     /** One line of the dice log for an event that isn't an attack. */
@@ -988,6 +1053,13 @@
                     `${state.game.state.players[p].name}: ${s.cards.map(k => options[k] || k).join(', ')}`).join(' · ') : '';
                 return `<strong>${player(a.player)}</strong> chose their secondary missions${escapeHtml(revealed)}`;
             }
+            case 'start_action': {
+                const s = event.action_started;
+                return `${escapeHtml(name(s.unit))} started <strong>${escapeHtml(actionName(s.action))}</strong> on ${escapeHtml(s.target)}${event.action_completed ? ': done' : ''}`
+                    + markersRemoved(event);
+            }
+            case 'place_markers':
+                return `<strong>${player(event.markers_placed.player)}</strong> placed Locate and Deny markers in ${escapeHtml(event.markers_placed.terrain.join(', '))}`;
             case 'condemn':
                 return `<strong>${player(state.game.state.turn.player)}</strong> condemned ${escapeHtml(a.units.map(name).join(', '))} (Punishment)`;
             case 'choose_role':
@@ -1010,13 +1082,17 @@
                     const dead = h.killed.length ? `, ${h.killed.length} model${h.killed.length === 1 ? '' : 's'} lost` : '';
                     lines.push(`<strong>${escapeHtml(h.name)}</strong> ${escapeHtml(h.reason)} hazard rolls: ${dice(event.rolls[h.rolls[0]])}: ${hurt}${dead}`);
                 }
+                for (const a of event.actions || []) {
+                    lines.push(`${escapeHtml(name(a.unit))}: <strong>${escapeHtml(actionName(a.action))}</strong> ${escapeHtml(a.result)} (${escapeHtml(a.target)})`);
+                }
+                if (event.markers_removed && event.markers_removed.length) lines.push(markersRemoved(event).replace(/^<br>/, ''));
                 for (const v of event.vp || []) {
                     lines.push(`<span class="play-vp-line">${escapeHtml(Core.playVpLine(v, state.game.state.players))}</span>`);
                 }
                 if (event.first_turn) {
                     lines.unshift(`First turn roll-off: ${escapeHtml(Core.playRollOff(event.first_turn, state.game.state.players))} and goes first`);
                 }
-                if (lines.length) return lines.join('<br>');
+                if (lines.length) return lines.map(l => `<div>${l}</div>`).join('');
                 return event.rolls.map(r => r.purpose === 'battle-shock'  // Games saved before units were recorded
                     ? `Battle-shock roll: ${dice(r)} = ${r.total}` : `Hazard rolls: ${dice(r)}`).join('<br>');
             }
@@ -1108,6 +1184,7 @@
         // Wounds badges on top of every model, so a neighbouring base never hides one
         const badges = svgEl('g', { class: 'play-badges' }, svg);
         svg.querySelectorAll('.play-wounds').forEach(b => badges.appendChild(b));
+        drawMarkers(svg, D);  // Operation markers above the models, so a unit standing on one doesn't hide it
     }
 
     /** Terrain areas: each footprint shaded by category (Exposed, Light, Dense), its height on hover. */
@@ -1142,6 +1219,30 @@
             title.textContent = `${o.kind === 'home' ? `${players[o.owner].name}'s home` : o.kind[0].toUpperCase() + o.kind.slice(1)} objective`
                 + ` · ${o.controller == null ? 'not controlled' : `held by ${players[o.controller].name}`}`
                 + ` · OC in range now: ${players[0].name} ${oc[0]}, ${players[1].name} ${oc[1]}`;
+        }
+    }
+
+    /** Operation markers: small diamonds in their owner's colour, lettered by what they mark. */
+    function drawMarkers(svg, depth) {
+        const mission = state.game.mission;
+        if (!mission) return;
+        const layer = svgEl('g', { class: 'play-markers' }, svg);
+        for (const m of mission.markers) {
+            const info = Core.playMarker(m.tag);
+            const g = svgEl('g', { class: `play-marker ${PLAYER_CLASSES[m.player]}`, transform: `translate(${m.x} ${depth - m.y})` }, layer);
+            svgEl('rect', { x: -0.45, y: -0.45, width: 0.9, height: 0.9, transform: 'rotate(45)' }, g);
+            const letter = svgEl('text', { y: 0.02 }, g);
+            letter.textContent = info.letter;
+            const title = svgEl('title', {}, g);
+            title.textContent = `${state.game.state.players[m.player].name}: ${info.label}${m.objective ? ` (${m.objective})` : m.terrain ? ` (terrain area ${m.terrain})` : ''}`;
+        }
+        if (mission.choice && mission.choice.kind === 'locate') {  // Name the areas to choose from
+            for (const piece of state.game.terrain || []) {
+                const cx = piece.points.reduce((s, p) => s + p[0], 0) / piece.points.length;
+                const cy = piece.points.reduce((s, p) => s + p[1], 0) / piece.points.length;
+                const label = svgEl('text', { x: cx, y: depth - cy, class: `play-terrain-id ${mission.locate_options.includes(piece.id) ? 'choosable' : ''}` }, layer);
+                label.textContent = piece.id;
+            }
         }
     }
 

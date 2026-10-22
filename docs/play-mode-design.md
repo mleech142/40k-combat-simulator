@@ -269,7 +269,16 @@ Agreed October 2026, after reading the 11th edition core rules and the 2026-27 m
    - **Destroyed models** are logged as they die, whatever destroys them (`mission['models_destroyed']`, cleared each turn), so a leader killed inside a unit counts.
    - **Caps:** secondaries 15VP a battle round and 45VP a game, and each Fixed card 20VP; the player whose turn it is scores first. VP totals are primary + secondary + corrections.
    - **Page:** the setup bar has each player's choice; the Mission panel shows each player's cards under their primary, with VP against 20, what each line would score now and the secondary caps.
-5. **Actions and operation markers** (unlocking the action-based primaries).
+5. *Done:* **Actions and operation markers** (unlocking the action-based primaries; `missions.ACTIONS`, `mission_state.start_action` / `complete_actions`, every primary line now scores). Agreed October 2026, from the core rules (16) and the primary cards:
+   - **Starting:** in your Shooting phase, by a unit on the battlefield that isn't Aircraft or a Fortification, battle-shocked, OC 0, engaged (unless Titanic), and didn't Advance, Fall Back, shoot or start another action this turn (a unit that has shot can't start one unless a rule says so; no such rules are modelled yet). Until the end of the turn it can't shoot (unless Titanic) or declare a charge.
+   - **Completing:** a unit that leaves the battlefield or becomes battle-shocked doesn't complete its action. "If your unit controls that objective" means you control it and that unit is within its range. Removing an operation marker removes its status.
+   - **Booby Trap** traps the terrain area the unit is within (not in your deployment zone), or the terrain area of a terrain objective it is in range of; plain objectives can't be trapped.
+   - **Sensor Sweep:** the marker to remove is chosen when the action starts and removed when it completes.
+   - **Locate and Deny:** when deployment ends, a required Mission panel choice of five terrain areas outside your deployment zone (or all of them if fewer).
+   - **Surveil the Foe's** marker removal applies when moves lock (the end of each phase or Fight step), not on trial moves.
+   - **Consecrate** is automatic at the end of your turn: each consecration unit marks an unconsecrated objective in range (not your home), your opponent's home objective first.
+   - **Page:** a "Mission actions" section for the selected unit in your Shooting phase (each action, its target, or why not); markers on the board in their owner's colour with a letter; starts, completions and removed markers in the log.
+   - The Tactical cards' actions (Plunder, Cleanse) come with the Tactical deck (step 6).
 6. **Tactical secondaries.**
 7. **Twists.**
 

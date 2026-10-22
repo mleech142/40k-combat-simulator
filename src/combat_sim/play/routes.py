@@ -69,7 +69,10 @@ def mission_response(state):
             'caps': {'round': missions.PRIMARY_ROUND_CAP, 'game': missions.PRIMARY_GAME_CAP},
             'secondary_caps': {'round': missions.SECONDARY_ROUND_CAP, 'game': missions.SECONDARY_GAME_CAP,
                                'card': missions.FIXED_CARD_CAP, 'cards': missions.FIXED_CARDS},
-            'condemned': mission['condemned'], 'choice': mission['choice'], 'condemn_options': mission_state.condemn_options(state)}
+            'condemned': mission['condemned'], 'choice': mission['choice'], 'condemn_options': mission_state.condemn_options(state),
+            'markers': mission.get('markers', []), 'actions': mission.get('actions', []),
+            'locate_options': mission_state.locate_options(state, mission['choice']['player'])
+            if (mission.get('choice') or {}).get('kind') == 'locate' else None}
 
 
 def pairing_layouts(first, second):
@@ -206,9 +209,10 @@ def register_play_routes(app):
         db.session.commit()
         return game_response(saved)
 
-    OPTIONS = {'shooting': shooting_options, 'charge': charge_options, 'fight': fight_options}
+    OPTIONS = {'shooting': shooting_options, 'charge': charge_options, 'fight': fight_options,
+               'mission-actions': lambda state, unit_id: {'actions': mission_state.action_options(state, unit_id)}}
 
-    @app.route('/api/play/games/<int:game_id>/<any(shooting, charge, fight):kind>/<unit_id>')
+    @app.route('/api/play/games/<int:game_id>/<any(shooting, charge, fight, "mission-actions"):kind>/<unit_id>')
     def api_options(game_id, kind, unit_id):
         """What a unit can do now in the Shooting, Charge or Fight phase, and why not."""
         saved = db.get_or_404(SavedGame, game_id)

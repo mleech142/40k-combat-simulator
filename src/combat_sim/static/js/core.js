@@ -935,6 +935,15 @@
                  cardCap: caps.card };
     }
 
+    /** Play: an operation marker's letter on the board and what it marks, by its tag. */
+    function playMarker(tag) {
+        const known = { trapped: ['B', 'Booby-trapped'], decoyed: ['D', 'Decoyed'], triangulated: ['T', 'Triangulated'],
+                        intel: ['I', 'Intelligence extracted'], linked: ['L', 'Vital Link marker'], consecrated: ['C', 'Consecrated'],
+                        asset: ['A', 'Locate and Deny marker'] };
+        const [letter, label] = known[tag] || ['M', 'Operation marker'];
+        return { letter, label };
+    }
+
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
         if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
@@ -950,7 +959,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

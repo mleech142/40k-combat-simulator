@@ -149,7 +149,9 @@ def resolve_action(state, action, dice):
                 'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False),
                 'roll_objectives': lambda s: _roll_objectives(s, dice), 'roll_off': lambda s: _roll_off_roles(s, dice),
                 'choose_role': lambda s: _choose_role(s, action), 'condemn': lambda s: mission_state.condemn(s, action),
-                'choose_secondaries': lambda s: mission_state.choose_secondaries(s, action)}
+                'choose_secondaries': lambda s: mission_state.choose_secondaries(s, action),
+                'start_action': lambda s: mission_state.start_action(s, action),
+                'place_markers': lambda s: mission_state.place_markers(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
         raise ActionError(f'Unknown action: {kind}')
@@ -239,6 +241,7 @@ def _end_deployment(state, dice):
         first = report['first_turn']['winner']
     state['roles'] = dict(state.get('roles') or {'attacker': 0, 'defender': 1}, first=first)
     update_control(state)  # Who holds what as the battle begins
+    mission_state.start_battle(state)
     _start_turn(state, 1, first, dice, report)
     _prune_effects(state)
     return {k: v for k, v in report.items() if v}
@@ -320,6 +323,10 @@ def _change_phase(state, dice, report):
         raise ActionError('The battle is over.')
     if turn['phase'] not in PHASES:
         raise ActionError('The battle has not started yet.')
+    # Moves lock at the end of a phase or Fight step (Surveil the Foe removes markers then)
+    locking = START_KEYS.get(turn.get('step') if turn['phase'] == 'fight' else turn['phase'])
+    if locking:
+        mission_state.surveil_moves(state, locking, report)
     if turn['phase'] == 'command':
         mission_state.require_no_choice(state)
         mission_state.score(state, 'command', [turn['player']], report)
@@ -343,7 +350,8 @@ def _change_phase(state, dice, report):
         if turn['phase'] == 'fight':
             turn['step'] = 'pile_in'
         return
-    mission_state.score(state, 'turn', [turn['player']], report)  # The end of the turn
+    mission_state.complete_actions(state, report)  # The end of the turn: actions complete, then scoring
+    mission_state.score(state, 'turn', [turn['player']], report)
     mission_state.score(state, 'any_turn', [turn['player'], 1 - turn['player']], report)
     if turn['player'] == first_player(state):
         _start_turn(state, turn['round'], 1 - turn['player'], dice, report)
@@ -617,6 +625,8 @@ def _shooter_checks(state, shooter):
         raise ActionError(f'{shooter["name"]} has already shot this phase.')
     if activity.get('moved') == 'fall_back':
         raise ActionError(f'{shooter["name"]} Fell Back this turn, so it can\'t shoot.')
+    if activity.get('action') and not any(_has(p['keywords'], 'Titanic') for p in shooter['parts']):
+        raise ActionError(f'{shooter["name"]} started an action this turn, so it can\'t shoot.')
 
 
 def _weapon_plan(state, shooter, part_index, weapon_index, target):
@@ -1093,6 +1103,8 @@ def _charge_checks(state, unit):
         raise ActionError(f'{unit["name"]} {mode} this turn, so it can\'t declare a charge.')
     if 'charge_roll' in activity:
         raise ActionError(f'{unit["name"]} has already declared a charge this phase.')
+    if activity.get('action'):
+        raise ActionError(f'{unit["name"]} started an action this turn, so it can\'t declare a charge.')
     if not _placed_shapes(unit):
         raise ActionError(f'{unit["name"]} is not on the battlefield.')
     if _is_engaged(state, unit):

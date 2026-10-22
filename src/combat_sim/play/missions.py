@@ -10,8 +10,11 @@ Each primary is a list of lines; a line scores VP at its timing:
 - 'command': the end of your Command phase, or, if `round5_end`, the end of your turn in round 5;
 - 'battle': once, at the end of the battle.
 `rounds` limits a line to those battle rounds. Lines sharing an `either` group are alternatives: only
-the best of them scores. A line with `needs` 'actions' waits for actions and operation markers (Play
-mode's later step); it never scores yet.
+the best of them scores. A line with `needs` set can't score yet (none since actions arrived).
+
+Mission actions (ACTIONS) are started in the Shooting phase by units of a player whose primary offers
+them (PRIMARY_ACTIONS); some complete at once, the rest at the end of the turn. Operation markers carry a
+`tag` (what they mark: 'trapped', 'decoyed', ...); removing a marker removes its status.
 
 Secondary missions (SECONDARIES): before the battle each player plays Fixed (two of the cards marked
 Fixed, active all battle) or Tactical (two drawn at the start of each of their Command phases: Play mode's
@@ -88,6 +91,14 @@ class Context:
     condemned: list = field(default_factory=list)
     models_destroyed: list = field(default_factory=list)
     presence: int = 0
+    markers: list = field(default_factory=list)  # Every operation marker: {'player', 'tag', 'objective', 'terrain'}
+    completed: list = field(default_factory=list)  # Actions completed this turn: {'player', 'action', 'unit', ...}
+    trapped_now: list = field(default_factory=list)  # Terrain areas `player` trapped this turn: {'terrain', 'objective'}
+    killed_in_trapped: bool = False  # An enemy unit that started the turn in an area `player` trapped was destroyed
+    lone_mine: bool = False  # Locate and Deny: one of `player`'s markers left, held by them alone in its area
+    lone_theirs: bool = False  # Extract Relic: the same for one of the opponent's markers
+    surveilled: bool = False  # Surveil the Foe: an enemy unit surveilled this turn away from marked objectives
+    markers_on_held_central: int = 0  # Vital Link: `player`'s markers in range of central objectives they hold
 
     @property
     def enemy(self):
@@ -103,6 +114,15 @@ class Context:
     def kills(self):
         """Enemy units destroyed this turn."""
         return [d for d in self.destroyed if d['player'] == self.enemy]
+
+    def my_markers(self, tag=None, player=None):
+        """`player`'s operation markers (or another player's), of one tag or any."""
+        who = self.player if player is None else player
+        return [m for m in self.markers if m['player'] == who and (tag is None or m['tag'] == tag)]
+
+    def done(self, action):
+        """Actions of `player`'s completed this turn."""
+        return [c for c in self.completed if c['player'] == self.player and c['action'] == action]
 
     def model_kills(self):
         """Enemy models destroyed this turn: {'model', 'unit', 'player', 'character', 'wounds'}."""
@@ -155,6 +175,31 @@ SCORERS = {
     'per_big_model_killed': lambda ctx, vp: _each(sum((m['wounds'] or 0) >= BIG_MODEL_WOUNDS for m in ctx.model_kills()), vp,
                                                   f'model with {BIG_MODEL_WOUNDS}+ wounds destroyed'),
     'presence': lambda ctx, vp, count: (vp, f'a presence in {count} table quarters') if ctx.presence >= count else (0, ''),
+    # Actions and operation markers
+    'marker_count': lambda ctx, vp, tag, least, most=None: (vp, f'{len(ctx.my_markers(tag))} objectives {tag}')
+    if least <= len(ctx.my_markers(tag)) <= (most or 99) else (0, ''),
+    'per_marker': lambda ctx, vp, tag: _each(len(ctx.my_markers(tag)), vp, f'objective {tag}'),
+    'per_marker_their_territory': lambda ctx, vp, tag: _each(
+        sum(m['objective'] in ctx.in_their_territory for m in ctx.my_markers(tag)), vp, f'objective {tag} in their territory'),
+    'their_home_marked': lambda ctx, vp, tag: (vp, f"your opponent's home objective is {tag}")
+    if any(m.get('objective_kind') == 'home' and m.get('objective_owner') == ctx.enemy for m in ctx.my_markers(tag)) else (0, ''),
+    'my_marker_on_their_home': lambda ctx, vp: (vp, "a marker by your opponent's home objective")
+    if any(m.get('objective_kind') == 'home' and m.get('objective_owner') == ctx.enemy for m in ctx.my_markers()) else (0, ''),
+    'markers_at_least': lambda ctx, vp, count: (vp, f'{count}+ of your markers on the battlefield')
+    if len(ctx.my_markers()) >= count else (0, ''),
+    'per_trapped': lambda ctx, vp: _each(len(ctx.trapped_now), vp, 'terrain area trapped this turn'),
+    'per_trapped_objective': lambda ctx, vp: _each(sum(t['objective'] for t in ctx.trapped_now), vp, 'of those an objective'),
+    'killed_in_trapped': lambda ctx, vp: (vp, 'destroyed a unit that started in a trapped area') if ctx.killed_in_trapped else (0, ''),
+    'lone_marker': lambda ctx, vp, whose: (vp, 'one marker left, held by you alone')
+    if (ctx.lone_mine if whose == 'mine' else ctx.lone_theirs) else (0, ''),
+    'surveilled': lambda ctx, vp: (vp, 'surveilled an enemy unit') if ctx.surveilled else (0, ''),
+    'no_their_markers': lambda ctx, vp: (vp, 'none of their markers on the battlefield')
+    if not ctx.my_markers(player=ctx.enemy) else (0, ''),
+    'completed_any': lambda ctx, vp, action: (vp, f'{ACTION_NAMES.get(action, action)} done this turn') if ctx.done(action) else (0, ''),
+    'per_completed': lambda ctx, vp, action: _each(len(ctx.done(action)), vp, f'unit that completed {ACTION_NAMES.get(action, action)}'),
+    'per_completed_their_territory': lambda ctx, vp, action: _each(sum(bool(c.get('their_territory')) for c in ctx.done(action)), vp,
+                                                                   'of those in their territory'),
+    'markers_on_held_central': lambda ctx, vp: _each(ctx.markers_on_held_central, vp, 'marker on a central objective you hold'),
 }
 WHERE = {'in_range': 'within range of an objective', 'central': 'within range of a central objective',
          'terrain': 'within a terrain area'}
@@ -174,7 +219,6 @@ def _command(text, score, vp, **params):
     return line(text, 'command', score, vp, rounds=(2, 5), round5_end=True, **params)
 
 
-ACTIONS = 'actions'
 HOLD_ANY_4 = _command('Hold an objective other than your home objective', 'hold_any', 4)
 
 PRIMARIES = {
@@ -231,11 +275,11 @@ PRIMARIES = {
         line("End of the battle: hold your opponent's home objective", 'battle', 'hold_their_home', 8),
     ]),
     'consecrate': ('Consecrate', 'purge-the-foe', [
-        line('One or two objectives consecrated', 'turn', vp=3, either='consecrated', needs=ACTIONS),
-        line('Three or more objectives consecrated', 'turn', vp=6, either='consecrated', needs=ACTIONS),
+        line('One or two objectives consecrated', 'turn', 'marker_count', 3, either='consecrated', tag='consecrated', least=1, most=2),
+        line('Three or more objectives consecrated', 'turn', 'marker_count', 6, either='consecrated', tag='consecrated', least=3),
         HOLD_ANY_4,
         _command('Hold more objectives than your opponent', 'more_objectives', 4),
-        line("End of the battle: your opponent's home objective is consecrated", 'battle', vp=5, needs=ACTIONS),
+        line("End of the battle: your opponent's home objective is consecrated", 'battle', 'their_home_marked', 5, tag='consecrated'),
     ]),
     'destroyers-wrath': ("Destroyer's Wrath", 'purge-the-foe', [
         line('Destroy an enemy unit this turn', 'turn', 'killed_any', 3),
@@ -246,8 +290,9 @@ PRIMARIES = {
     ]),
     # Disruption
     'death-trap': ('Death Trap', 'disruption', [
-        line('Each terrain area you trapped this turn (+3VP more if it is an objective)', 'turn', vp=2, needs=ACTIONS),
-        line('An enemy unit that started the turn in a trapped terrain area was destroyed', 'turn', vp=3, needs=ACTIONS),
+        line('Each terrain area you trapped this turn', 'turn', 'per_trapped', 2),
+        line('Each of those that is an objective', 'turn', 'per_trapped_objective', 3),
+        line('An enemy unit that started the turn in a trapped terrain area was destroyed', 'turn', 'killed_in_trapped', 3),
         HOLD_ANY_4,
     ]),
     'delaying-action': ('Delaying Action', 'disruption', [
@@ -265,16 +310,17 @@ PRIMARIES = {
              rounds=(4, 5), exclude_home=True),
     ]),
     'smoke-and-mirrors': ('Smoke and Mirrors', 'disruption', [
-        line('Each decoyed objective (+2VP more in your opponent\'s territory)', 'turn', vp=2, needs=ACTIONS),
+        line('Each decoyed objective', 'turn', 'per_marker', 2, tag='decoyed'),
+        line("Each of those in your opponent's territory", 'turn', 'per_marker_their_territory', 2, tag='decoyed'),
         HOLD_ANY_4,
-        line('End of the battle: four or more objectives decoyed', 'battle', vp=10, needs=ACTIONS),
+        line('End of the battle: four or more objectives decoyed', 'battle', 'marker_count', 10, tag='decoyed', least=4),
     ]),
     'locate-and-deny': ('Locate and Deny', 'disruption', [
         line('You destroyed an enemy unit that started the turn within range of an objective', 'turn', 'killed_started', 4,
              where='in_range'),
-        line('Only one of your markers is left, with your unit and no enemy in its terrain area', 'turn', vp=4, needs=ACTIONS),
+        line('Only one of your markers is left, with your unit and no enemy in its terrain area', 'turn', 'lone_marker', 4, whose='mine'),
         HOLD_ANY_4,
-        line('End of the battle: only one of your markers is left, held as above', 'battle', vp=5, needs=ACTIONS),
+        line('End of the battle: only one of your markers is left, held as above', 'battle', 'lone_marker', 5, whose='mine'),
     ]),
     # Reconnaissance
     'reconnaissance-sweep': ('Reconnaissance Sweep', 'reconnaissance', [
@@ -287,21 +333,23 @@ PRIMARIES = {
     ]),
     'triangulation': ('Triangulation', 'reconnaissance', [
         HOLD_ANY_4,
-        line('Objectives triangulated: one 3VP, two 6VP, three or more 10VP', 'turn', vp=3, rounds=(2, 5), needs=ACTIONS),
+        line('One objective triangulated', 'turn', 'marker_count', 3, rounds=(2, 5), either='triangulated', tag='triangulated', least=1, most=1),
+        line('Two objectives triangulated', 'turn', 'marker_count', 6, rounds=(2, 5), either='triangulated', tag='triangulated', least=2, most=2),
+        line('Three or more objectives triangulated', 'turn', 'marker_count', 10, rounds=(2, 5), either='triangulated', tag='triangulated', least=3),
         line('End of the battle: hold four or more objectives', 'battle', 'hold_at_least', 10, count=4),
     ]),
     'surveil-the-foe': ('Surveil the Foe', 'reconnaissance', [
-        line('You surveilled an enemy unit away from marked objectives', 'turn', vp=4, needs=ACTIONS),
+        line('You surveilled an enemy unit away from marked objectives', 'turn', 'surveilled', 4),
         HOLD_ANY_4,
         _command('Hold more objectives than your opponent', 'more_objectives', 4),
-        line("None of your opponent's operation markers are on the battlefield", 'turn', vp=5, rounds=(2, 5), needs=ACTIONS),
+        line("None of your opponent's operation markers are on the battlefield", 'turn', 'no_their_markers', 5, rounds=(2, 5)),
     ]),
     'gather-intel': ('Gather Intel', 'reconnaissance', [
         line('Round 1: hold a central objective', 'turn', 'hold_kind', 6, rounds=(1, 1), kind='central'),
         HOLD_ANY_4,
-        line('Each unit that extracted intelligence this turn', 'turn', vp=7, rounds=(2, 5), needs=ACTIONS),
-        line('End of the battle: three or more of your operation markers on the battlefield', 'battle', vp=5, needs=ACTIONS),
-        line("End of the battle: one of your markers by your opponent's home objective", 'battle', vp=5, needs=ACTIONS),
+        line('Each unit that extracted intelligence this turn', 'turn', 'per_completed', 7, rounds=(2, 5), action='extract-intelligence'),
+        line('End of the battle: three or more of your operation markers on the battlefield', 'battle', 'markers_at_least', 5, count=3),
+        line("End of the battle: one of your markers by your opponent's home objective", 'battle', 'my_marker_on_their_home', 5),
     ]),
     'search-and-scour': ('Search and Scour', 'reconnaissance', [
         line('Hold a central objective', 'turn', 'hold_kind', 3, kind='central'),
@@ -312,7 +360,7 @@ PRIMARIES = {
     ]),
     # Priority Assets
     'secure-asset': ('Secure Asset', 'priority-assets', [
-        line('A unit of yours secured the asset this turn', 'turn', vp=4, needs=ACTIONS),
+        line('A unit of yours secured the asset this turn', 'turn', 'completed_any', 4, action='secure-asset'),
         line('You destroyed an enemy unit that started the turn within range of a central objective', 'turn',
              'killed_started', 2, where='central'),
         HOLD_ANY_4,
@@ -320,29 +368,30 @@ PRIMARIES = {
     ]),
     'vital-link': ('Vital Link', 'priority-assets', [
         line('Hold a central objective', 'turn', 'hold_kind', 2, kind='central'),
-        line('Each of your operation markers on the central objectives you hold', 'turn', vp=1, needs=ACTIONS),
+        line('Each of your operation markers on the central objectives you hold', 'turn', 'markers_on_held_central', 1),
         HOLD_ANY_4,
         _command('One of those is a central objective', 'hold_kind', 4, kind='central'),
         line("End of the battle: hold your opponent's home objective", 'battle', 'hold_their_home', 10),
     ]),
     'extract-relic': ('Extract Relic', 'priority-assets', [
-        line('A unit of yours made a sensor sweep this turn', 'turn', vp=4, needs=ACTIONS),
+        line('A unit of yours made a sensor sweep this turn', 'turn', 'completed_any', 4, action='sensor-sweep'),
         line('You destroyed an enemy unit that started the turn within range of an objective', 'turn', 'killed_started', 3,
              where='in_range'),
-        line("Only one of your opponent's markers is left, with your unit and no enemy in its area", 'turn', vp=4,
-             needs=ACTIONS),
+        line("Only one of your opponent's markers is left, with your unit and no enemy in its area", 'turn', 'lone_marker', 4,
+             whose='theirs'),
         HOLD_ANY_4,
-        line('End of the battle: only one of their markers is left, held as above', 'battle', vp=5, needs=ACTIONS),
+        line('End of the battle: only one of their markers is left, held as above', 'battle', 'lone_marker', 5, whose='theirs'),
     ]),
     'vanguard-operation': ('Vanguard Operation', 'priority-assets', [
-        line('A unit of yours made a vanguard operation this turn', 'turn', vp=4, needs=ACTIONS),
+        line('A unit of yours made a vanguard operation this turn', 'turn', 'completed_any', 4, action='vanguard-operation'),
         line('Destroy an enemy unit this turn', 'turn', 'killed_any', 2),
         HOLD_ANY_4,
         line("End of the battle: hold your opponent's home objective", 'battle', 'hold_their_home', 10),
     ]),
     'sabotage': ('Sabotage', 'priority-assets', [
-        line('Each unit that committed sabotage this turn (+2VP more in your opponent\'s territory)', 'turn', vp=3,
-             needs=ACTIONS),
+        line('Each unit that committed sabotage this turn', 'turn', 'per_completed', 3, action='sabotage'),
+        line("Each of those within range of an objective in your opponent's territory", 'turn', 'per_completed_their_territory', 2,
+             action='sabotage'),
         HOLD_ANY_4,
     ]),
 }
@@ -368,6 +417,35 @@ SECONDARIES = {
         line('A presence in all four table quarters', 'turn', 'presence', 4, either='quarters', count=4),
     ]),
 }
+
+
+# Mission actions: (name, what it is started on, how often, which must differ between units starting it this
+# phase, first round, when it completes, the marker it places). 'on' is 'objective' (within range of one,
+# not your home), 'central' (within range of a central objective), 'trap' (a terrain area: see Booby Trap),
+# 'their_terrain' (a terrain area in your opponent's territory), 'enemy' (within 18" and visible), or
+# 'marker' (one to remove).
+ACTIONS = {
+    'booby-trap': {'name': 'Booby Trap', 'on': 'trap', 'limit': None, 'distinct': True, 'from_round': 1, 'completes': 'now', 'tag': 'trapped'},
+    'decoy': {'name': 'Decoy', 'on': 'objective', 'limit': None, 'distinct': True, 'from_round': 1, 'completes': 'end', 'tag': 'decoyed'},
+    'sensor-sweep': {'name': 'Sensor Sweep', 'on': 'central', 'limit': 1, 'distinct': False, 'from_round': 1, 'completes': 'end', 'tag': None},
+    'triangulate': {'name': 'Triangulate', 'on': 'objective', 'limit': 1, 'distinct': False, 'from_round': 2, 'completes': 'end',
+                    'tag': 'triangulated'},
+    'surveil': {'name': 'Surveil the Foe', 'on': 'enemy', 'limit': None, 'distinct': True, 'from_round': 1, 'completes': 'now', 'tag': None},
+    'extract-intelligence': {'name': 'Extract Intelligence', 'on': 'objective', 'limit': None, 'distinct': True, 'from_round': 2,
+                             'completes': 'end', 'tag': 'intel'},
+    'secure-asset': {'name': 'Secure Asset', 'on': 'objective', 'limit': 1, 'distinct': False, 'from_round': 1, 'completes': 'end', 'tag': None},
+    'maintain-control': {'name': 'Maintain Control', 'on': 'central', 'limit': 1, 'distinct': False, 'from_round': 1, 'completes': 'end',
+                         'tag': 'linked'},
+    'vanguard-operation': {'name': 'Vanguard Operation', 'on': 'their_terrain', 'limit': 1, 'distinct': False, 'from_round': 1,
+                           'completes': 'end', 'tag': None},
+    'sabotage': {'name': 'Sabotage', 'on': 'objective', 'limit': None, 'distinct': True, 'from_round': 1, 'completes': 'end', 'tag': None},
+}
+ACTION_NAMES = {key: a['name'] for key, a in ACTIONS.items()}
+PRIMARY_ACTIONS = {'death-trap': ['booby-trap'], 'smoke-and-mirrors': ['decoy'], 'locate-and-deny': ['sensor-sweep'],
+                   'extract-relic': ['sensor-sweep'], 'triangulation': ['triangulate'], 'surveil-the-foe': ['surveil'],
+                   'gather-intel': ['extract-intelligence'], 'secure-asset': ['secure-asset'], 'vital-link': ['maintain-control'],
+                   'vanguard-operation': ['vanguard-operation'], 'sabotage': ['sabotage']}
+LOCATE_MARKERS = 5  # Locate and Deny: markers placed in terrain areas outside your deployment zone at the start
 
 
 def primary(key):

@@ -737,3 +737,9 @@ test('playSecondaryCaps sums secondary VP this round and in all against the caps
     assert.deepEqual(Core.playSecondaryCaps(vp, 2, { round: 15, game: 45, card: 20 }),
         { total: 18, round: 15, roundCap: 15, gameCap: 45, roundFull: true, cardCap: 20 });
 });
+
+test('playMarker gives an operation marker its letter and what it marks', () => {
+    assert.deepEqual(Core.playMarker('decoyed'), { letter: 'D', label: 'Decoyed' });
+    assert.deepEqual(Core.playMarker('asset'), { letter: 'A', label: 'Locate and Deny marker' });
+    assert.deepEqual(Core.playMarker('something'), { letter: 'M', label: 'Operation marker' });
+});

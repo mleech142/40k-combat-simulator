@@ -60,10 +60,30 @@ def test_alternative_lines_score_only_the_best():
     assert sum(scored('purge-and-secure', 'turn', 1, both).values()) == 3  # Either of the two kill lines, not both
 
 
-def test_lines_that_need_actions_never_score_yet():
-    lines = primary('consecrate')['lines']
-    assert sum(1 for entry in lines if entry['needs']) == 3
-    assert scored('consecrate', 'turn', 3, ctx(red=[CENTRAL])) == {}
+def marker(tag, objective='central-1', player=RED, **extra):
+    return dict({'player': player, 'tag': tag, 'objective': objective, 'terrain': None}, **extra)
+
+
+def test_every_line_scores_now_that_actions_have_arrived():
+    assert not any(entry['needs'] for key in PRIMARIES for entry in primary(key)['lines'])
+
+
+def test_marker_lines_count_your_markers():
+    three = ctx(markers=[marker('consecrated'), marker('consecrated', 'expansion-1'), marker('consecrated', 'expansion-2'),
+                         marker('consecrated', 'home-attacker', player=BLUE)])
+    assert scored('consecrate', 'turn', 3, three) == {'Three or more objectives consecrated': 6}
+    home = ctx(markers=[marker('consecrated', 'home-defender', objective_kind='home', objective_owner=BLUE)])
+    assert sum(scored('consecrate', 'battle', 5, home).values()) == 5
+    decoys = ctx(markers=[marker('decoyed'), marker('decoyed', 'expansion-1')], in_their_territory={'expansion-1'})
+    assert sum(scored('smoke-and-mirrors', 'turn', 1, decoys).values()) == 2 * 2 + 1 * 2
+
+
+def test_completed_actions_score_this_turn():
+    done = ctx(completed=[{'player': RED, 'action': 'sabotage', 'unit': 'a', 'their_territory': True},
+                          {'player': RED, 'action': 'sabotage', 'unit': 'b', 'their_territory': False},
+                          {'player': BLUE, 'action': 'sabotage', 'unit': 'c', 'their_territory': True}])
+    assert sum(scored('sabotage', 'turn', 1, done).values()) == 2 * 3 + 1 * 2
+    assert sum(scored('triangulation', 'turn', 2, ctx(markers=[marker('triangulated'), marker('triangulated', 'x')])).values()) == 6
 
 
 def test_kills_this_turn_against_losses_the_turn_before():
