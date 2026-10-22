@@ -213,6 +213,7 @@
         state.placing = null;  // The server's game replaces anything placed provisionally
         if (first) {
             state.selected = null;
+            state.logSeen = game.events.length;  // Rolls already made don't animate when a game opens
             fitView();
             history.replaceState(null, '', `/play?game=${game.id}`);
         }
@@ -1290,24 +1291,85 @@
                         || e.drawn || (e.discards && e.discards.length)))).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
+            state.logSeen = game ? game.events.length : 0;
             return;
         }
         const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
+        const owner = id => (game.state.units.find(u => u.id === id) || {}).player;
+        const players = game.state.players;
+        const turns = Core.playLogTurns(game.events);
+        const heading = t => !t || t.phase === 'setup' ? ['Setup', null] : t.phase === 'deployment' ? ['Deployment', null]
+            : [`Round ${t.round} · ${players[t.player].name} · ${PHASE_NAMES[t.phase]}`, t.player];
+        let last = null;
         $('dice-log').innerHTML = shots.map(([event, i], n) => {
-            if (!event.attacks) return `<div class="play-log-entry play-log-roll">${logLine(event, name)}</div>`;
-            const targets = [...new Set(event.attacks.filter(a => a.name !== 'Hazardous').map(a => name(a.target)))];
-            return `<details class="play-log-entry" ${n === 0 ? 'open' : ''}>
-                <summary>${escapeHtml(name(event.action.unit))} ${event.action.type === 'fight' ? 'fights' : 'shoots'} ${escapeHtml(targets.join(', '))}</summary>
-                ${event.attacks.map(a => `<div class="play-log-attack">
-                    <div>${escapeHtml(Core.playAttackSummary(a))}${a.name !== 'Hazardous' && targets.length > 1 ? ` at ${escapeHtml(name(a.target))}` : ''}</div>
-                    ${Core.playDiceGroups(event.rolls, a.rolls).map(g => `<div class="play-dice-row">
-                        <span class="play-dice-label">${escapeHtml(g.label)}${g.need ? ' ' + g.need : ''}</span>
-                        ${g.dice.map(d => `<span class="play-die ${d.kind}" title="${d.rerolled_from ? 'Re-rolled from ' + d.rerolled_from : ''}">${d.face}</span>`).join('')}
-                        ${g.note ? `<small>${escapeHtml(g.note)}</small>` : ''}
-                    </div>`).join('')}
-                </div>`).join('')}
-            </details>`;
+            const fresh = state.logSeen != null && i >= state.logSeen;  // Just made: its dice roll in
+            const [title, player] = heading(turns[i]);
+            const section = title !== last ? `<h4 class="play-log-heading ${player != null ? PLAYER_CLASSES[player] : ''}">${escapeHtml(title)}</h4>` : '';
+            last = title;
+            if (!event.attacks) {
+                return `${section}<div class="play-log-entry play-log-roll ${fresh ? 'fresh' : ''}">
+                    <span class="play-log-icon"><i class="${logIcon(event)}" aria-hidden="true"></i></span><div class="play-log-text">${logLine(event, name)}</div></div>`;
+            }
+            return section + attackEntry(event, n === 0, fresh, name, owner);
         }).join('');
+        state.logSeen = game.events.length;
+    }
+
+    /** A shooting or fighting event in the battle log: who attacked whom and how many died, then each weapon's
+     * Attacks › Hits › Wounds › Killed and its dice. */
+    function attackEntry(event, open, fresh, name, owner) {
+        const fight = event.action.type === 'fight';
+        const targets = [...new Set(event.attacks.filter(a => a.name !== 'Hazardous').map(a => a.target))];
+        const killed = event.attacks.reduce((sum, a) => sum + a.killed.length, 0);
+        let k = 0;  // Each die's place, so fresh dice roll in one after another
+        const weapons = event.attacks.map(a => {
+            const stages = a.name === 'Hazardous' ? [[a.models, 'Rolled'], [a.killed.length, 'Killed']]
+                : [[a.attacks, 'Attacks'], [a.hits, 'Hits'], [a.wounds, 'Wounds'], ...(a.mortal ? [[a.mortal, 'Mortal']] : []), [a.killed.length, 'Killed']];
+            const who = [a.name === 'Hazardous' ? '' : `${a.models} model${a.models === 1 ? '' : 's'}`, a.half_range ? 'half range' : '',
+                a.cover ? 'target in cover' : '', a.name !== 'Hazardous' && targets.length > 1 ? `at ${name(a.target)}` : ''].filter(Boolean).join(' · ');
+            const funnel = stages.map(([value, label], s) => `${s ? '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i>' : ''}
+                <span class="play-stage ${label === 'Killed' ? 'killed' : ''} ${value ? '' : 'zero'}"><b>${value}</b><small>${label}</small></span>`).join('');
+            const dice = Core.playDiceGroups(event.rolls, a.rolls).map(g => `<div class="play-dice-row">
+                <span class="play-dice-label">${escapeHtml(g.label)}${g.need ? `<em>${g.need}</em>` : ''}</span>
+                <span class="play-dice">${g.dice.map(d => dieHtml(d.face, d.kind, k++, d.rerolled_from)).join('')}</span>
+                ${g.note ? `<small class="play-dice-note">${escapeHtml(g.note)}</small>` : ''}</div>`).join('');
+            return `<div class="play-log-weapon ${a.name === 'Hazardous' ? 'hazardous' : ''}" title="${escapeHtml(Core.playAttackSummary(a))}">
+                <div class="play-log-weapon-name"><strong>${escapeHtml(a.name)}</strong>${who ? `<small>${escapeHtml(who)}</small>` : ''}</div>
+                <div class="play-funnel">${funnel}</div>${dice}</div>`;
+        }).join('');
+        const shooter = owner(event.action.unit);
+        return `<details class="play-log-entry play-log-attack ${PLAYER_CLASSES[shooter] || ''} ${fresh ? 'fresh' : ''}" ${open ? 'open' : ''}>
+            <summary class="play-log-head">
+                <span class="play-log-icon"><i class="fa-solid ${fight ? 'fa-hand-fist' : 'fa-crosshairs'}" aria-hidden="true"></i></span>
+                <span class="play-log-who"><strong>${escapeHtml(name(event.action.unit))}</strong>
+                    <span class="play-log-verb">${fight ? 'fights' : 'shoots'}</span>
+                    <strong class="play-log-target ${PLAYER_CLASSES[1 - shooter] || ''}">${escapeHtml(targets.map(name).join(', ') || 'itself')}</strong></span>
+                <span class="play-log-kills ${killed ? '' : 'none'}"><b>${killed}</b><small>killed</small></span>
+            </summary>
+            <div class="play-log-body">${weapons}</div>
+        </details>`;
+    }
+
+    /** A die: pips for a d6 face (else the number), lit by how it went: critical, success, fail or value. */
+    function dieHtml(face, kind, place, rerolledFrom) {
+        const pips = Core.playDieFace(face);
+        const what = { critical: 'critical', success: 'success', fail: 'fail' }[kind] || '';
+        const inside = pips ? pips.map(p => `<i style="grid-area: p${p}"></i>`).join('') : `<span>${face}</span>`;
+        return `<span class="play-die ${kind}" style="--i: ${Math.min(place, 40)}" role="img" aria-label="${face}${what ? ', ' + what : ''}"
+            title="${face}${rerolledFrom ? ` (re-rolled from ${rerolledFrom})` : ''}">${inside}${rerolledFrom ? '<em class="play-die-reroll">&#8635;</em>' : ''}</span>`;
+    }
+
+    /** The icon for a battle log line that isn't an attack. */
+    function logIcon(event) {
+        const icons = { charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
+            effect: 'fa-wand-magic-sparkles', roll_off: 'fa-dice', roll_objectives: 'fa-dice', roll_mirrored: 'fa-dice',
+            choose_role: 'fa-chess-board', choose_secondaries: 'fa-layer-group', tactical: 'fa-layer-group', condemn: 'fa-gavel',
+            start_action: 'fa-flag', place_markers: 'fa-location-dot', beacon: 'fa-tower-broadcast', tempting: 'fa-bullseye',
+            correction: 'fa-scale-balanced', accept: 'fa-scale-balanced', decline: 'fa-scale-balanced' };
+        const icon = icons[event.action.type]
+            || ((event.battle_shock || []).length ? 'fa-triangle-exclamation' : (event.hazards || []).length ? 'fa-skull'
+                : (event.vp || []).length ? 'fa-trophy' : event.drawn || (event.discards || []).length ? 'fa-layer-group' : 'fa-dice');
+        return `fa-solid ${icon}`;
     }
 
     function actionName(key) {
@@ -1326,7 +1388,8 @@
     /** One line of the dice log for an event that isn't an attack. */
     function logLine(event, name) {
         const a = event.action;
-        const dice = roll => roll.dice.map(d => `<span class="play-die ${roll.need == null ? 'value' : d.success ? 'success' : 'fail'}">${d.face}</span>`).join('');
+        const dice = roll => `<span class="play-dice">${roll.dice.map((d, k) => dieHtml(d.face,
+            roll.need == null ? 'value' : d.critical ? 'critical' : d.success ? 'success' : 'fail', k, d.rerolled_from)).join('')}</span>`;
         const player = p => escapeHtml(state.game.state.players[p].name);
         switch (a.type) {
             case 'charge':

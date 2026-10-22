@@ -577,6 +577,10 @@ test('playDiceGroups turns an attack\'s rolls into labelled groups, joining one-
     // Two saves in a row show as one group
     const saves = [{ purpose: 'save', need: 3, crit_on: 7, dice: [die(1, false)] }, { purpose: 'save', need: 3, crit_on: 7, dice: [die(6, true)] }];
     assert.deepEqual(Core.playDiceGroups(saves, [0, 2]).map(g => g.dice.length), [2]);
+    // Saves and Feel No Pain rolled in turns, one wound at a time, show as one group each
+    const fnp = face => ({ purpose: 'feel no pain', need: 5, crit_on: 7, dice: [die(face, face >= 5)] });
+    const turns = Core.playDiceGroups([saves[0], fnp(5), saves[1], saves[0], fnp(1)], [0, 5]);
+    assert.deepEqual(turns.map(g => [g.label, g.dice.map(d => d.face)]), [['Save', [1, 6, 1]], ['Feel No Pain', [5, 1]]]);
 });
 
 test('playAttackSummary says what an attack did in one line', () => {
@@ -629,6 +633,20 @@ test('playLineVp says what a mission line is worth', () => {
     assert.deepEqual(Core.playLineVp({ vp: 3, each: false, turn_cap: null }), { amount: '+3', each: false, note: '3VP' });
     assert.deepEqual(Core.playLineVp({ vp: 2, each: true, turn_cap: null }), { amount: '+2', each: true, note: '2VP each' });
     assert.deepEqual(Core.playLineVp({ vp: 4, each: true, turn_cap: 5 }), { amount: '+4', each: true, note: '4VP each, up to 5VP a turn' });
+});
+
+test('playLogTurns gives the turn each event was made in (before any change it made)', () => {
+    const shooting = { round: 1, player: 0, phase: 'shooting' }, charge = { round: 1, player: 0, phase: 'charge' };
+    const events = [{ action: { type: 'place' } }, { action: { type: 'end_deployment' }, turn: shooting },
+                    { action: { type: 'shoot' } }, { action: { type: 'next_phase' }, turn: charge }, { action: { type: 'charge' } }];
+    assert.deepEqual(Core.playLogTurns(events), [null, null, shooting, shooting, charge]);
+});
+
+test("playDieFace puts a d6 face's pips on a 3 by 3 grid", () => {
+    assert.deepEqual(Core.playDieFace(1), [4]);
+    assert.deepEqual(Core.playDieFace(4), [0, 2, 6, 8]);
+    assert.deepEqual(Core.playDieFace(6), [0, 2, 3, 5, 6, 8]);
+    assert.equal(Core.playDieFace(7), null);  // Not a d6 face: shown as a number
 });
 
 test('playResult says who won once the battle is over', () => {

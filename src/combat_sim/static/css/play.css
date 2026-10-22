@@ -233,3 +233,90 @@
     border: 1px solid var(--accent); color: var(--text-primary); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
 .play-busy-shown .play-working { display: inline-flex; }
 .play-busy-shown .play-go { opacity: 0.6; }
+
+/* The battle log: sections by round, player and phase; attack cards (who, how many died, each weapon's
+   Attacks > Hits > Wounds > Killed and its dice); an icon on every other line */
+.play-log h3 { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-secondary); }
+.play-log-heading { --player: var(--text-muted); margin: 0.9rem 0 0.35rem; font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; }
+.play-log-heading.play-p1 { --player: var(--play-p1); }
+.play-log-heading.play-p2 { --player: var(--play-p2); }
+.play-log-heading::before { content: ''; width: 0.5rem; height: 0.5rem; border-radius: 2px; background: var(--player); transform: rotate(45deg); }
+.play-log-heading::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+#dice-log > .play-log-heading:first-child { margin-top: 0.2rem; }
+.play-log-entry { border-top: none; padding: 0; margin-bottom: 0.35rem; }
+.play-log-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 1.7rem; height: 1.7rem;
+    border-radius: 50%; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.75rem; }
+.play-log-roll { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.35rem 0.5rem; border-radius: 8px; }
+.play-log-roll:hover { background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent); }
+.play-log-text { flex: 1; min-width: 0; padding-top: 0.2rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.play-log-text .play-dice { vertical-align: middle; margin: 0 0.15rem; }
+
+.play-log-attack { --player: var(--play-p1); border: 1px solid color-mix(in srgb, var(--player) 40%, var(--border)); border-radius: 10px;
+    background: color-mix(in srgb, var(--player) 6%, var(--bg-tertiary)); overflow: hidden; }
+.play-log-attack.play-p2 { --player: var(--play-p2); }
+.play-log-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.6rem; cursor: pointer; list-style: none;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--player) 28%, transparent), transparent 70%); }
+.play-log-head::-webkit-details-marker { display: none; }
+.play-log-attack .play-log-icon { background: var(--player); border-color: var(--player); color: #fff; }
+.play-log-who { flex: 1; min-width: 0; }
+.play-log-verb { color: var(--text-secondary); margin: 0 0.2rem; }
+.play-log-target { --player: var(--play-p1); color: color-mix(in srgb, var(--player) 70%, var(--text-primary)); }
+.play-log-target.play-p2 { --player: var(--play-p2); }
+.play-log-kills { display: flex; align-items: baseline; gap: 0.25rem; padding: 0.1rem 0.6rem; border-radius: 999px;
+    background: color-mix(in srgb, var(--error) 22%, transparent); border: 1px solid color-mix(in srgb, var(--error) 60%, transparent); }
+.play-log-kills b { font-size: 1.15rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+.play-log-kills small { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+.play-log-kills.none { background: transparent; border-color: var(--border); opacity: 0.7; }
+.play-log-body { padding: 0.15rem 0.6rem 0.5rem; }
+.play-log-weapon { padding: 0.5rem 0 0.35rem; border-top: 1px solid color-mix(in srgb, var(--player) 20%, var(--border)); }
+.play-log-weapon:first-child { border-top: none; }
+.play-log-weapon-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; margin-bottom: 0.35rem; }
+.play-log-weapon-name small { color: var(--text-muted); font-size: 0.75rem; }
+
+.play-funnel { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem; }
+.play-funnel > i { font-size: 0.6rem; color: var(--text-muted); }
+.play-stage { display: inline-flex; align-items: baseline; gap: 0.3rem; padding: 0.1rem 0.55rem; border-radius: 6px;
+    background: var(--bg-secondary); border: 1px solid var(--border); }
+.play-stage b { font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.play-stage small { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+.play-stage.zero { opacity: 0.55; }
+.play-stage.killed { border-color: color-mix(in srgb, var(--error) 70%, transparent); background: color-mix(in srgb, var(--error) 18%, var(--bg-secondary)); }
+
+.play-dice-row { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); align-items: center; gap: 0.15rem 0.6rem; margin-top: 0.25rem; }
+.play-dice-label { width: auto; display: flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--text-secondary); }
+.play-dice-label em { font-style: normal; font-size: 0.68rem; font-weight: 700; padding: 0 0.3rem; border-radius: 4px;
+    background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); }
+.play-dice-note { grid-column: 2; color: var(--text-muted); font-size: 0.72rem; }
+.play-dice { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+
+/* A die: pips on a 3 by 3 grid */
+.play-die { position: relative; display: inline-grid; width: 1.55rem; height: 1.55rem; padding: 0.22rem; border-radius: 5px; box-sizing: border-box;
+    grid-template: repeat(3, 1fr) / repeat(3, 1fr); grid-template-areas: "p0 p1 p2" "p3 p4 p5" "p6 p7 p8"; place-items: center;
+    background: linear-gradient(145deg, #3a3a3e, #26262a); border: 1px solid #4a4a50; color: var(--text-muted);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4); opacity: 1; font-size: 0.8rem; font-weight: 700; }
+.play-die > i { width: 0.26rem; height: 0.26rem; border-radius: 50%; background: currentColor; }
+.play-die > span { grid-area: 1 / 1 / -1 / -1; }
+.play-die.success { background: linear-gradient(145deg, #f1ece0, #cfc8b8); border-color: #fffaf0; color: #1d1d1f; }
+.play-die.critical { background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 80%, #fff), var(--accent)); border-color: var(--accent);
+    color: #1d1d1f; box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.play-die.fail { opacity: 0.45; }
+.play-die.value { background: linear-gradient(145deg, #4a4a52, #34343a); border-color: var(--text-secondary); color: var(--text-primary); }
+.play-die-reroll { position: absolute; top: -0.4rem; right: -0.35rem; font-style: normal; font-size: 0.6rem; line-height: 1; padding: 0.05rem 0.15rem;
+    border-radius: 50%; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-secondary); }
+
+/* Rolls just made: the entry slides in and its dice tumble in one after another */
+@media (prefers-reduced-motion: no-preference) {
+    .play-log-entry.fresh { animation: play-log-in 0.35s ease-out both; }
+    .play-log-entry.fresh .play-die { animation: play-die-in 0.4s cubic-bezier(0.3, 1.5, 0.6, 1) both; animation-delay: calc(var(--i) * 35ms + 120ms); }
+}
+@keyframes play-log-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes play-die-in { from { opacity: 0; transform: translateY(-10px) rotate(-90deg) scale(0.6); } }
+
+/* A battle log line beside its icon (not under it), its text flowing as written */
+.play-log-roll.play-log-entry { flex-wrap: nowrap; }
+.play-log-roll > .play-log-text { flex: 1 1 auto; display: block; }
+.play-log-text > div + div { margin-top: 0.2rem; }
+.play-log-entry.play-log-attack { margin: 0 0 0.45rem; }
+.play-die.fail { opacity: 0.6; color: #a8a8ae; }

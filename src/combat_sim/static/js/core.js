@@ -766,8 +766,8 @@
     /**
      * An attack's dice for the dice log: the event's rolls from `range` ([first, last)) as groups
      * {label, need ('3+' or null), note, dice: [{face, kind, rerolled_from}]}, kind being 'critical',
-     * 'success', 'fail' or 'value' (a rolled amount such as damage). Rolls of the same kind in a row
-     * (saves are rolled one wound at a time) show as one group.
+     * 'success', 'fail' or 'value' (a rolled amount such as damage). Rolls of the same kind and target
+     * show as one group, even taking turns (saves and Feel No Pain are rolled one wound at a time).
      */
     function playDiceGroups(rolls, range) {
         const label = purpose => purpose.replace(/\b\w/g, c => c.toUpperCase());
@@ -780,10 +780,10 @@
             }));
             const need = value ? null : `${roll.need}+`;
             const note = value ? `${roll.dice.length > 1 ? roll.dice.length : ''}D${roll.size}${roll.modifier ? (roll.modifier > 0 ? '+' : '') + roll.modifier : ''} = ${roll.total}` : null;
-            const last = groups[groups.length - 1];
-            if (last && last.purpose === roll.purpose && last.need === need) {
-                last.dice.push(...dice);
-                if (note) last.note = last.note ? `${last.note}, ${note.split(' = ')[1]}` : note;
+            const same = groups.find(g => g.purpose === roll.purpose && g.need === need);
+            if (same) {
+                same.dice.push(...dice);
+                if (note) same.note = same.note ? `${same.note}, ${note.split(' = ')[1]}` : note;
             } else {
                 groups.push({ purpose: roll.purpose, label: label(roll.purpose), need, note, dice });
             }
@@ -990,6 +990,21 @@
         return { amount: `+${line.vp}`, each: !!line.each, note };
     }
 
+    /** The battle log's sections: for each event, the turn it was made in (null before the first turn change). */
+    function playLogTurns(events) {
+        let turn = null;
+        return events.map(event => {
+            const before = turn;
+            if (event.turn) turn = event.turn;
+            return before;
+        });
+    }
+
+    /** Where a d6 face's pips go on a 3 by 3 grid (0 top left to 8 bottom right); null for other faces. */
+    function playDieFace(face) {
+        return { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }[face] || null;
+    }
+
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
         if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
@@ -1005,7 +1020,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
