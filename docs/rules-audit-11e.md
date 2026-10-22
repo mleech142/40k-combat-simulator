@@ -30,9 +30,9 @@ Tick each item when the engine matches (with a test).
 
 ## Smaller mismatches
 
-- [ ] Blast against engaged Monsters and Vehicles: 17.03 exempts Blast from their -1 to hit, which suggests it can
-  target them; the engine refuses (medium confidence).
-- [ ] Damaged X (24.39): -1 to hit while a model has X or fewer wounds left; not applied in Play.
+- [x] Blast against engaged Monsters and Vehicles: matches. 17.03 lets engaged Monsters and Vehicles be shot
+  "excluding attacks made with [Blast] weapons", so Blast can't target them, as the engine has it.
+- [x] Damaged X (24.39): -1 to hit while a model has X or fewer wounds left; not applied in Play.
 - [x] Precision (24.28): the attacker can make a visible Character's group the current allocation group; Play's
   allocation ignores it.
 - [ ] Pile in and Consolidate: the active player moves all their units first, then the opponent, once each; the
@@ -42,8 +42,8 @@ Tick each item when the engine matches (with a test).
 - [x] Wound allocation (05.03): the defender orders the allocation groups; the engine uses standing orders
   (Characters last and wounded models first, as the rules say). Now: groups by W, Sv and invulnerable save, a
   wounded leader waits for its bodyguard, and the defender's group order is a standing order (the unit panel).
-- [ ] Starting an action: the engine also refuses a unit that has shot; 16.01 doesn't list that (unverified
-  against the mission cards).
+- [x] Starting an action: the engine also refuses a unit that has shot. 16.01 doesn't list that, but it's a house
+  ruling agreed when actions were built (missions step 5): kept.
 
 ## Sources disagree (the engine follows the core rules text)
 

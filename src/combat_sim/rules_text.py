@@ -41,6 +41,25 @@ def plain_text(text):
     return re.sub(r' {2,}', ' ', MARKUP.sub('', tidy_text(text)))
 
 
+DAMAGED_CORE = re.compile(r'^damaged (\d+)\.?$', re.I)
+DAMAGED_OLD = re.compile(r'^damaged:?\s*1\s*-\s*(\d+) wounds remaining\b(.*)$', re.I)
+
+
+def damaged_threshold(text):
+    """X from a datasheet's Damaged ability when it worsens hit rolls (core rules 24.39): the 11th edition
+    'Damaged X' line, or the older 'Damaged: 1-X wounds remaining: ... subtract 1 from the Hit roll'. None
+    without one (or one that only changes other things, such as Objective Control)."""
+    for line in plain_text(text).split('\n'):
+        line = line.strip()
+        core = DAMAGED_CORE.match(line)
+        if core:
+            return int(core.group(1))
+        old = DAMAGED_OLD.match(line)
+        if old and 'hit roll' in old.group(2).lower():
+            return int(old.group(1))
+    return None
+
+
 def has_core_ability(text, name):
     """Whether a datasheet's abilities text lists a core ability ('Fights First', 'Deep Strike'): BSData puts
     each on its own line, where a unit's own abilities say 'Name: what it does'."""

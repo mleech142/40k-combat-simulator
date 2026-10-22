@@ -854,14 +854,15 @@ def _shoot(state, action, dice):
     attacks, hazardous = [], []
     for part_index, weapon_index, weapon, target, near, far, extra, covered in plans:
         # Within half range or not, and with the target in cover from it or not: each its own roll
-        groups = [([m for m in models if (m['id'] in covered) == cover], half, cover)
-                  for models, half in ((near, True), (far, False)) for cover in (False, True)]
-        for models, half, cover in groups:
+        # ...and damaged or not (24.39)
+        groups = [([m for m in models if (m['id'] in covered) == cover and _damaged(shooter, m) == damaged], half, cover, damaged)
+                  for models, half in ((near, True), (far, False)) for cover in (False, True) for damaged in (False, True)]
+        for models, half, cover, damaged in groups:
             if not models or not any(m['alive'] for m in target['models']):
                 continue
             attacker = _attacker(shooter, part_index, weapon_index, len(models))
             attacker.abilities += extra
-            conditions = BattleConditions(half_range=half, stationary=stationary, cover=cover)
+            conditions = BattleConditions(half_range=half, stationary=stationary, cover=cover, damaged=damaged)
             first = len(dice.log)
             pool = roll_attack(attacker, _defender(target, _first_alive(target)['part']), conditions, dice)
             killed = _resolve_wounds(state, shooter, target, attacker, conditions, pool, dice)
@@ -900,6 +901,12 @@ def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice):
         if not model['alive']:
             killed.append(model['id'])
     return killed
+
+
+def _damaged(unit, model):
+    """Whether a model is damaged (core rules 24.39): its part has Damaged X and it has X or fewer wounds left."""
+    threshold = unit['parts'][model['part']].get('damaged')
+    return bool(threshold) and model['wounds_left'] <= threshold
 
 
 def _first_alive(unit):
@@ -1674,13 +1681,16 @@ def _fight_with(state, unit, picks, explicit, default_target, engaged_with, figh
                   and any(base_distance(shape, t) <= ENGAGEMENT_RANGE + 1e-9 for t in target_shapes)]
         if not models:  # No model with it is engaged with the target: it doesn't attack
             continue
-        plans.append((p, w, target, models))
+        for damaged in (False, True):  # Damaged models (24.39) roll on their own
+            group = [m for m in models if _damaged(unit, m) == damaged]
+            if group:
+                plans.append((p, w, target, group, damaged))
     if not plans:
         raise ActionError(f'No model of {unit["name"]} is engaged with its target.')
 
-    conditions = BattleConditions(charged=bool(unit['activity'].get('charged')))
     attacks, hazardous = [], []
-    for p, w, target, models in plans:
+    for p, w, target, models, damaged in plans:
+        conditions = BattleConditions(charged=bool(unit['activity'].get('charged')), damaged=damaged)
         if not any(m['alive'] for m in target['models']):
             continue
         weapon = unit['parts'][p]['weapons'][w]

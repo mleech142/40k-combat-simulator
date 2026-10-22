@@ -13,7 +13,7 @@ import shutil
 import pytest
 
 from combat_sim import wahapedia, wahapedia_download
-from combat_sim.rules_text import has_core_ability, parse_effects, parse_leader_buffs
+from combat_sim.rules_text import damaged_threshold, has_core_ability, parse_effects, parse_leader_buffs
 from conftest import BSDATA_FIXTURES, WAHAPEDIA_FIXTURES
 
 APP_DATA = {
@@ -141,6 +141,15 @@ def test_has_core_ability_finds_a_core_ability_on_its_own_line():
     assert has_core_ability(text, 'Fights First') and has_core_ability(text, 'deep strike')
     assert not has_core_ability('Blade Dance: this unit has the Fights First ability while leading.', 'Fights First')
     assert not has_core_ability(None, 'Fights First')
+
+
+def test_damaged_threshold_reads_x_when_damaged_worsens_hit_rolls():
+    tenth = ('Deep Strike\n\nDamaged: 1-5 wounds remaining: While this model has 1-5 wounds remaining, '
+             'each time this model makes an attack, subtract 1 from the Hit roll.')
+    assert damaged_threshold(tenth) == 5
+    assert damaged_threshold('**Damaged 4**') == 4  # The 11th edition core ability
+    oc_only = 'Damaged: 1-8 wounds remaining: While this model has 1-8 wounds remaining, subtract 4 from its Objective Control.'
+    assert damaged_threshold(oc_only) is None and damaged_threshold(None) is None
 
 
 def test_parse_effects_keeps_conditions_and_skips_the_rest():

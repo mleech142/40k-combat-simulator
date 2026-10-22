@@ -183,3 +183,13 @@ def test_shooting_options_say_which_weapons_can_fire_at_which_units_and_why_not(
     assert short_gun['targets']['p1-squad']['ok'] is False
     unit_by_id(state, 'p2-gunner')['activity'] = {'shot': True}
     assert 'already shot' in shooting_options(state, 'p2-gunner')['reason']
+
+
+def test_a_damaged_model_has_minus_1_to_hit():
+    """Core rules 24.39: Damaged X, while a model has X or fewer wounds left, its attacks have -1 to hit."""
+    tank = (model('Tank', 1, 10, weapons=[BOLTER], damaged=5), (11.5, 20))
+    for left, need in ((6, 3), (5, 4)):
+        state = game([SQUAD], [tank])
+        unit_by_id(state, 'p2-tank')['models'][0]['wounds_left'] = left
+        _, event = act(state, shoot('p2-tank', 'p1-squad'), 1)
+        assert event['rolls'][0]['need'] == need
