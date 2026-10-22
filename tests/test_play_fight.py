@@ -86,8 +86,8 @@ def test_charge_targets_are_enemy_units_within_the_roll():
 
 def test_a_charge_move_ends_engaged_with_its_targets():
     state, _ = act(battle([SQUAD], [MOB]), {'type': 'charge', 'unit': 'p1-squad'}, 3, 5)  # 8"
-    after, event = act(state, charge_move('p1-squad', ['p2-mob'], *row(10, 15.5), state=state))  # 5.5", ends 1.24" away
-    assert event['rolls'] == [] and positions(after, 'p1-squad') == row(10, 15.5)
+    after, event = act(state, charge_move('p1-squad', ['p2-mob'], *row(10, 16), state=state))  # 6", ends 0.74" away
+    assert event['rolls'] == [] and positions(after, 'p1-squad') == row(10, 16)
     activity = unit_by_id(after, 'p1-squad')['activity']
     assert activity['charged'] is True and activity['charge_targets'] == ['p2-mob']
     too_far = [(10, 15.5), (11.5, 15.5), (19, 15.5)]  # The last model 8.1" from where it started
@@ -96,10 +96,20 @@ def test_a_charge_move_ends_engaged_with_its_targets():
     assert 'closer' in refused(state, charge_move('p1-squad', ['p2-mob'], (10, 15.5), (11.5, 15.5), (13, 9.5), state=state))
 
 
+def test_charging_models_that_can_end_within_1_inch_of_a_target_must():
+    """Core rules 11.04: models that can end within 1" of a target must; those that can end engaged with one must."""
+    state, _ = act(battle([SQUAD], [MOB]), {'type': 'charge', 'unit': 'p1-squad'}, 3, 5)  # 8"
+    hanging_back = [(10, 16), (11.5, 16), (13, 14.5)]  # The last model 2.24" away: it could have got within 1"
+    assert 'within 1"' in refused(state, charge_move('p1-squad', ['p2-mob'], *hanging_back, state=state))
+    near_enough = [(10, 16), (11.5, 16), (13, 15.5)]  # Engaged (1.24"), but it could have got within 1"
+    assert 'within 1"' in refused(state, charge_move('p1-squad', ['p2-mob'], *near_enough, state=state))
+    act(state, charge_move('p1-squad', ['p2-mob'], *row(10, 16), state=state))  # Every model 0.74" away
+
+
 def test_a_charge_cant_end_engaged_with_units_it_didnt_target():
     other = (model('Other', 1), (16.5, 18))  # Beside the Mob
     state, _ = act(battle([SQUAD], [MOB, other]), {'type': 'charge', 'unit': 'p1-squad'}, 6, 6)
-    spots = [(12, 15.5), (13.5, 15.5), (15, 15.5)]  # Engaged with both
+    spots = [(12, 16.4), (13.5, 16.4), (15.3, 16.4)]  # Engaged with both, each within 1" of one
     assert 'Other' in refused(state, charge_move('p1-squad', ['p2-mob'], *spots, state=state))
     act(state, charge_move('p1-squad', ['p2-mob', 'p2-other'], *spots, state=state))
     # Every target must end engaged
@@ -108,15 +118,15 @@ def test_a_charge_cant_end_engaged_with_units_it_didnt_target():
 
 def test_a_charge_can_be_reset_until_the_phase_ends_but_the_roll_stands():
     state, _ = act(battle([SQUAD], [MOB]), {'type': 'charge', 'unit': 'p1-squad'}, 3, 5)
-    state, _ = act(state, charge_move('p1-squad', ['p2-mob'], *row(10, 15.5), state=state))
+    state, _ = act(state, charge_move('p1-squad', ['p2-mob'], *row(10, 16), state=state))
     state, _ = act(state, {'type': 'reset_move', 'unit': 'p1-squad'})
     activity = unit_by_id(state, 'p1-squad')['activity']
     assert positions(state, 'p1-squad') == row(10, 10) and activity['charge_roll'] == 8 and 'charged' not in activity
-    state, _ = act(state, charge_move('p1-squad', ['p2-mob'], *row(11, 15.5), state=state))
+    state, _ = act(state, charge_move('p1-squad', ['p2-mob'], *row(11, 16), state=state))
     state, _ = act(state, {'type': 'next_phase'})
     assert state['turn']['phase'] == 'fight'
     assert "hasn't moved in this step" in refused(state, {'type': 'reset_move', 'unit': 'p1-squad'})  # The charge stands
-    assert positions(state, 'p1-squad') == row(11, 15.5)
+    assert positions(state, 'p1-squad') == row(11, 16)
 
 
 # --- The Fight phase: pile in, fight, consolidate ------------------------------------------------------

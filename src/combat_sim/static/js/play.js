@@ -1215,7 +1215,8 @@
         const chips = reachable.map(id => `<button class="btn-small ${state.chargeTargets.includes(id) ? 'active' : ''}"
             data-charge-target="${id}">${escapeHtml(unitById(id).name)} <small>${options.targets[id].distance}"</small></button>`).join('');
         return `<p class="play-hint">Charge roll <strong>${options.roll}"</strong>. Pick the units to charge (or click them on
-            the board), then drag the unit so it ends engaged with every one of them and no other.
+            the board), then drag the unit so it ends engaged with every one of them and no other: each model that can
+            ends within 1" of a target (or, if it can't, engaged with one).
             You can redo the move until the Charge phase ends.</p>
             <div class="play-move-modes">${chips}
             ${unit.activity.charged ? '<button class="btn-small" data-reset>Reset charge</button>' : ''}${skiesButton(unit)}</div>`;

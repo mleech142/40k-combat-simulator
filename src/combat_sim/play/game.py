@@ -1371,10 +1371,57 @@ def _charge_move(state, action):
     for other in state['units']:
         if other['player'] != unit['player'] and other not in targets and _engaged(placed, _placed_shapes(other)):
             raise ActionError(f'The unit can\'t end engaged with {other["name"]}: it is not a charge target.')
+    others = [shape for u in state['units'] if u is not unit for shape in _placed_shapes(u)]
+    for mid, spot in spots.items():  # Models that can end within 1" of a target, or engaged with one, must (11.04)
+        part = unit['parts'][living[mid]['part']]
+        start = activity['charge_start'].get(mid) or living[mid]['position']
+        gap = min(base_distance(shapes[mid], t) for t in target_shapes)
+        around = others + [shape for other, shape in shapes.items() if other != mid]
+        allowance = roll - (SKIES if skies else 0)
+        for need, what in ((1, 'within 1" of'), (ENGAGEMENT_RANGE, 'engaged with')):
+            if gap > need + 1e-6 and _could_end_near(part, start, target_shapes, need, allowance, around, enemies, spot['angle']):
+                raise ActionError(f'{part["name"]} can end {what} a charge target, so it must (it ends {gap:.1f}" away).')
+            if gap <= need + 1e-6:
+                break
     for mid, spot in spots.items():
         living[mid]['position'] = spot
     activity['charged'] = True
     activity['charge_targets'] = [t['id'] for t in targets]
+
+
+def _could_end_near(part, start, target_shapes, need, allowance, obstacles, blocking, angle):
+    """
+    Whether a model could end a charge move within `need` inches of a target model: a spot round one,
+    within `allowance` of where it started in a straight line not through `blocking` models, wholly on
+    the board and overlapping none of `obstacles`. Spots are tried every 15 degrees round each target
+    model, so a gap the search misses never makes a move fail.
+    """
+    def extent(shape):
+        cx = sum(x for x, _ in shape.points) / len(shape.points)
+        cy = sum(y for _, y in shape.points) / len(shape.points)
+        return (cx, cy), max(math.dist((cx, cy), pt) for pt in shape.points) + shape.radius
+    _, mine = extent(model_shape(part, {'x': 0, 'y': 0, 'angle': angle}))
+    for target in target_shapes:
+        (cx, cy), theirs = extent(target)
+        for step in range(24):
+            a = math.radians(15 * step)
+            for slack in (0.05, need / 2):
+                spot = {'x': cx + math.cos(a) * (mine + theirs + slack), 'y': cy + math.sin(a) * (mine + theirs + slack), 'angle': angle}
+                if math.dist(_xy(start), _xy(spot)) > allowance + 1e-6:
+                    continue
+                shape = model_shape(part, spot)
+                left, bottom, right, top = bounds(shape)
+                if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
+                    continue
+                if base_distance(shape, target) > need + 1e-6 or any(overlaps(shape, o) for o in obstacles):
+                    continue
+                steps = max(1, math.ceil(math.dist(_xy(start), _xy(spot)) / PATH_STEP))
+                path = ({'x': start['x'] + i / steps * (spot['x'] - start['x']), 'y': start['y'] + i / steps * (spot['y'] - start['y']),
+                         'angle': angle} for i in range(1, steps))
+                if any(overlaps(model_shape(part, here), b) for here in path for b in blocking):
+                    continue
+                return True
+    return False
 
 
 def _check_end_of_move(state, unit, placed):

@@ -37,7 +37,8 @@ Tick each item when the engine matches (with a test).
   allocation ignores it.
 - [ ] Pile in and Consolidate: the active player moves all their units first, then the opponent, once each; the
   engine lets either player go in any order and redo moves.
-- [ ] Charge moves (11.04): models that can end within 1" of, or engaged with, a target must; not enforced.
+- [x] Charge moves (11.04): models that can end within 1" of, or engaged with, a target must. Enforced: a model is refused when the game
+  finds a free spot (every 15 degrees round each target model) it could have reached.
 - [x] End-of-turn coherency (03.03): units out of coherency lose models until they're back in it. Done automatically
   (fewest unit-mates within 2" first), not counted as destroyed.
 - [x] Wound allocation (05.03): the defender orders the allocation groups; the engine uses standing orders
