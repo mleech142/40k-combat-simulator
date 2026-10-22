@@ -749,3 +749,10 @@ test('playSetupPrompt rolls for Mirrored World\'s primary mission', () => {
     assert.deepEqual(prompt.buttons.map(b => b.action), [{ type: 'roll_mirrored' }]);
     assert.match(prompt.text, /Mirrored World/);
 });
+
+test('playPivot turns a formation about its centre, turning each base with it', () => {
+    const spots = [{ id: 'a', x: 9, y: 10, angle: 0 }, { id: 'b', x: 11, y: 10, angle: 0 }];
+    const turned = Core.playPivot(spots, 90).map(s => ({ ...s, x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100 }));
+    assert.deepEqual(turned, [{ id: 'a', x: 10, y: 9, angle: 90 }, { id: 'b', x: 10, y: 11, angle: 90 }]);
+    assert.equal(Core.playPivot([{ id: 'a', x: 5, y: 5, angle: 350 }], 15)[0].angle, 5);  // Angles stay within 0-360
+});

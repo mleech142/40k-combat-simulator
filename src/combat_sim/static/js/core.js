@@ -715,6 +715,18 @@
     }
 
     /**
+     * Play: a formation ([{id, x, y, angle}]) turned `degrees` anticlockwise about its centre; each model's base
+     * turns with it.
+     */
+    function playPivot(spots, degrees) {
+        const cx = spots.reduce((s, p) => s + p.x, 0) / spots.length, cy = spots.reduce((s, p) => s + p.y, 0) / spots.length;
+        const c = Math.cos(degrees * Math.PI / 180), s = Math.sin(degrees * Math.PI / 180);
+        const round = v => Math.round(v * 100) / 100;
+        return spots.map(p => ({ ...p, x: round(cx + (p.x - cx) * c - (p.y - cy) * s), y: round(cy + (p.x - cx) * s + (p.y - cy) * c),
+                                 angle: (((p.angle || 0) + degrees) % 360 + 360) % 360 }));
+    }
+
+    /**
      * A formation moved (as little as possible) to lie wholly inside `area` ({left, bottom, right, top}),
      * each model reaching `reach[i]` inches from its centre. Left where it is if it can't fit either way.
      */
@@ -963,7 +975,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

@@ -92,3 +92,8 @@
 /* The game's twist, beside its name */
 .play-twist { font-size: 0.75rem; padding: 0.1rem 0.45rem; border: 1px solid var(--warning); border-radius: 999px; color: var(--warning); cursor: help; }
 #new-mirrored { margin-top: 0.3rem; }
+
+/* Deployment: a unit placed provisionally, until OK */
+.play-unit-group.provisional .play-unit-outline { stroke-dasharray: 0.4 0.25; stroke-width: 0.12; }
+.play-unit-group.provisional .play-model { opacity: 0.75; }
+.play-place .btn { padding: 0.25rem 0.8rem; }

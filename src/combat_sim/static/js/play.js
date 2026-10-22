@@ -56,6 +56,16 @@
         board.addEventListener('pointermove', pointerMove);
         board.addEventListener('pointerup', pointerUp);
         document.addEventListener('battlefields-changed', e => fillBattlefields(e.detail));
+        document.addEventListener('keydown', e => {
+            if (!state.placing || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            const key = e.key.toLowerCase();
+            if (key === 'q') pivotPlacing(15);
+            else if (key === 'e') pivotPlacing(-15);
+            else if (key === 'enter') confirmPlacing();
+            else if (key === 'escape') cancelPlacing();
+            else return;
+            e.preventDefault();
+        });
         await Promise.all([loadArmies(), loadGames()]);
         await loadMatchup();
         const id = new URLSearchParams(location.search).get('game');
@@ -178,6 +188,7 @@
     function show(game) {
         const first = !state.game || state.game.id !== game.id;
         state.game = game;
+        state.placing = null;  // The server's game replaces anything placed provisionally
         if (first) {
             state.selected = null;
             fitView();
@@ -314,10 +325,72 @@
         const topEdge = (zone.bottom + zone.top) / 2 > state.game.board.depth / 2;  // The back row towards their own edge
         const spots = Core.playFit(Core.playFormation(sizes, point.x, point.y, topEdge), sizes.map(s => s / 2), zone);
         const angle = topEdge ? 180 : 0;
-        if (await place(unit.id, living.map((m, i) => ({ id: m.id, x: spots[i].x, y: spots[i].y, angle })))) {
+        startPlacing(unit, living.map((m, i) => ({ id: m.id, x: spots[i].x, y: spots[i].y, angle })));
+    }
+
+    // --- Deployment: a unit is placed provisionally, moved and pivoted, then confirmed with OK -------------
+
+    /** Show a unit at these spots ([{id, x, y, angle}]) on the page only, until OK sends it (or Cancel). */
+    function startPlacing(unit, spots) {
+        if (state.placing && state.placing.unitId !== unit.id) {
+            return message(`Press OK or Cancel for ${unitById(state.placing.unitId).name} first.`, true);
+        }
+        if (!state.placing) {  // Where its models were, to go back to on Cancel
+            state.placing = { unitId: unit.id, original: Object.fromEntries(unit.models.map(m => [m.id, m.position && { ...m.position }])) };
+        }
+        const byId = Object.fromEntries(spots.map(s => [s.id, s]));
+        unit.models.forEach(m => {
+            if (byId[m.id]) m.position = { x: byId[m.id].x, y: byId[m.id].y, angle: byId[m.id].angle || 0 };
+        });
+        state.selected = unit.id;
+        render();
+    }
+
+    function placingSpots() {
+        const unit = unitById(state.placing.unitId);
+        return unit.models.filter(m => m.alive && m.position).map(m => ({ id: m.id, ...m.position }));
+    }
+
+    function pivotPlacing(degrees) {
+        if (!state.placing) return;
+        startPlacing(unitById(state.placing.unitId), Core.playPivot(placingSpots(), degrees));
+    }
+
+    async function confirmPlacing() {
+        if (!state.placing) return;
+        const unitId = state.placing.unitId;
+        if (await place(unitId, placingSpots())) {  // The server checks it (wholly in the zone, no overlaps)
+            state.placing = null;
             state.selected = null;
             render();
         }
+    }
+
+    function cancelPlacing() {
+        if (!state.placing) return;
+        const unit = unitById(state.placing.unitId);
+        unit.models.forEach(m => { m.position = state.placing.original[m.id] || null; });
+        state.placing = null;
+        render();
+    }
+
+    /** The bar above the board while a unit is being placed: pivot, OK, Cancel. */
+    function renderPlacing() {
+        const bar = $('place-bar');
+        const placing = state.placing && state.game && state.game.state.turn.phase === 'deployment' ? state.placing : null;
+        bar.hidden = !placing;
+        if (!placing) return;
+        const pivot = (deg, icon, label) => `<button class="btn-small" data-pivot="${deg}" title="Pivot ${label}">
+            <i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${Math.abs(deg)}°</button>`;
+        bar.innerHTML = `<span>Placing <strong>${escapeHtml(unitById(placing.unitId).name)}</strong>: drag it or click the board to move it,
+                pivot it (Q / E), then press OK.</span>
+            <span class="play-pending-actions">${pivot(45, 'rotate-left', 'anticlockwise')}${pivot(15, 'rotate-left', 'anticlockwise')}
+                ${pivot(-15, 'rotate-right', 'clockwise')}${pivot(-45, 'rotate-right', 'clockwise')}
+                <button class="btn btn-primary" id="place-ok"><i class="fa-solid fa-check" aria-hidden="true"></i> OK</button>
+                <button class="btn-small" id="place-cancel"><i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel</button></span>`;
+        bar.querySelectorAll('[data-pivot]').forEach(b => b.addEventListener('click', () => pivotPlacing(Number(b.dataset.pivot))));
+        $('place-ok').addEventListener('click', confirmPlacing);
+        $('place-cancel').addEventListener('click', cancelPlacing);
     }
 
     // --- Drawing -----------------------------------------------------------------------
@@ -369,6 +442,7 @@
         renderLog();
         renderPending();
         renderSetup();
+        renderPlacing();
         renderMission();
         renderCorrection();
         renderStratagems();
@@ -603,7 +677,7 @@
                     </select></label>${units.map(u => {
                 const living = u.models.filter(m => m.alive);
                 const placed = living.length && living.every(m => m.position);
-                const done = game.state.turn.phase === 'deployment' ? (placed ? 'placed' : 'not placed')
+                const done = game.state.turn.phase === 'deployment' ? (state.placing && state.placing.unitId === u.id ? 'placing: press OK' : placed ? 'placed' : 'not placed')
                     : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
                        u.activity.shot ? 'shot' : '',
                        u.activity.charge_roll != null ? `charge roll ${u.activity.charge_roll}${u.activity.charged ? ', charged' : ''}` : '',
@@ -638,6 +712,9 @@
     }
 
     function select(unitId) {
+        if (state.placing && state.placing.unitId !== unitId) {
+            return message(`Press OK or Cancel for ${unitById(state.placing.unitId).name} first.`, true);
+        }
         const changed = state.selected !== unitId;
         state.selected = changed ? unitId : null;
         if (changed) {
@@ -648,7 +725,7 @@
         }
         const turn = state.game.state.turn;
         if (!state.selected) message('');
-        else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone.`);
+        else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone, then press OK.`);
         else message('');
         if (changed) {
             clearOptions();
@@ -1266,8 +1343,9 @@
                 || (game.state.turn.phase === 'charge' && state.charge && state.chargeTargets.includes(unit.id));
             const shocked = unit.status && unit.status.shocked ? 'shocked' : '';
             const condemned = game.mission && Object.values(game.mission.condemned).some(ids => ids.includes(unit.id)) ? 'condemned' : '';
+            const provisional = state.placing && state.placing.unitId === unit.id ? 'provisional' : '';
             const ready = game.ready.includes(unit.id) ? 'ready' : '';
-            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked} ${ready} ${condemned}`,
+            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked} ${ready} ${condemned} ${provisional}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
             const reach = m => Math.max(game.outlines[unit.id][m.part].length, game.outlines[unit.id][m.part].width) / 2 + 0.4;
@@ -1552,10 +1630,9 @@
             }
             return;
         }
-        await place(unit.id, unit.models.filter(m => m.alive).map(m => ({
-            id: m.id, angle: m.position ? m.position.angle : 0,
-            x: m.position ? round(m.position.x + (moved.has(m.id) ? drag.dx : 0)) : null,
-            y: m.position ? round(m.position.y + (moved.has(m.id) ? drag.dy : 0)) : null,
+        startPlacing(unit, unit.models.filter(m => m.alive && m.position).map(m => ({
+            id: m.id, angle: m.position.angle || 0,
+            x: round(m.position.x + (moved.has(m.id) ? drag.dx : 0)), y: round(m.position.y + (moved.has(m.id) ? drag.dy : 0)),
         })));
     }
 
