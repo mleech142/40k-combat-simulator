@@ -97,3 +97,18 @@
 .play-unit-group.provisional .play-unit-outline { stroke-dasharray: 0.4 0.25; stroke-width: 0.12; }
 .play-unit-group.provisional .play-model { opacity: 0.75; }
 .play-place .btn { padding: 0.25rem 0.8rem; }
+
+/* The game takes the page; games and battlefields are pop-ups */
+.play-layout.play-layout-game { grid-template-columns: minmax(0, 1fr) 280px; }
+.page-header #games-btn { margin-left: auto; }
+.play-modal-actions { display: flex; align-items: center; gap: 0.75rem; }
+.play-games-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; padding: 1.25rem 1.5rem; }
+.play-games-body h4 { margin: 0 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.play-games-body #game-list { max-height: 60vh; overflow-y: auto; }
+.modal-content.play-bf-modal { max-width: 1500px; width: 96%; }
+.play-bf-modal .play-bf-layout { padding: 1rem; }
+.play-bf-modal .play-bf-layout .card { margin: 0; }
+@media (max-width: 1100px) {
+    .play-layout.play-layout-game { grid-template-columns: minmax(0, 1fr); }
+    .play-games-body { grid-template-columns: minmax(0, 1fr); }
+}

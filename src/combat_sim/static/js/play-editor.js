@@ -1,5 +1,5 @@
 /**
- * Play page, Battlefields tab: the battlefield editor. Built-in deployment maps are shown read-only (save a
+ * Play page, Battlefields pop-up (opened from the Games pop-up): the battlefield editor. Built-in deployment maps are shown read-only (save a
  * copy to change one); saved battlefields are edited and saved through /api/play/battlefields, which checks
  * them and makes objectives under terrain into terrain objectives. Terrain pieces and objectives are dragged
  * on the board, snapping to half inches; the side panel adds, turns and changes pieces.
@@ -29,7 +29,7 @@
     document.addEventListener('DOMContentLoaded', init);
 
     async function init() {
-        document.querySelectorAll('.play-tabs [data-tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+        $('battlefields-btn').addEventListener('click', openEditor);
         $('bf-import').addEventListener('change', importFile);
         const board = $('bf-board');
         board.addEventListener('pointerdown', pointerDown);
@@ -40,11 +40,11 @@
         draw();
     }
 
-    function showTab(tab) {
-        document.querySelectorAll('.play-tabs [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-        $('tab-games').hidden = tab !== 'games';
-        $('tab-battlefields').hidden = tab !== 'battlefields';
-        if (tab === 'battlefields' && !editor.key && editor.list.length) open(editor.list[0].key);
+    /** The Battlefields pop-up, from the Games pop-up. */
+    function openEditor() {
+        $('battlefields-modal').classList.add('show');
+        if (!editor.key && editor.list.length) open(editor.list[0].key);
+        else draw();
     }
 
     async function loadList() {

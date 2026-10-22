@@ -5,42 +5,9 @@
 {% block content %}
 <div class="page-header">
     <h2><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Play <span class="play-badge">Experimental</span></h2>
-    <div class="play-tabs" role="tablist">
-        <button class="btn-small active" data-tab="games" role="tab">Games</button>
-        <button class="btn-small" data-tab="battlefields" role="tab">Battlefields</button>
-    </div>
+    <button class="btn-small" id="games-btn"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Games</button>
 </div>
-<div class="play-layout" id="tab-games">
-    <aside class="card play-games">
-        <h3>Games</h3>
-        <div id="game-list"><p class="empty-message">No games yet</p></div>
-        <h3 class="play-new-title">New game</h3>
-        <div class="form-group">
-            <label for="new-red">Player 1</label>
-            <select id="new-red" class="filter-select"></select>
-        </div>
-        <div class="form-group">
-            <label for="new-blue">Player 2</label>
-            <select id="new-blue" class="filter-select"></select>
-        </div>
-        <p class="play-hint play-matchup" id="new-matchup"></p>
-        <div class="form-group">
-            <label for="new-twist">Twist</label>
-            <select id="new-twist" class="filter-select"><option value="">None</option></select>
-            <select id="new-mirrored" class="filter-select" hidden></select>
-            <p class="play-hint" id="new-twist-text"></p>
-        </div>
-        <div class="form-group">
-            <label for="new-battlefield">Battlefield</label>
-            <select id="new-battlefield" class="filter-select"></select>
-        </div>
-        <div class="form-group">
-            <label for="new-name">Name</label>
-            <input type="text" id="new-name" class="filter-input" maxlength="200" placeholder="Army 1 vs Army 2">
-        </div>
-        <button class="btn btn-primary" id="new-game-btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> Start game</button>
-        <p class="play-hint" id="new-game-hint"></p>
-    </aside>
+<div class="play-layout play-layout-game" id="tab-games">
 
     <section class="card play-board-card">
         <div class="play-toolbar">
@@ -80,7 +47,60 @@
     </aside>
 </div>
 
-<div class="play-layout" id="tab-battlefields" hidden>
+
+<div class="modal" id="games-modal">
+    <div class="modal-content modal-xlarge">
+        <div class="modal-header">
+            <h3><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Games</h3>
+            <span class="play-modal-actions">
+                <button class="btn-small" id="battlefields-btn"><i class="fa-solid fa-map" aria-hidden="true"></i> Battlefields</button>
+                <button class="modal-close" data-close="games-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </span>
+        </div>
+        <div class="play-games-body">
+            <section class="play-games">
+                <h4>Saved games</h4>
+        <div id="game-list"><p class="empty-message">No games yet</p></div>
+            </section>
+            <section class="play-games">
+        <h4>New game</h4>
+        <div class="form-group">
+            <label for="new-red">Player 1</label>
+            <select id="new-red" class="filter-select"></select>
+        </div>
+        <div class="form-group">
+            <label for="new-blue">Player 2</label>
+            <select id="new-blue" class="filter-select"></select>
+        </div>
+        <p class="play-hint play-matchup" id="new-matchup"></p>
+        <div class="form-group">
+            <label for="new-twist">Twist</label>
+            <select id="new-twist" class="filter-select"><option value="">None</option></select>
+            <select id="new-mirrored" class="filter-select" hidden></select>
+            <p class="play-hint" id="new-twist-text"></p>
+        </div>
+        <div class="form-group">
+            <label for="new-battlefield">Battlefield</label>
+            <select id="new-battlefield" class="filter-select"></select>
+        </div>
+        <div class="form-group">
+            <label for="new-name">Name</label>
+            <input type="text" id="new-name" class="filter-input" maxlength="200" placeholder="Army 1 vs Army 2">
+        </div>
+        <button class="btn btn-primary" id="new-game-btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> Start game</button>
+        <p class="play-hint" id="new-game-hint"></p>
+            </section>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="battlefields-modal">
+    <div class="modal-content play-bf-modal">
+        <div class="modal-header">
+            <h3><i class="fa-solid fa-map" aria-hidden="true"></i> Battlefields</h3>
+            <button class="modal-close" data-close="battlefields-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <div class="play-layout play-bf-layout" id="tab-battlefields">
     <aside class="card play-games">
         <h3>Battlefields</h3>
         <div id="bf-list"></div>
@@ -100,6 +120,8 @@
             terrain piece becomes a terrain objective. Built-in maps are read-only: save a copy to change one.</p>
     </section>
     <aside class="card play-units" id="bf-tools"></aside>
+</div>
+    </div>
 </div>
 {% endblock %}
 

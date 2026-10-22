@@ -42,6 +42,9 @@
 
     async function init() {
         $('new-game-btn').addEventListener('click', newGame);
+        $('games-btn').addEventListener('click', () => openModal('games-modal'));
+        document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.close)));
+        document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); }));
         $('new-red').addEventListener('change', loadMatchup);
         $('new-twist').addEventListener('change', renderTwistChoice);
         loadTwists();
@@ -57,7 +60,12 @@
         board.addEventListener('pointerup', pointerUp);
         document.addEventListener('battlefields-changed', e => fillBattlefields(e.detail));
         document.addEventListener('keydown', e => {
-            if (!state.placing || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            const open = [...document.querySelectorAll('.modal.show')];
+            if (e.key === 'Escape' && open.length) {  // Escape closes the pop-up on top
+                closeModal((open.find(m => m.id === 'battlefields-modal') || open[0]).id);
+                return;
+            }
+            if (open.length || !state.placing || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
             const key = e.key.toLowerCase();
             if (key === 'q') pivotPlacing(15);
             else if (key === 'e') pivotPlacing(-15);
@@ -70,6 +78,7 @@
         await loadMatchup();
         const id = new URLSearchParams(location.search).get('game');
         if (id) await openGame(id);
+        else openModal('games-modal');  // Nothing open yet: choose or start a game
     }
 
     // --- Games -------------------------------------------------------------------------
@@ -163,13 +172,25 @@
             return;
         }
         $('new-name').value = '';
+        closeModal('games-modal');
         show(data);
         await loadGames();
+    }
+
+    /** The Games and Battlefields pop-ups (the Battlefields one opens over the Games one). */
+    function openModal(id) {
+        $(id).classList.add('show');
+        document.dispatchEvent(new CustomEvent('modal-opened', { detail: id }));
+    }
+
+    function closeModal(id) {
+        $(id).classList.remove('show');
     }
 
     async function openGame(id) {
         const resp = await fetch(`/api/play/games/${id}`);
         if (!resp.ok) return;
+        closeModal('games-modal');
         show(await resp.json());
         await loadGames();
     }
