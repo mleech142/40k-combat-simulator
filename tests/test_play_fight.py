@@ -198,6 +198,40 @@ def test_units_with_the_fights_first_ability_fight_in_the_fights_first_step():
     assert state['turn']['fight'] == {'stage': 'remaining', 'picker': 0}
 
 
+def wiped(state, unit_id):
+    for m in unit_by_id(state, unit_id)['models']:
+        m['alive'], m['wounds_left'] = False, 0
+    return state
+
+
+def test_a_unit_that_charged_makes_an_overrun_fight_when_its_target_is_gone():
+    """Core rules 12.04 and 12.06: a unit that charged is eligible to fight even unengaged; unengaged, it makes an
+    overrun fight: one more pile-in (up to 3" towards enemies within 5", ending engaged), then it fights."""
+    state = fighters()
+    other = new_game([army('Red'), army('Blue', (model('Other', 3, weapons=[dict(SWORD, qty=3)]),))])['units'][0]
+    other.update(id='p2-other', player=1)
+    state['units'].append(other)
+    put(state, 'p2-other', *row(10, 20.5))  # 3.74" beyond the Squad, not engaged
+    state = to_step(wiped(state, 'p2-mob'), 'fight')
+    assert state['turn']['fight'] == {'stage': 'fights_first', 'picker': 0}  # The Squad charged: still eligible
+    assert 'overrun' in refused(state, fight('p1-squad'), *MISS * 3)
+    from combat_sim.play.game import fight_options
+    assert fight_options(state, 'p1-squad')['overrun'] is True
+    overrun = {'type': 'overrun', 'unit': 'p1-squad', 'models': [{'id': f'p1-squad-0-{i + 1}', 'x': x, 'y': 17.5}
+                                                                 for i, (x, _) in enumerate(row(10, 15.5))]}
+    assert 'at most 3"' in refused(state, dict(overrun, models=[dict(m, y=19) for m in overrun['models']]))
+    state, _ = act(state, overrun)
+    state, event = act(state, fight('p1-squad', 'p2-other'), *MISS * 3)
+    assert event['attacks'][0]['target'] == 'p2-other'
+
+
+def test_an_eligible_unit_with_no_enemy_in_reach_passes():
+    state = to_step(wiped(fighters(), 'p2-mob'), 'fight')  # The Squad charged the Mob; nothing else within 5"
+    state, event = act(state, fight('p1-squad'))
+    assert event['attacks'] == [] and unit_by_id(state, 'p1-squad')['activity']['fought']
+    assert state['turn']['fight']['stage'] == 'remaining'
+
+
 def test_only_models_engaged_with_the_target_attack():
     state = fighters()
     put(state, 'p1-squad', (10, 15.5), (11.5, 15.5), (13, 13))  # The last model 4.74" from the Mob

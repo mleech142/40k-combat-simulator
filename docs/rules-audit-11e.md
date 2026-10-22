@@ -18,9 +18,10 @@ Tick each item when the engine matches (with a test).
 - [x] **Fights First from datasheets** (24.13): a unit whose models all have Fights First fights in the Fights
   First step, as charging units do. Read from the datasheet when the army is frozen (games started before
   this have no record of it).
-- [ ] **Fight eligibility and overrun fights** (12.04, 12.06): units that charged this turn, or were engaged when
+- [x] **Fight eligibility and overrun fights** (12.04, 12.06): units that charged this turn, or were engaged when
   the Fight step began, can fight; an unengaged eligible unit makes an overrun fight (an extra pile-in, then
-  fights). The engine needs a unit to be engaged when it fights.
+  fights). The engine's `overrun` action is that pile-in (a drag in the Fight step); a unit with no enemy in
+  reach passes. Not modelled: an Engaging consolidation's unfought enemies then fighting.
 - [x] **Consolidation modes** (12.08), in order: Ongoing (engaged: stay engaged with them), Engaging (enemies
   within 3": end engaged with the ones chosen), Objective (an objective within 3": end within its range). The
   engine has no Objective consolidation.

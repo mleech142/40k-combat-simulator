@@ -179,6 +179,7 @@ def resolve_action(state, action, dice):
                 'stationary': lambda s: _stationary(s, action), 'reset_move': lambda s: _reset_move(s, action),
                 'charge': lambda s: _charge(s, action, dice), 'charge_move': lambda s: _charge_move(s, action),
                 'pile_in': lambda s: _pile_in(s, action), 'fight': lambda s: _fight(s, action, dice),
+                'overrun': lambda s: _overrun(s, action),
                 'consolidate': lambda s: _consolidate(s, action),
                 'orders': lambda s: _orders(s, action), 'stratagem': lambda s: _stratagem(s, action),
                 'rule': lambda s: _rule(s, action), 'effect': lambda s: _manual_effect(s, action),
@@ -379,6 +380,9 @@ def _change_phase(state, dice, report):
         mission_state.require_no_choice(state)
         mission_state.score(state, 'command', [turn['player']], report)
     if turn['phase'] == 'fight' and turn.get('step') == 'pile_in':
+        for unit in state['units']:  # Engaged as the Fight step begins: eligible to fight all step (core rules 12.04)
+            if _is_engaged(state, unit):
+                unit['activity']['engaged_at_fight'] = True
         turn['step'] = 'fight'
         turn['fight'] = {'stage': 'fights_first', 'picker': turn['player']}
         _settle_picker(state)
@@ -1100,7 +1104,8 @@ def move_characteristic(part):
 
 
 # Where a unit started each kind of move this turn: moves can be redone until their phase (or step) ends
-START_KEYS = {'movement': 'start', 'charge': 'charge_start', 'pile_in': 'pile_start', 'consolidate': 'consolidate_start'}
+START_KEYS = {'movement': 'start', 'charge': 'charge_start', 'pile_in': 'pile_start', 'fight': 'overrun_start',
+              'consolidate': 'consolidate_start'}
 
 
 def _ready_to_move(state, unit, phase='movement'):
@@ -1422,11 +1427,44 @@ def _melee_weapons(unit):
 
 
 def _can_fight(state, unit):
-    """Whether a unit can be picked to fight now: not fought yet, engaged, and with melee weapons."""
-    if unit['activity'].get('fought') or not _placed_shapes(unit):
+    """
+    Whether a unit can be picked to fight now (core rules 12.04): not fought yet, with melee weapons, and
+    engaged, or engaged when the Fight step began, or it charged this turn. One that isn't engaged makes
+    an overrun fight (_overrun).
+    """
+    activity = unit['activity']
+    if activity.get('fought') or not _placed_shapes(unit):
         return False
     alive = {(m['part'], w) for m in unit['models'] if m['alive'] for w in m['weapons']}
-    return bool(alive & set(_melee_weapons(unit))) and _is_engaged(state, unit)
+    return bool(alive & set(_melee_weapons(unit))) and (
+        activity.get('charged') or activity.get('engaged_at_fight') or _is_engaged(state, unit))
+
+
+def _overrun_targets(state, unit, key='overrun_start'):
+    """Enemy units within 5" of where the unit began its overrun pile-in (where it is, if it hasn't)."""
+    start = _start_shapes(unit, key)
+    return [u for u in state['units'] if u['player'] != unit['player'] and _placed_shapes(u)
+            and _unit_distance(start, _placed_shapes(u)) <= PILE_IN_REACH + 1e-9]
+
+
+def _overrun(state, action):
+    """
+    An overrun fight's pile-in (core rules 12.06), when it's the unit's pick: an eligible unit that isn't
+    engaged moves up to 3" towards enemy units within 5", ending engaged; then it fights (_fight). It
+    can be redone until the unit fights.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    _fight_checks(state, unit)
+    if _is_engaged(state, unit) and 'overrun_start' not in unit['activity']:
+        raise ActionError(f'{unit["name"]} is engaged: it fights where it is.')
+    targets = _overrun_targets(state, unit)
+    if not targets:
+        raise ActionError(f'{unit["name"]} has no enemy unit within {PILE_IN_REACH}" to pile in towards.')
+
+    def finish(placed):
+        if not _engaged(placed, _enemy_shapes(state, unit)):
+            raise ActionError(f'{unit["name"]} must end its overrun pile-in engaged with an enemy unit.')
+    _short_move(state, unit, action, 'overrun_start', PILE_IN_MOVE, 'pile in', _shapes_of(targets), 'the closest enemy', finish)
 
 
 def _fights_first(unit):
@@ -1470,6 +1508,14 @@ def _fight(state, action, dice):
     _fight_checks(state, unit)
     fight = state['turn']['fight']
     engaged_with = _engaged_units(state, unit)
+    if not engaged_with:  # An overrun fight: its pile-in first, unless no enemy is in reach (then it passes)
+        if _overrun_targets(state, unit):
+            raise ActionError(f'{unit["name"]} isn\'t engaged: make its overrun pile-in first (drag it up to {PILE_IN_MOVE}" '
+                              f'to engage an enemy unit within {PILE_IN_REACH}").')
+        unit['activity']['fought'] = True
+        fight['picker'] = 1 - unit['player']
+        _settle_picker(state)
+        return {'attacks': [], 'passed': unit['id']}
     default_target = action.get('target') or engaged_with[0]['id']
     picks = action.get('weapons')
     explicit = picks is not None
@@ -1500,15 +1546,15 @@ def _fight_checks(state, unit):
     if unit['player'] != fight['picker']:
         raise ActionError(f'It is {state["players"][fight["picker"]]["name"]}\'s pick.')
     if not _can_fight(state, unit):
-        raise ActionError(f'{unit["name"]} isn\'t engaged with an enemy unit, so it can\'t fight.')
+        raise ActionError(f'{unit["name"]} isn\'t engaged and didn\'t charge this turn, so it can\'t fight.')
     if fight['stage'] == 'fights_first' and not _fights_first(unit):
-        raise ActionError('Only Fights First units (those that charged this turn) fight now.')
+        raise ActionError('Only Fights First units (those that charged this turn, or with the ability) fight now.')
 
 
 def fight_options(state, unit_id):
     """
     For the page: why a unit can't fight now ('reason', None if it can), the enemy units it is engaged
-    with ('targets'), and each part's melee weapons ('parts': {'part', 'name', 'choice' (the default
+    with ('targets'), whether it must make its overrun pile-in first ('overrun'), and each part's melee weapons ('parts': {'part', 'name', 'choice' (the default
     plain weapon), 'weapons': [{'weapon', 'name', 'extra' (Extra Attacks: used as well)}]}).
     """
     unit = _unit_or_error(state, unit_id)
@@ -1524,7 +1570,9 @@ def fight_options(state, unit_id):
                    for pp, w in _melee_weapons(unit) if pp == p]
         if weapons:
             parts.append({'part': p, 'name': part['name'], 'choice': defaults.get(p), 'weapons': weapons})
-    return {'reason': reason, 'targets': [u['id'] for u in _engaged_units(state, unit)], 'parts': parts}
+    targets = [u['id'] for u in _engaged_units(state, unit)]
+    return {'reason': reason, 'targets': targets, 'overrun': not reason and not targets and bool(_overrun_targets(state, unit)),
+            'parts': parts}
 
 
 def _fight_with(state, unit, picks, explicit, default_target, engaged_with, fight, dice):

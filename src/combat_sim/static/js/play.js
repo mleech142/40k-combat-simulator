@@ -332,7 +332,7 @@
             return state.game.moves[unit.id][model.part] + roll - skies;
         }
         if (turn.phase === 'charge' && unit.player === turn.player) return unit.activity.charge_roll == null ? null : unit.activity.charge_roll - skies;
-        if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) return SHORT_MOVE;
+        if (turn.phase === 'fight' && ['pile_in', 'fight', 'consolidate'].includes(turn.step)) return SHORT_MOVE;  // Fight: an overrun pile-in
         return null;
     }
 
@@ -353,7 +353,7 @@
     function startKey() {
         const turn = state.game.state.turn;
         return { movement: 'start', charge: 'charge_start' }[turn.phase]
-            || { pile_in: 'pile_start', consolidate: 'consolidate_start' }[turn.step] || 'start';
+            || { pile_in: 'pile_start', fight: 'overrun_start', consolidate: 'consolidate_start' }[turn.step] || 'start';
     }
 
     /** Whether the unit's next move carries on from where it stands (Movement phase, Waypoint ticked). */
@@ -910,7 +910,9 @@
         if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) {
             const verb = turn.step === 'pile_in' ? 'pile in' : 'consolidate';
             const moved = unit.activity[startKey()];
-            controls = `<p class="play-hint">Drag the unit to ${verb} (up to 3", each model ending closer to the enemy).
+            const how = turn.step === 'pile_in' ? 'each model ending closer to the enemy, the unit ending engaged'
+                : 'staying engaged with its enemies; or, unengaged, ending engaged with an enemy within 3"; or, with neither, ending within range of an objective within 3"';
+            controls = `<p class="play-hint">Drag the unit to ${verb} (up to 3", ${how}).
                 Both players can move units now; moves lock when the step ends.</p>
                 ${moved ? '<div class="play-move-modes"><button class="btn-small" data-reset>Reset move</button></div>' : ''}`;
         }
@@ -1219,6 +1221,14 @@
     function fightControls(unit) {
         const options = state.fight;
         if (options.reason) return `<p class="play-hint">${escapeHtml(options.reason)}</p>`;
+        if (options.overrun) {
+            return `<p class="play-hint"><strong>Overrun fight:</strong> ${escapeHtml(unit.name)} isn't engaged. Drag it up to 3"
+                to end engaged with an enemy unit within 5" (its extra pile-in), then it fights.</p>`;
+        }
+        if (!options.targets.length) {
+            return `<p class="play-hint">${escapeHtml(unit.name)} has no enemy within reach to fight.</p>
+                <div class="play-shooting"><button class="btn btn-primary" id="fight-btn">Pass</button></div>`;
+        }
         const targetSelect = part => `<select class="filter-select" data-fight-target="${part}">
             ${options.targets.map(id => `<option value="${id}" ${state.fightTarget[part] === id ? 'selected' : ''}>${escapeHtml(unitById(id).name)}</option>`).join('')}
         </select>`;
@@ -1244,7 +1254,8 @@
         if (await send({ type: 'fight', unit: state.selected, weapons, target: options.targets[0] })) {
             const event = state.game.events[state.game.events.length - 1];
             const killed = event.attacks.reduce((n, a) => n + a.killed.length, 0);
-            message(`${name} fought: ${killed} model${killed === 1 ? '' : 's'} killed.`);
+            message(event.passed ? `${name} had no enemy within reach, so it didn't fight.`
+                : `${name} fought: ${killed} model${killed === 1 ? '' : 's'} killed.`);
             clearOptions();
             loadOptions();
         }
@@ -1313,7 +1324,7 @@
         const game = state.game;
         const ONE_LINE = ['roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
-            .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
+            .filter(([e]) => (e.attacks && e.attacks.length) || e.passed || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
                     && (e.rolls.length || (e.vp && e.vp.length) || (e.actions && e.actions.length) || (e.markers_removed && e.markers_removed.length)
                         || e.drawn || (e.discards && e.discards.length)))).reverse() : [];
@@ -1334,7 +1345,7 @@
             const [title, player] = heading(turns[i]);
             const section = title !== last ? `<h4 class="play-log-heading ${player != null ? PLAYER_CLASSES[player] : ''}">${escapeHtml(title)}</h4>` : '';
             last = title;
-            if (!event.attacks) {
+            if (!event.attacks || !event.attacks.length) {
                 return `${section}<div class="play-log-entry play-log-roll ${fresh ? 'fresh' : ''}">
                     <span class="play-log-icon"><i class="${logIcon(event)}" aria-hidden="true"></i></span><div class="play-log-text">${logLine(event, name)}</div></div>`;
             }
@@ -1389,7 +1400,7 @@
 
     /** The icon for a battle log line that isn't an attack. */
     function logIcon(event) {
-        const icons = { charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
+        const icons = { fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
             effect: 'fa-wand-magic-sparkles', roll_off: 'fa-dice', roll_objectives: 'fa-dice', roll_mirrored: 'fa-dice',
             choose_role: 'fa-chess-board', choose_secondaries: 'fa-layer-group', tactical: 'fa-layer-group', condemn: 'fa-gavel',
             start_action: 'fa-flag', place_markers: 'fa-location-dot', beacon: 'fa-tower-broadcast', tempting: 'fa-bullseye',
@@ -1429,6 +1440,8 @@
                 return `<span class="play-effect rule">${player(event.player)}: ${escapeHtml(event.rule)}</span> on ${escapeHtml(name(event.unit))}`;
             case 'effect':
                 return `<span class="play-effect manual">Manual effect: ${escapeHtml(event.effect)}</span> on ${escapeHtml(name(event.unit))}`;
+            case 'fight':  // Passed: an overrun fight with no enemy in reach
+                return `<strong>${escapeHtml(name(a.unit))}</strong> had no enemy within reach, so it didn't fight`;
             case 'roll_objectives':
                 return `Central objective roll: ${dice(event.rolls[0])}: <strong>${event.central.objectives === 2 ? 'two central objectives' : 'one central objective'}</strong>`;
             case 'roll_off':
@@ -1829,6 +1842,11 @@
                 if (await send(Object.assign({ type: 'charge_move', unit: unit.id, targets, models }, flying(unit) ? { skies: true } : {}))) loadOptions();
             } else if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) {
                 await send({ type: turn.step, unit: unit.id, models });
+            } else if (turn.phase === 'fight' && turn.step === 'fight') {  // An overrun fight's pile-in
+                if (await send({ type: 'overrun', unit: unit.id, models })) {
+                    clearOptions();
+                    loadOptions();
+                }
             } else {
                 message('Models move in the Movement and Charge phases and the Fight phase\'s Pile in and Consolidate steps.', true);
                 render();
