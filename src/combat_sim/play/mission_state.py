@@ -7,7 +7,8 @@ state['mission'] (None when either army has no force disposition: kill points in
 {'primaries': [key, key], 'secondaries': {'0': None | {'mode': 'fixed', 'cards': [key, key]}, '1': ...},
 'start': {'control': [[ids], [ids]], 'units': {uid: {'in_range', 'central', 'terrain'}}}, 'destroyed': [...],
 'destroyed_before': [...], 'models_destroyed': [...], 'condemned': {'0': [...], '1': [...]},
-'choice': None | {'player', 'kind': 'condemn' | 'locate'}, 'markers': [operation markers], 'started': [actions
+'choice': None | {'player', 'kind': 'condemn' | 'locate' | 'beacon' | 'tempting'}, 'queue': [choices after it],
+'tactical': {'0': None | a Tactical player's deck (tactical.py), '1': ...}, 'markers': [operation markers], 'started': [actions
 started this turn], 'actions': [actions under way, to complete at the end of the turn], 'completed': [actions
 completed this turn], 'surveilled': [enemy units surveilled this turn], 'consecration': [consecration units]}.
 Each player's VP: state['players'][p]['vp'] =
@@ -17,11 +18,12 @@ game.py calls these hooks; everything here is plain data, replayed through event
 """
 
 from . import game as g
+from . import tactical
 from .battlefields import outline_points
 from .geometry import base_distance, base_shape
 from .missions import (ACTIONS, FIXED_CARD_CAP, FIXED_CARDS, LOCATE_MARKERS, PRIMARY_ACTIONS, PRIMARY_GAME_CAP,
-                       PRIMARY_ROUND_CAP, SECONDARIES, SECONDARY_GAME_CAP, SECONDARY_ROUND_CAP, Context, card,
-                       primary_for, score_lines)
+                       PRIMARY_ROUND_CAP, SECONDARIES, SECONDARY_GAME_CAP, SECONDARY_ROUND_CAP, TACTICAL_PREFIX, Context,
+                       card, primary_for, score_lines)
 
 CENTRE = (30, 22)
 CENTRE_CLEARANCE = 6  # Reconnaissance Sweep: units not within this of the centre
@@ -41,7 +43,23 @@ def new_mission(armies):
     return {'primaries': primaries, 'secondaries': {'0': None, '1': None}, 'start': None, 'destroyed': [],
             'destroyed_before': [], 'models_destroyed': [], 'condemned': {'0': [], '1': []}, 'choice': None,
             'markers': [], 'marker_seq': 0, 'started': [], 'actions': [], 'completed': [], 'surveilled': [],
-            'consecration': []}
+            'consecration': [], 'queue': [], 'tactical': {'0': None, '1': None}}
+
+
+def push_choice(state, choice):
+    """A required choice: now if none is waiting, else after the ones that are."""
+    mission = state['mission']
+    if mission.get('choice'):
+        mission.setdefault('queue', []).append(choice)
+    else:
+        mission['choice'] = choice
+
+
+def next_choice(state):
+    """The choice waiting was made: the next one, if any."""
+    mission = state['mission']
+    queue = mission.get('queue') or []
+    mission['choice'] = queue.pop(0) if queue else None
 
 
 def new_vp():
@@ -150,7 +168,7 @@ def context(state, player):
         presence=quarters(state, player, presence=True),
         enemy_wholly_in_my_territory=any(u['player'] != player and wholly_in_territory(state, u, player)
                                          for u in state['units'] if any(m['alive'] for m in u['models'])),
-        condemned=mission['condemned'][str(player)], **_marker_facts(state, player))
+        condemned=mission['condemned'][str(player)], **_marker_facts(state, player), **tactical.facts(state, player))
 
 
 def _marker_facts(state, player):
@@ -188,7 +206,7 @@ def _marker_facts(state, player):
 
 # --- Hooks game.py calls -------------------------------------------------------------------------------------
 
-def start_turn(state):
+def start_turn(state, dice=None, report=None):
     """A turn begins: record who controls what and where every unit stands; last turn's losses become
     'the previous turn'; a Punishment player chooses whom to condemn."""
     mission = state.get('mission')
@@ -200,10 +218,14 @@ def start_turn(state):
     for key in ('started', 'actions', 'completed', 'surveilled'):
         mission[key] = []
     player = state['turn']['player']
-    if mission['primaries'][player] == 'punishment' and not mission.get('choice'):
+    if mission['primaries'][player] == 'punishment':
         mission['condemned'][str(player)] = []
         if any(u['player'] != player and g._placed_shapes(u) for u in state['units']):
-            mission['choice'] = {'player': player, 'kind': 'condemn'}
+            push_choice(state, {'player': player, 'kind': 'condemn'})
+    if dice is not None:
+        drawn = tactical.start_of_command(state, dice)
+        if drawn is not None and report is not None:
+            report['drawn'] = {'player': player, 'cards': drawn}
 
 
 def start_battle(state):
@@ -213,7 +235,7 @@ def start_battle(state):
         return
     for player in (0, 1):
         if mission['primaries'][player] == 'locate-and-deny' and locate_options(state, player):
-            mission['choice'] = {'player': player, 'kind': 'locate'}
+            push_choice(state, {'player': player, 'kind': 'locate'})
             return
 
 
@@ -236,7 +258,7 @@ def place_markers(state, action):
         raise g.ActionError(f'Choose {needed} terrain areas outside your deployment zone.')
     for terrain in chosen:
         _add_marker(state, player, 'asset', terrain=terrain)
-    mission['choice'] = None
+    next_choice(state)
     return {'markers_placed': {'player': player, 'terrain': chosen}}
 
 
@@ -317,6 +339,9 @@ def _targets(state, unit, key):
                   and not (o['kind'] == 'home' and o.get('owner') == player)]
         trapped = {m['terrain'] for m in mine if m['tag'] == 'trapped'}
         return [(a, f'Terrain area {a}') for a in dict.fromkeys(areas) if a not in trapped and a not in taken]
+    if spec['on'] == 'outside_terrain':  # Plunder: a terrain area not within your territory
+        side = territory_side(state, player)
+        return [(a, f'Terrain area {a}') for a in _areas_within(state, unit) if _side(state, _area_centre(state, a)) != side]
     if spec['on'] == 'their_terrain':
         side = territory_side(state, 1 - player)
         return [(a, f'Terrain area {a}') for a in _areas_within(state, unit) if _side(state, _area_centre(state, a)) == side]
@@ -341,7 +366,7 @@ def action_options(state, unit_id):
     if not mission or unit is None:
         return []
     out = []
-    for key in PRIMARY_ACTIONS.get(mission['primaries'][unit['player']], []):
+    for key in PRIMARY_ACTIONS.get(mission['primaries'][unit['player']], []) + tactical.card_actions(state, unit['player']):
         spec = ACTIONS[key]
         reason = _start_problem(state, unit)
         if not reason and state['turn']['round'] < spec['from_round']:
@@ -528,6 +553,9 @@ def score(state, when, players, report):
         cards = [('primary', mission['primaries'][player])]
         chosen = (mission.get('secondaries') or {}).get(str(player))
         cards += [('secondary', key) for key in (chosen or {}).get('cards', [])]
+        cards += [('secondary', TACTICAL_PREFIX + key) for key in tactical.active_keys(state, player)
+                  if not tactical.held(state, player, key)]
+        achieved = []
         for kind, key in cards:
             name = card(key)['name']
             for entry, asked, how in score_lines(key, when, int(round_number), facts):
@@ -536,7 +564,9 @@ def score(state, when, players, report):
                     if when != 'battle':
                         room = min(room, PRIMARY_ROUND_CAP - vp['rounds'].get(round_number, 0))
                 else:
-                    room = min(SECONDARY_GAME_CAP - vp['secondary'], FIXED_CARD_CAP - vp['cards'].get(key, 0))
+                    room = SECONDARY_GAME_CAP - vp['secondary']
+                    if not key.startswith(TACTICAL_PREFIX):
+                        room = min(room, FIXED_CARD_CAP - vp['cards'].get(key, 0))
                     if when != 'battle':
                         room = min(room, SECONDARY_ROUND_CAP - vp['secondary_rounds'].get(round_number, 0))
                 got = max(0, min(asked, room))
@@ -553,11 +583,15 @@ def score(state, when, players, report):
                         vp['secondary_rounds'][round_number] = vp['secondary_rounds'].get(round_number, 0) + got
                 report.setdefault('vp', []).append({'player': player, 'kind': kind, 'mission': name, 'line': entry['id'],
                                                     'text': entry['text'], 'how': how, 'vp': got, 'asked': asked, 'when': when})
+                if key.startswith(TACTICAL_PREFIX) and key not in achieved:
+                    achieved.append(key)
+        for key in achieved:  # Achieved Tactical cards are discarded
+            tactical.scored(state, player, key)
 
 
-def choose_secondaries(state, action):
-    """Setup: a player chooses Fixed secondary missions and their two cards (Tactical comes later). Once
-    both have chosen, the choices are revealed and deployment begins, the defender first."""
+def choose_secondaries(state, action, dice):
+    """Setup: a player chooses Fixed secondary missions and their two cards, or Tactical (their deck is
+    shuffled). Once both have chosen, the choices are revealed and deployment begins, the defender first."""
     mission = state.get('mission')
     turn = state['turn']
     if not mission or turn['phase'] != 'setup' or turn.get('step') != 'secondaries':
@@ -569,12 +603,16 @@ def choose_secondaries(state, action):
         raise g.ActionError('Say which player is choosing.')
     if mission['secondaries'].get(str(player)):
         raise g.ActionError(f'{state["players"][player]["name"]} has already chosen.')
-    if action.get('mode') != 'fixed':
-        raise g.ActionError('Tactical secondary missions come later: choose Fixed for now.')
-    cards = list(dict.fromkeys(action.get('cards') or []))
-    if len(cards) != FIXED_CARDS or any(key not in SECONDARIES for key in cards):
-        raise g.ActionError(f'Choose {FIXED_CARDS} different Fixed secondary missions.')
-    mission['secondaries'][str(player)] = {'mode': 'fixed', 'cards': cards}
+    if action.get('mode') == 'tactical':
+        mission['secondaries'][str(player)] = {'mode': 'tactical', 'cards': []}
+        mission.setdefault('tactical', {'0': None, '1': None})[str(player)] = tactical.new_deck(dice)
+    elif action.get('mode') == 'fixed':
+        cards = list(dict.fromkeys(action.get('cards') or []))
+        if len(cards) != FIXED_CARDS or any(key not in SECONDARIES for key in cards):
+            raise g.ActionError(f'Choose {FIXED_CARDS} different Fixed secondary missions.')
+        mission['secondaries'][str(player)] = {'mode': 'fixed', 'cards': cards}
+    else:
+        raise g.ActionError('Choose Fixed or Tactical secondary missions.')
     if all(mission['secondaries'].get(str(p)) for p in (0, 1)):
         state['turn'] = {'phase': 'deployment', 'round': 0, 'player': state['roles']['defender']}
         return {'secondaries_chosen': player, 'revealed': {p: mission['secondaries'][str(p)] for p in ('0', '1')}}
@@ -587,6 +625,10 @@ def require_no_choice(state):
         name = state['players'][choice['player']]['name']
         if choice['kind'] == 'locate':
             raise g.ActionError(f'{name} must first place their Locate and Deny markers, in the Mission panel.')
+        if choice['kind'] == 'beacon':
+            raise g.ActionError(f'{name} must first choose their beacon unit (Beacon), in the Mission panel.')
+        if choice['kind'] == 'tempting':
+            raise g.ActionError(f"{name} must first choose their opponent's tempting target, in the Mission panel.")
         raise g.ActionError(f'{name} must first condemn 1 to {CONDEMN_MOST} enemy units (Punishment), in the Mission panel.')
 
 
@@ -616,5 +658,5 @@ def condemn(state, action):
         raise g.ActionError('Condemn enemy units within range of objectives, or that destroyed one of your units last turn.')
     mission = state['mission']
     mission['condemned'][str(mission['choice']['player'])] = chosen
-    mission['choice'] = None
+    next_choice(state)
     return {'condemned': chosen}

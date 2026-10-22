@@ -142,7 +142,7 @@ def setup_game(red_units, blue_units):
 def test_each_player_chooses_two_fixed_secondaries_before_deployment():
     _, state = setup_game([('R0', 1, 1)], [('B0', 1, 1)])
     assert state['turn']['step'] == 'secondaries'
-    assert 'come later' in refused(state, {'type': 'choose_secondaries', 'player': 0, 'mode': 'tactical'})
+    assert 'Fixed or Tactical' in refused(state, {'type': 'choose_secondaries', 'player': 0, 'mode': 'secret'})
     assert 'different' in refused(state, {'type': 'choose_secondaries', 'player': 0, 'mode': 'fixed',
                                           'cards': ['assassination', 'assassination']})
     state, event = act(state, {'type': 'choose_secondaries', 'player': 1, 'mode': 'fixed',

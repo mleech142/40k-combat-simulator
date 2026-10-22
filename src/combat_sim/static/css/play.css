@@ -81,3 +81,10 @@
 .play-terrain-id { font-size: 1.1px; text-anchor: middle; dominant-baseline: middle; fill: var(--text-secondary); font-weight: 700; }
 .play-terrain-id.choosable { fill: var(--warning); }
 .play-log-roll > div { flex-basis: 100%; }
+
+/* Tactical cards */
+.play-card-buttons { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0.25rem 0; }
+.play-card-buttons .btn-small.active { border-color: var(--accent); background: var(--accent-tint); }
+.play-secondary-card.held > strong { opacity: 0.7; }
+.play-guards { display: grid; grid-template-columns: 1fr; gap: 0.2rem; font-size: 0.8rem; }
+.play-guards label { display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; }

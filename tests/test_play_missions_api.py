@@ -83,3 +83,16 @@ def test_mission_actions_for_a_unit(client):
     options = client.get(f'/api/play/games/{game["id"]}/mission-actions/p1-w').get_json()
     assert [(a['key'], a['reason']) for a in options['actions']] == [('secure-asset', 'Mission actions start in your Shooting phase.')]
     assert game['mission']['markers'] == [] and game['mission']['locate_options'] is None
+
+
+def test_a_tactical_players_cards_in_the_mission_panel(client):
+    red, blue = saved_army(client, 'Red', ['d-vanguard']), saved_army(client, 'Blue', ['d-bastion'])
+    game = client.post('/api/play/games', json={'armies': [red, blue], 'battlefield': 'pairing:A'}).get_json()
+    url = f'/api/play/games/{game["id"]}/actions'
+    client.post(url, json={'type': 'roll_off'})
+    client.post(url, json={'type': 'choose_role', 'role': 'attacker'})
+    client.post(url, json={'type': 'choose_secondaries', 'player': 0, 'mode': 'tactical'})
+    game = client.post(url, json={'type': 'choose_secondaries', 'player': 1, 'mode': 'fixed',
+                                  'cards': ['assassination', 'bring-it-down']}).get_json()
+    tactical = game['mission']['secondaries'][0]
+    assert (tactical['mode'], tactical['deck'], tactical['cards']) == ('tactical', 18, [])  # Nothing drawn before the battle

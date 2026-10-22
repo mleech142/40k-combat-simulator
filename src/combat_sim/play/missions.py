@@ -16,9 +16,11 @@ Mission actions (ACTIONS) are started in the Shooting phase by units of a player
 them (PRIMARY_ACTIONS); some complete at once, the rest at the end of the turn. Operation markers carry a
 `tag` (what they mark: 'trapped', 'decoyed', ...); removing a marker removes its status.
 
-Secondary missions (SECONDARIES): before the battle each player plays Fixed (two of the cards marked
-Fixed, active all battle) or Tactical (two drawn at the start of each of their Command phases: Play mode's
-later step). Their lines are scored like a primary's; a line's `turn_cap` limits its VP in one turn.
+Secondary missions: before the battle each player plays Fixed (two of the cards marked Fixed,
+SECONDARIES, active all battle) or Tactical (the 18-card deck, TACTICAL: two drawn at the start of each of
+their Command phases, kept until scored or discarded). Their lines are scored like a primary's; a line's
+`turn_cap` limits its VP in one turn. Two more timings: 'opp_turn' (the end of your opponent's turn) and
+'opp_turn_or_r5' (that, or the end of battle round 5, whichever comes first).
 
 Scoring reads a Context (built by mission_state.py from the game state): what each player controls now
 and did at the start of the turn, and the units and models destroyed this turn and the turn before. VP
@@ -99,6 +101,19 @@ class Context:
     lone_theirs: bool = False  # Extract Relic: the same for one of the opponent's markers
     surveilled: bool = False  # Surveil the Foe: an enemy unit surveilled this turn away from marked objectives
     markers_on_held_central: int = 0  # Vital Link: `player`'s markers in range of central objectives they hold
+    # Tactical cards (units counted leave out Aircraft and battle-shocked units)
+    nml: tuple = (0, 0)  # Units wholly within No Man's Land: (`player`'s, the enemy's)
+    nml_objectives: set = field(default_factory=set)  # Ids of objectives within No Man's Land
+    outflank: int = 0  # 1: a unit within 6" of an edge outside your territory; 2: units by opposite edges, one outside
+    beacon: int = 0  # 1: the beacon unit is outside your deployment zone; 2: outside your territory
+    enemy_in_my_zone: bool = False
+    centre_mine: bool = False  # One of `player`'s units within 3" of the centre of the battlefield
+    enemy_from_centre: float = 99  # How close the nearest enemy unit is to the centre
+    all_enemy_characters_dead: bool = False
+    tempting_held: bool = False
+    behind_lines: int = 0  # Units wholly within the opponent's deployment zone
+    guarded: int = 0  # Objectives guarded by `player`'s army (Burden of Trust)
+    held_expansions_all: bool = False  # `player` holds every expansion objective (there being some)
 
     @property
     def enemy(self):
@@ -200,6 +215,29 @@ SCORERS = {
     'per_completed_their_territory': lambda ctx, vp, action: _each(sum(bool(c.get('their_territory')) for c in ctx.done(action)), vp,
                                                                    'of those in their territory'),
     'markers_on_held_central': lambda ctx, vp: _each(ctx.markers_on_held_central, vp, 'marker on a central objective you hold'),
+    # Tactical secondary missions
+    'per_kill_started': lambda ctx, vp, where: _each(sum(d[where] for d in ctx.kills()), vp,
+                                                     f'enemy unit destroyed that started {WHERE[where]}'),
+    'completed_count': lambda ctx, vp, action, least, most=None: (vp, f'{len(ctx.done(action))} {ACTION_NAMES.get(action, action)}')
+    if least <= len(ctx.done(action)) <= (most or 99) else (0, ''),
+    'nml_majority': lambda ctx, vp: (vp, f'{ctx.nml[0]} to {ctx.nml[1]} units in No Man\'s Land') if ctx.nml[0] > ctx.nml[1] else (0, ''),
+    'outflank': lambda ctx, vp, level: (vp, 'outflanking') if ctx.outflank >= level else (0, ''),
+    'beacon': lambda ctx, vp, level: (vp, 'the beacon holds') if ctx.beacon >= level else (0, ''),
+    'hold_my_home': lambda ctx, vp: (vp, 'holds your home objective') if _home_held(ctx) else (0, ''),
+    'home_and_zone_clear': lambda ctx, vp: (vp, 'no enemy in your deployment zone')
+    if _home_held(ctx) and not ctx.enemy_in_my_zone else (0, ''),
+    'nml_objectives': lambda ctx, vp, count: (vp, f'holds {count}+ objectives in No Man\'s Land')
+    if sum(o['id'] in ctx.nml_objectives for o in ctx.mine(True)) >= count else (0, ''),
+    'forward_position': lambda ctx, vp: (vp, 'a forward position') if (
+        any(o['kind'] == 'home' and o.get('owner') == ctx.enemy for o in ctx.held[ctx.player])
+        or (ctx.held_expansions_all)) else (0, ''),
+    'centre_ground': lambda ctx, vp, clear: (vp, f'the centre held, no enemy within {clear}"')
+    if ctx.centre_mine and ctx.enemy_from_centre > clear else (0, ''),
+    'assassination_tactical': lambda ctx, vp: (vp, 'an enemy Character destroyed')
+    if any(m['character'] for m in ctx.model_kills()) or ctx.all_enemy_characters_dead else (0, ''),
+    'tempting': lambda ctx, vp: (vp, 'holds the tempting target') if ctx.tempting_held else (0, ''),
+    'behind_lines': lambda ctx, vp: _each(ctx.behind_lines, vp, 'unit in their deployment zone'),
+    'guarded': lambda ctx, vp: _each(ctx.guarded, vp, 'objective guarded'),
 }
 WHERE = {'in_range': 'within range of an objective', 'central': 'within range of a central objective',
          'terrain': 'within a terrain area'}
@@ -439,13 +477,94 @@ ACTIONS = {
     'vanguard-operation': {'name': 'Vanguard Operation', 'on': 'their_terrain', 'limit': 1, 'distinct': False, 'from_round': 1,
                            'completes': 'end', 'tag': None},
     'sabotage': {'name': 'Sabotage', 'on': 'objective', 'limit': None, 'distinct': True, 'from_round': 1, 'completes': 'end', 'tag': None},
+    # Tactical cards' actions: 'outside_terrain' is a terrain area not within your territory
+    'plunder': {'name': 'Plunder', 'on': 'outside_terrain', 'limit': 1, 'distinct': False, 'from_round': 1, 'completes': 'now', 'tag': None},
+    'cleanse': {'name': 'Cleanse', 'on': 'objective', 'limit': None, 'distinct': True, 'from_round': 1, 'completes': 'end', 'tag': None},
 }
+CARD_ACTIONS = {'plunder': 'plunder', 'cleanse': 'cleanse'}  # A Tactical card active for you -> the action it offers
 ACTION_NAMES = {key: a['name'] for key, a in ACTIONS.items()}
 PRIMARY_ACTIONS = {'death-trap': ['booby-trap'], 'smoke-and-mirrors': ['decoy'], 'locate-and-deny': ['sensor-sweep'],
                    'extract-relic': ['sensor-sweep'], 'triangulation': ['triangulate'], 'surveil-the-foe': ['surveil'],
                    'gather-intel': ['extract-intelligence'], 'secure-asset': ['secure-asset'], 'vital-link': ['maintain-control'],
                    'vanguard-operation': ['vanguard-operation'], 'sabotage': ['sabotage']}
 LOCATE_MARKERS = 5  # Locate and Deny: markers placed in terrain areas outside your deployment zone at the start
+
+
+# The Tactical deck: (name, lines with their Tactical values, what happens when drawn). When drawn:
+# 'redraw' says when you may draw a new card instead (shuffling this one back): 'round_1', 'with:<card>'
+# (that card is active for you), 'no_big_units' / 'no_big_models' (no such enemy on the battlefield);
+# 'must_redraw': 'round_1' redraws without asking; 'choose' names a choice: 'beacon' (yours), 'tempting'
+# (your opponent's) or 'guards' (yours, optional).
+TACTICAL = {
+    'no-prisoners': ('No Prisoners', [
+        line('Each enemy unit destroyed this turn, up to 5VP', 'any_turn', 'per_kill', 2, turn_cap=5)], {}),
+    'overwhelming-force': ('Overwhelming Force', [
+        line('Each enemy unit destroyed that started the turn within range of an objective, up to 5VP', 'any_turn',
+             'per_kill_started', 3, turn_cap=5, where='in_range')], {}),
+    'plunder': ('Plunder', [
+        line('A terrain area was plundered this turn (the Plunder action)', 'turn', 'completed_any', 5, action='plunder')],
+        {'redraw': 'with:cleanse'}),
+    'display-of-might': ('Display of Might', [
+        line("More of your units than the enemy's wholly within No Man's Land", 'turn', 'nml_majority', 2),
+        line('The same, at the end of your opponent\'s turn', 'opp_turn', 'nml_majority', 5)], {}),
+    'outflank': ('Outflank', [
+        line('A unit within 6" of a battlefield edge, not within your territory', 'turn', 'outflank', 3, either='outflank', level=1),
+        line('Units within 6" of opposite edges, one of them not within your territory', 'turn', 'outflank', 5,
+             either='outflank', level=2)], {}),
+    'beacon': ('Beacon', [
+        line('Your beacon unit is on the battlefield, not within your deployment zone', 'opp_turn_or_r5', 'beacon', 3,
+             either='beacon', level=1),
+        line('Your beacon unit is on the battlefield, not within your territory', 'opp_turn_or_r5', 'beacon', 5,
+             either='beacon', level=2)], {'choose': 'beacon'}),
+    'cleanse': ('Cleanse', [
+        line('One objective cleansed by your army this turn (the Cleanse action)', 'turn', 'completed_count', 2,
+             either='cleanse', action='cleanse', least=1, most=1),
+        line('Two or more objectives cleansed by your army this turn', 'turn', 'completed_count', 5, either='cleanse',
+             action='cleanse', least=2)], {'redraw': 'with:plunder'}),
+    'a-grievous-blow': ('A Grievous Blow', [
+        line(f'Each enemy unit of {BIG_UNIT}+ models (starting strength) destroyed this turn, up to 5VP', 'any_turn',
+             'per_big_unit_killed', 5, turn_cap=5)], {'redraw': 'no_big_units'}),
+    'defend-stronghold': ('Defend Stronghold', [
+        line('Hold your home objective', 'opp_turn_or_r5', 'hold_my_home', 3, rounds=(2, 5)),
+        line('And no enemy units within your deployment zone', 'opp_turn_or_r5', 'home_and_zone_clear', 2, rounds=(2, 5))],
+        {'must_redraw': 'round_1'}),
+    'engage-on-all-fronts': ('Engage on All Fronts', [
+        line('A presence in three table quarters (units wholly within, not within 6" of the centre)', 'turn', 'presence', 3,
+             either='quarters', count=3),
+        line('A presence in all four table quarters', 'turn', 'presence', 5, either='quarters', count=4)], {}),
+    'secure-no-mans-land': ("Secure No Man's Land", [
+        line("Hold two or more objectives within No Man's Land (not your home)", 'turn', 'nml_objectives', 5, count=2)], {}),
+    'forward-position': ('Forward Position', [
+        line("Hold your opponent's home objective, or every expansion objective", 'turn', 'forward_position', 5)],
+        {'redraw': 'round_1'}),
+    'centre-ground': ('Centre Ground', [
+        line('A unit of yours within 3" of the centre, no enemy within 3"', 'turn', 'centre_ground', 3, either='centre', clear=3),
+        line('A unit of yours within 3" of the centre, no enemy within 6"', 'turn', 'centre_ground', 5, either='centre', clear=6)], {}),
+    'assassination': ('Assassination', [
+        line('An enemy Character model destroyed this turn, or every enemy Character destroyed in the battle', 'any_turn',
+             'assassination_tactical', 5)], {}),
+    'a-tempting-target': ('A Tempting Target', [
+        line('Hold your tempting target (an objective in No Man\'s Land your opponent chose)', 'turn', 'tempting', 5)],
+        {'choose': 'tempting'}),
+    'behind-enemy-lines': ('Behind Enemy Lines', [
+        line("Each unit wholly within your opponent's deployment zone, up to 5VP", 'turn', 'behind_lines', 3, turn_cap=5)],
+        {'redraw': 'round_1'}),
+    'bring-it-down': ('Bring It Down', [
+        line(f'Each enemy model with {BIG_MODEL_WOUNDS}+ wounds destroyed this turn, up to 5VP', 'any_turn',
+             'per_big_model_killed', 5, turn_cap=5)], {'redraw': 'no_big_models'}),
+    'burden-of-trust': ('Burden of Trust', [
+        line('Each objective guarded by your army, up to 5VP', 'opp_turn_or_r5', 'guarded', 2, turn_cap=5)], {'choose': 'guards'}),
+}
+TACTICAL_PREFIX = 'tactical:'  # A Tactical card's key in a game, apart from the Fixed card of the same name
+
+
+def tactical(key):
+    """{'key', 'name', 'lines', 'when_drawn'} for a Tactical card (its key with or without TACTICAL_PREFIX)."""
+    key = key[len(TACTICAL_PREFIX):] if key.startswith(TACTICAL_PREFIX) else key
+    name, lines, when_drawn = TACTICAL[key]
+    full = TACTICAL_PREFIX + key
+    return {'key': full, 'name': name, 'when_drawn': when_drawn,
+            'lines': [dict(entry, id=f'{full}:{i}') for i, entry in enumerate(lines)]}
 
 
 def primary(key):
@@ -462,14 +581,17 @@ def secondary(key):
 
 
 def card(key):
-    """A primary or secondary mission by its key."""
+    """A primary, Fixed or Tactical (TACTICAL_PREFIX) mission card by its key."""
+    if key.startswith(TACTICAL_PREFIX):
+        return tactical(key)
     return primary(key) if key in PRIMARIES else secondary(key)
 
 
 def timing(entry):
     """When a line scores, for people: 'End of your turn · rounds 2-5' and so on."""
     when = {'turn': 'End of your turn', 'any_turn': 'End of every turn', 'battle': 'End of the battle',
-            'command': 'End of your Command phase'}[entry['when']]
+            'command': 'End of your Command phase', 'opp_turn': "End of your opponent's turn",
+            'opp_turn_or_r5': "End of your opponent's turn (or of round 5)"}[entry['when']]
     if entry['when'] == 'command' and entry['round5_end']:
         when += ' (round 5: end of your turn)'
     first, last = entry['rounds']
@@ -479,7 +601,8 @@ def timing(entry):
 
 
 def due(entry, when, round_number):
-    """Whether a line scores at this timing ('turn', 'any_turn', 'command' or 'battle') in this round."""
+    """Whether a line scores at this timing ('turn', 'any_turn', 'command', 'opp_turn', 'r5_end' (the end of
+    round 5, at the end of your own turn) or 'battle') in this round."""
     first, last = entry['rounds']
     if when == 'battle':
         return entry['when'] == 'battle'
@@ -489,6 +612,8 @@ def due(entry, when, round_number):
         if entry['round5_end'] and round_number == 5:
             return when == 'turn'
         return when == 'command'
+    if entry['when'] == 'opp_turn_or_r5':
+        return when in ('opp_turn', 'r5_end')
     return entry['when'] == when
 
 

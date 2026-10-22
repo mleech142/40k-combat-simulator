@@ -895,7 +895,7 @@
                 buttons: [{ action: { type: 'roll_objectives' }, label: 'Roll for the central objective', icon: 'dice' }] };
         }
         if (turn.step === 'secondaries') {
-            return { text: 'Each player chooses their secondary missions: Fixed, two cards kept all battle (Tactical comes later).',
+            return { text: 'Each player chooses their secondary missions: Fixed (two cards kept all battle) or Tactical (two drawn at the start of each of your Command phases).',
                 buttons: [], secondaries: true };
         }
         if (turn.step === 'roll_off') {

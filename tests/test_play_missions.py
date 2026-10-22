@@ -145,3 +145,39 @@ def test_engage_on_all_fronts_scores_the_best_presence():
     assert sum(scored('engage-on-all-fronts', 'turn', 1, ctx(presence=4)).values()) == 4
     assert sum(scored('engage-on-all-fronts', 'turn', 1, ctx(presence=3)).values()) == 2
     assert scored('engage-on-all-fronts', 'turn', 1, ctx(presence=2)) == {}
+
+
+# --- The Tactical deck ------------------------------------------------------------------------------------------
+
+def tac(key):
+    return f'tactical:{key}'
+
+
+def test_the_tactical_deck_has_18_cards():
+    from combat_sim.play.missions import TACTICAL
+    assert len(TACTICAL) == 18
+
+
+def test_tactical_values_and_their_limits():
+    assert scored(tac('no-prisoners'), 'any_turn', 1, ctx(destroyed=[kill(), kill(), kill()])) == {
+        'Each enemy unit destroyed this turn, up to 5VP': 5}
+    assert sum(scored(tac('bring-it-down'), 'any_turn', 1, ctx(models_destroyed=[model(wounds=12)])).values()) == 5
+    assert sum(scored(tac('engage-on-all-fronts'), 'turn', 1, ctx(presence=3)).values()) == 3
+
+
+def test_end_of_your_opponents_turn_or_of_round_5():
+    held = ctx(red=[HOME_RED])
+    assert scored(tac('defend-stronghold'), 'opp_turn', 1, held) == {}  # Round 2 onwards
+    assert sum(scored(tac('defend-stronghold'), 'opp_turn', 2, held).values()) == 3 + 2
+    assert sum(scored(tac('defend-stronghold'), 'r5_end', 5, held).values()) == 5  # Going second in round 5: your own turn
+    assert scored(tac('defend-stronghold'), 'turn', 3, held) == {}
+    might = ctx(nml=(2, 1))
+    assert sum(scored(tac('display-of-might'), 'turn', 1, might).values()) == 2
+    assert sum(scored(tac('display-of-might'), 'opp_turn', 1, might).values()) == 5
+
+
+def test_forward_position_and_assassination():
+    assert scored(tac('forward-position'), 'turn', 2, ctx(red=[EAST, WEST], held_expansions_all=True))
+    assert scored(tac('forward-position'), 'turn', 2, ctx(red=[HOME_BLUE]))
+    assert not scored(tac('forward-position'), 'turn', 2, ctx(red=[EAST]))
+    assert scored(tac('assassination'), 'any_turn', 3, ctx(all_enemy_characters_dead=True))

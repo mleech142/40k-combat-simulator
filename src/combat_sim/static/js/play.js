@@ -364,22 +364,50 @@
                 place a marker in each of ${Math.min(5, m.locate_options.length)} terrain areas outside your deployment zone (named on the board).
                 ${m.locate_options.map(id => `<label><input type="checkbox" data-locate="${escapeHtml(id)}"> Terrain area ${escapeHtml(id)}</label>`).join('')}
                 <button class="btn-small" id="locate-btn">Place markers</button></div>` : '';
+            const beacon = m.choice && m.choice.kind === 'beacon' && m.choice.player === i ? `<div class="play-mission-choice">
+                <strong>Beacon:</strong> choose your beacon unit.
+                <select class="filter-select" id="beacon-unit">${m.beacon_options.map(id => `<option value="${id}">${escapeHtml(name(id))}</option>`).join('')}</select>
+                <button class="btn-small" id="beacon-btn">Choose</button></div>` : '';
+            const tempting = m.choice && m.choice.kind === 'tempting' && m.choice.player === i ? `<div class="play-mission-choice">
+                <strong>A Tempting Target:</strong> choose ${escapeHtml(game.state.players[m.choice.for].name)}'s tempting target (an objective in No Man's Land).
+                <select class="filter-select" id="tempting-objective">${m.tempting_options.map(id => `<option value="${id}">${escapeHtml(id)}</option>`).join('')}</select>
+                <button class="btn-small" id="tempting-btn">Choose</button></div>` : '';
             const condemned = m.condemned[String(i)] || [];
             const choosing = m.choice && m.choice.player === i && m.condemn_options;
             const choice = choosing ? `<div class="play-mission-choice"><strong>Punishment:</strong>
                 ${m.condemn_options.any ? 'no enemy unit qualifies, so condemn any one.' : 'condemn 1 to 3 enemy units within range of objectives or that destroyed one of yours last turn.'}
                 ${m.condemn_options.units.map(id => `<label><input type="checkbox" data-condemn="${escapeHtml(id)}"> ${escapeHtml(name(id))}</label>`).join('')}
                 <button class="btn-small" id="condemn-btn">Condemn</button></div>` : '';
-            return `<details class="play-mission-player ${PLAYER_CLASSES[i]}" ${turn.player === i || choosing || locating ? 'open' : ''}>
+            const asked = m.choice && m.choice.player === i;
+            return `<details class="play-mission-player ${PLAYER_CLASSES[i]}" ${turn.player === i || choosing || locating || asked ? 'open' : ''}>
                 <summary><strong>${escapeHtml(game.state.players[i].name)} · ${escapeHtml(p.name)}</strong>
                     <span class="play-mission-vp">${caps.total} VP</span></summary>
                 <p class="play-hint">${escapeHtml(p.disposition)} · this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
                     · primary ${caps.primary}/${caps.gameCap}</p>
-                ${choice}${locate}
+                ${choice}${locate}${beacon}${tempting}
                 ${condemned.length ? `<p class="play-hint">Condemned: ${condemned.map(id => escapeHtml(name(id))).join(', ')}</p>` : ''}
                 <ul class="play-mission-lines">${lines}</ul>
                 ${secondaryCards(m, i, turn)}</details>`;
         }).join('');
+        panel.querySelectorAll('[data-card-op]').forEach(b => b.addEventListener('click', async () => {
+            const result = await send({ type: 'tactical', player: Number(b.dataset.player), card: b.dataset.card, op: b.dataset.cardOp });
+            if (result) message(b.dataset.cardOp === 'redraw' || b.dataset.cardOp === 'redraw_cp' ? 'Card redrawn.' : 'Done.');
+        }));
+        panel.querySelectorAll('[data-guard]').forEach(select => select.addEventListener('change', async () => {
+            const player = Number(select.dataset.player);
+            const guards = Object.fromEntries([...panel.querySelectorAll(`[data-guard][data-player="${player}"]`)].map(s => [s.dataset.guard, s.value || null]));
+            if (await send({ type: 'set_guards', player, guards })) message('Guards set.');
+        }));
+        if ($('beacon-btn')) {
+            $('beacon-btn').addEventListener('click', async () => {
+                if (await send({ type: 'beacon', unit: $('beacon-unit').value })) message('Beacon chosen.');
+            });
+        }
+        if ($('tempting-btn')) {
+            $('tempting-btn').addEventListener('click', async () => {
+                if (await send({ type: 'tempting', objective: $('tempting-objective').value })) message('Tempting target chosen.');
+            });
+        }
         if ($('locate-btn')) {
             $('locate-btn').addEventListener('click', async () => {
                 const terrain = [...panel.querySelectorAll('[data-locate]:checked')].map(cb => cb.dataset.locate);
@@ -401,6 +429,7 @@
         if (!chosen) return '';
         if (!chosen.cards) return '<p class="play-hint">Secondary missions chosen: shown once both players have chosen.</p>';
         const caps = Core.playSecondaryCaps(m.vp[i], turn.round, m.secondary_caps);
+        if (chosen.mode === 'tactical') return tacticalCards(m, i, turn, chosen, caps);
         return `<p class="play-hint play-secondary-head">Secondary (${escapeHtml(chosen.mode)}) · ${caps.total} VP ·
                 this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''} · ${caps.total}/${caps.gameCap}</p>
             ${chosen.cards.map(c => `<div class="play-secondary-card"><strong>${escapeHtml(c.name)}</strong>
@@ -410,6 +439,47 @@
                     const badge = now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
                     return `<li><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
                 }).join('')}</ul></div>`).join('')}`;
+    }
+
+    /** A Tactical player's active cards: each line and what it would score now, Hold, discard at the end of
+     * your turn (+1CP), redraw (a just-drawn card's own rule) and the once-per-battle discard and draw (1CP). */
+    function tacticalCards(m, i, turn, chosen, caps) {
+        const game = state.game;
+        const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
+        const myTurn = turn.player === i, command = myTurn && turn.phase === 'command';
+        const cards = chosen.cards.map(c => {
+            const lines = c.lines.map(line => {
+                const now = (m.now[i] || {})[line.id];
+                const badge = now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
+                return `<li><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
+            }).join('');
+            const extra = c.short === 'beacon' && chosen.beacon ? `<p class="play-hint">Beacon: ${escapeHtml(name(chosen.beacon))}</p>`
+                : c.short === 'a-tempting-target' && chosen.tempting ? `<p class="play-hint">Tempting target: ${escapeHtml(chosen.tempting)}</p>`
+                : c.short === 'burden-of-trust' ? guardsControls(m, i, chosen) : '';
+            const buttons = [
+                `<button class="btn-small ${c.hold ? 'active' : ''}" data-card-op="${c.hold ? 'unhold' : 'hold'}" data-card="${c.short}" data-player="${i}"
+                    title="A held card isn't scored (or discarded) until you let it go">${c.hold ? 'Held' : 'Hold'}</button>`,
+                myTurn ? `<button class="btn-small ${c.discard ? 'active' : ''}" data-card-op="${c.discard ? 'keep' : 'discard'}" data-card="${c.short}" data-player="${i}"
+                    title="Discard it at the end of your turn, for 1CP">${c.discard ? 'Discarding (+1CP)' : 'Discard at end of turn'}</button>` : '',
+                command && c.redraw ? `<button class="btn-small" data-card-op="redraw" data-card="${c.short}" data-player="${i}" title="${escapeHtml(c.redraw)}">Redraw</button>` : '',
+                command && !chosen.redraw_used ? `<button class="btn-small" data-card-op="redraw_cp" data-card="${c.short}" data-player="${i}"
+                    title="Once per battle: discard it and draw a new card">Discard &amp; draw (1CP)</button>` : '',
+            ].join('');
+            return `<div class="play-secondary-card ${c.hold ? 'held' : ''}"><strong>${escapeHtml(c.name)}</strong>
+                <div class="play-card-buttons">${buttons}</div>${extra}<ul class="play-mission-lines">${lines}</ul></div>`;
+        }).join('');
+        return `<p class="play-hint play-secondary-head">Secondary (tactical) · ${caps.total} VP · this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
+                · ${caps.total}/${caps.gameCap} · deck ${chosen.deck}, discarded ${chosen.discarded}</p>
+            ${cards || '<p class="play-hint">No active cards: two are drawn at the start of your Command phase.</p>'}`;
+    }
+
+    /** Burden of Trust: which unit guards each objective (until the start of your next turn). */
+    function guardsControls(m, i, chosen) {
+        const game = state.game;
+        const units = game.state.units.filter(u => u.player === i && u.models.some(x => x.alive && x.position));
+        return `<div class="play-guards">${game.state.objectives.map(o => `<label>${escapeHtml(o.id)}
+            <select class="filter-select" data-guard="${o.id}" data-player="${i}"><option value="">nobody</option>${units.map(u =>
+                `<option value="${u.id}" ${chosen.guards[o.id] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}</select></label>`).join('')}</div>`;
     }
 
     /** The setup bar: the mission sequence's next step (central objective roll, roll-off, attacker or defender). */
@@ -444,15 +514,16 @@
                 ? `<div class="${PLAYER_CLASSES[i]}"><strong>${escapeHtml(pl.name)}</strong>: chosen</div>`
                 : `<div class="${PLAYER_CLASSES[i]}" data-choose="${i}"><strong>${escapeHtml(pl.name)}</strong>
                     <label><input type="radio" name="mode-${i}" value="fixed" checked> Fixed</label>
-                    <label class="play-mission-later"><input type="radio" name="mode-${i}" value="tactical" disabled> Tactical (comes later)</label>
+                    <label><input type="radio" name="mode-${i}" value="tactical"> Tactical (draw 2 each Command phase)</label>
                     ${m.secondary_options.map(c => `<label title="${escapeHtml(c.lines.map(l => l.text).join(' / '))}">
                         <input type="checkbox" data-card="${c.key}"> ${escapeHtml(c.name)}</label>`).join('')}
-                    <button class="btn-small" data-lock="${i}">Lock in ${most} for ${escapeHtml(pl.name)}</button></div>`).join('')}</div>`;
+                    <button class="btn-small" data-lock="${i}">Lock in for ${escapeHtml(pl.name)}</button></div>`).join('')}</div>`;
         $('setup-bar').querySelectorAll('[data-lock]').forEach(button => button.addEventListener('click', async () => {
             const box = $('setup-bar').querySelector(`[data-choose="${button.dataset.lock}"]`);
-            const cards = [...box.querySelectorAll('[data-card]:checked')].map(cb => cb.dataset.card);
-            if (cards.length !== most) return message(`Choose ${most} secondary missions.`, true);
-            if (await send({ type: 'choose_secondaries', player: Number(button.dataset.lock), mode: 'fixed', cards })) {
+            const mode = box.querySelector(`[name="mode-${button.dataset.lock}"]:checked`).value;
+            const cards = mode === 'fixed' ? [...box.querySelectorAll('[data-card]:checked')].map(cb => cb.dataset.card) : [];
+            if (mode === 'fixed' && cards.length !== most) return message(`Choose ${most} Fixed secondary missions.`, true);
+            if (await send({ type: 'choose_secondaries', player: Number(button.dataset.lock), mode, cards })) {
                 const now = state.game.state.turn;
                 message(now.phase === 'deployment' ? `Secondary missions revealed. ${state.game.state.players[now.player].name} is the defender and deploys first.`
                     : `${game.state.players[button.dataset.lock].name}'s secondary missions are locked in.`);
@@ -988,11 +1059,12 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
-                    && (e.rolls.length || (e.vp && e.vp.length) || (e.actions && e.actions.length) || (e.markers_removed && e.markers_removed.length)))).reverse() : [];
+                    && (e.rolls.length || (e.vp && e.vp.length) || (e.actions && e.actions.length) || (e.markers_removed && e.markers_removed.length)
+                        || e.drawn || (e.discards && e.discards.length)))).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
             return;
@@ -1050,7 +1122,7 @@
             case 'choose_secondaries': {
                 const options = Object.fromEntries(((state.game.mission || {}).secondary_options || []).map(c => [c.key, c.name]));
                 const revealed = event.revealed ? ' · revealed: ' + Object.entries(event.revealed).map(([p, s]) =>
-                    `${state.game.state.players[p].name}: ${s.cards.map(k => options[k] || k).join(', ')}`).join(' · ') : '';
+                    `${state.game.state.players[p].name}: ${s.mode === 'tactical' ? 'Tactical' : s.cards.map(k => options[k] || k).join(', ')}`).join(' · ') : '';
                 return `<strong>${player(a.player)}</strong> chose their secondary missions${escapeHtml(revealed)}`;
             }
             case 'start_action': {
@@ -1058,6 +1130,15 @@
                 return `${escapeHtml(name(s.unit))} started <strong>${escapeHtml(actionName(s.action))}</strong> on ${escapeHtml(s.target)}${event.action_completed ? ': done' : ''}`
                     + markersRemoved(event);
             }
+            case 'tactical': {
+                const what = { hold: 'is holding', unhold: 'let go of', discard: 'will discard', keep: 'will keep',
+                               redraw: 'redrew', redraw_cp: 'paid 1CP to discard' }[event.op] || event.op;
+                return `<strong>${player(event.player)}</strong> ${what} ${escapeHtml(event.card)}${event.drew ? `, drawing ${escapeHtml(event.drew)}` : ''}`;
+            }
+            case 'beacon':
+                return `<strong>${player(event.player)}</strong>'s beacon unit: ${escapeHtml(name(event.beacon))}`;
+            case 'tempting':
+                return `<strong>${player(event.player)}</strong> chose ${escapeHtml(state.game.state.players[event.for].name)}'s tempting target: ${escapeHtml(event.tempting)}`;
             case 'place_markers':
                 return `<strong>${player(event.markers_placed.player)}</strong> placed Locate and Deny markers in ${escapeHtml(event.markers_placed.terrain.join(', '))}`;
             case 'condemn':
@@ -1081,6 +1162,12 @@
                     const hurt = h.mortal_wounds ? `${h.mortal_wounds} mortal wound${h.mortal_wounds === 1 ? '' : 's'}` : 'no harm';
                     const dead = h.killed.length ? `, ${h.killed.length} model${h.killed.length === 1 ? '' : 's'} lost` : '';
                     lines.push(`<strong>${escapeHtml(h.name)}</strong> ${escapeHtml(h.reason)} hazard rolls: ${dice(event.rolls[h.rolls[0]])}: ${hurt}${dead}`);
+                }
+                if (event.drawn) {
+                    lines.push(`<strong>${escapeHtml(state.game.state.players[event.drawn.player].name)}</strong> drew ${escapeHtml(event.drawn.cards.join(' and ') || 'nothing')}`);
+                }
+                for (const d of event.discards || []) {
+                    lines.push(`<strong>${escapeHtml(state.game.state.players[d.player].name)}</strong> discarded ${escapeHtml(d.cards.join(', '))} for ${d.cp}CP`);
                 }
                 for (const a of event.actions || []) {
                     lines.push(`${escapeHtml(name(a.unit))}: <strong>${escapeHtml(actionName(a.action))}</strong> ${escapeHtml(a.result)} (${escapeHtml(a.target)})`);

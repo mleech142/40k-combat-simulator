@@ -9,7 +9,7 @@ from flask import current_app, jsonify, render_template, request
 
 from .. import armies
 from ..models import SavedArmy, SavedBattlefield, SavedGame, db
-from . import battlefields, mission_state, missions
+from . import battlefields, mission_state, missions, tactical
 from .dice import Dice
 from ..settings import update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
@@ -56,12 +56,24 @@ def mission_response(state):
     secondaries = []
     for player in (0, 1):
         mine = chosen.get(str(player))
-        secondaries.append(None if not mine else {'mode': mine['mode'], 'chosen': True,
-                                                  'cards': [described(missions.secondary(k)) for k in mine['cards']] if revealed else None})
+        if not mine:
+            secondaries.append(None)
+        elif mine['mode'] == 'tactical':
+            deck = tactical.mine(state, player) or {}
+            secondaries.append({'mode': 'tactical', 'chosen': True, 'deck': len(deck.get('deck', [])),
+                                'discarded': len(deck.get('discarded', [])), 'redraw_used': deck.get('redraw_used', False),
+                                'beacon': deck.get('beacon'), 'tempting': deck.get('tempting'), 'guards': deck.get('guards', {}),
+                                'cards': [dict(described(missions.tactical(c['key'])), hold=c['hold'], discard=c['discard'],
+                                               redraw=c['redraw'], short=c['key'])
+                                          for c in deck.get('active', [])] if revealed else None})
+        else:
+            secondaries.append({'mode': mine['mode'], 'chosen': True,
+                                'cards': [described(missions.secondary(k)) for k in mine['cards']] if revealed else None})
     now = []
     for player, key in enumerate(mission['primaries']):
         context = mission_state.context(state, player)
         keys = [key] + ((chosen.get(str(player)) or {}).get('cards', []) if revealed else [])
+        keys += [missions.TACTICAL_PREFIX + k for k in tactical.active_keys(state, player)] if revealed else []
         now.append({line_id: {'vp': vp, 'how': how} for k in keys for line_id, (vp, how) in missions.preview(k, context).items()})
     return {'primaries': primaries, 'secondaries': secondaries, 'now': now,
             'secondary_options': [described(missions.secondary(k)) for k in missions.SECONDARIES],
@@ -71,6 +83,10 @@ def mission_response(state):
                                'card': missions.FIXED_CARD_CAP, 'cards': missions.FIXED_CARDS},
             'condemned': mission['condemned'], 'choice': mission['choice'], 'condemn_options': mission_state.condemn_options(state),
             'markers': mission.get('markers', []), 'actions': mission.get('actions', []),
+            'beacon_options': tactical._own_units(state, mission['choice']['player'])
+            if (mission.get('choice') or {}).get('kind') == 'beacon' else None,
+            'tempting_options': tactical.tempting_options(state, mission['choice']['for'])
+            if (mission.get('choice') or {}).get('kind') == 'tempting' else None,
             'locate_options': mission_state.locate_options(state, mission['choice']['player'])
             if (mission.get('choice') or {}).get('kind') == 'locate' else None}
 

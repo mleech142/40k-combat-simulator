@@ -16,7 +16,7 @@ from dataclasses import asdict
 from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
-from . import battlefields, mission_state
+from . import battlefields, mission_state, tactical
 from .geometry import clear_line
 from .geometry import footprint as footprint_shape
 from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, hull_shape,
@@ -149,7 +149,11 @@ def resolve_action(state, action, dice):
                 'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False),
                 'roll_objectives': lambda s: _roll_objectives(s, dice), 'roll_off': lambda s: _roll_off_roles(s, dice),
                 'choose_role': lambda s: _choose_role(s, action), 'condemn': lambda s: mission_state.condemn(s, action),
-                'choose_secondaries': lambda s: mission_state.choose_secondaries(s, action),
+                'choose_secondaries': lambda s: mission_state.choose_secondaries(s, action, dice),
+                'tactical': lambda s: tactical.card_action(s, action, dice),
+                'beacon': lambda s: tactical.choose_beacon(s, action),
+                'tempting': lambda s: tactical.choose_tempting(s, action),
+                'set_guards': lambda s: tactical.set_guards(s, action),
                 'start_action': lambda s: mission_state.start_action(s, action),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
@@ -351,8 +355,16 @@ def _change_phase(state, dice, report):
             turn['step'] = 'pile_in'
         return
     mission_state.complete_actions(state, report)  # The end of the turn: actions complete, then scoring
-    mission_state.score(state, 'turn', [turn['player']], report)
-    mission_state.score(state, 'any_turn', [turn['player'], 1 - turn['player']], report)
+    # Each player scores, the player whose turn it is first; then they may discard Tactical cards for 1CP
+    active, other = turn['player'], 1 - turn['player']
+    last = turn['round'] >= BATTLE_ROUNDS and active != first_player(state)  # This turn ends battle round 5
+    mission_state.score(state, 'turn', [active], report)
+    mission_state.score(state, 'any_turn', [active], report)
+    if last:
+        mission_state.score(state, 'r5_end', [active], report)
+    mission_state.score(state, 'any_turn', [other], report)
+    mission_state.score(state, 'opp_turn', [other], report)
+    tactical.end_of_turn_discards(state, report)
     if turn['player'] == first_player(state):
         _start_turn(state, turn['round'], 1 - turn['player'], dice, report)
     elif turn['round'] >= BATTLE_ROUNDS:
@@ -388,7 +400,7 @@ def _start_turn(state, round_number, player, dice, report):
             status['shocked'] = total < leadership
             report['battle_shock'].append({'unit': unit['id'], 'name': unit['name'], 'total': total, 'leadership': leadership,
                                            'shocked': status['shocked'], 'was_shocked': was, 'rolls': [first, len(dice.log)]})
-    mission_state.start_turn(state)
+    mission_state.start_turn(state, dice, report)
 
 
 def _phase_id(turn):

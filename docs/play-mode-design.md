@@ -279,7 +279,13 @@ Agreed October 2026, after reading the 11th edition core rules and the 2026-27 m
    - **Consecrate** is automatic at the end of your turn: each consecration unit marks an unconsecrated objective in range (not your home), your opponent's home objective first.
    - **Page:** a "Mission actions" section for the selected unit in your Shooting phase (each action, its target, or why not); markers on the board in their owner's colour with a letter; starts, completions and removed markers in the log.
    - The Tactical cards' actions (Plunder, Cleanse) come with the Tactical deck (step 6).
-6. **Tactical secondaries.**
+6. *Done:* **Tactical secondaries** (`missions.TACTICAL`, `play/tactical.py`). Agreed and built October 2026, from the deck's wording:
+   - **The deck:** choosing Tactical shuffles the 18 cards (game dice' generator; the order is kept in the game). At the start of each of your Command phases you draw two; there is no hand limit and cards stay active until scored or discarded. Scoring a Tactical card discards it (no 20VP card limit; the 15-a-round and 45-a-game secondary limits apply).
+   - **Hold:** scoring is automatic, but each active card has a Hold toggle (a held card isn't scored or discarded), for cards worth more later (Display of Might: 2VP at the end of your turn, 5VP at the end of your opponent's).
+   - **When drawn:** Plunder / Cleanse (the other active), A Grievous Blow (no enemy unit of 13+), Bring It Down (no enemy model of 10+ wounds), Forward Position and Behind Enemy Lines (round 1) offer a Redraw for that Command phase; Defend Stronghold drawn in round 1 is redrawn without asking. Beacon (your unit) and A Tempting Target (your opponent picks an objective in No Man's Land) are required choices (`mission['choice']` with a queue); Burden of Trust's guards start as a unit in range of each objective and can be changed.
+   - **CP:** cards marked during your turn are discarded at the end of it, after scoring, for 1CP in all; once per battle in your Command phase, 1CP discards a card and draws another.
+   - **Timings** added: the end of your opponent's turn, and "that or the end of round 5" (the second player's own turn in round 5). At the end of a turn the player whose turn it is scores first.
+   - **Readings:** No Man's Land is outside both deployment zones; "not within your territory" means no part within it; Forward Position is your opponent's home objective or every expansion objective; Assassination (Tactical) also scores once every enemy Character is dead. Plunder and Cleanse are actions while their card is active.
 7. **Twists.**
 
 ## Open questions
