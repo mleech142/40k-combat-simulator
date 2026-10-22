@@ -984,6 +984,12 @@
         return tags;
     }
 
+    /** What a mission line is worth, for its VP chip: {amount: '+3', each, note: '3VP each, up to 5VP a turn'}. */
+    function playLineVp(line) {
+        const note = `${line.vp}VP${line.each ? ' each' : ''}${line.turn_cap ? `, up to ${line.turn_cap}VP a turn` : ''}`;
+        return { amount: `+${line.vp}`, each: !!line.each, note };
+    }
+
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
         if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
@@ -999,7 +1005,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

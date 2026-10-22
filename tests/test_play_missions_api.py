@@ -44,6 +44,8 @@ def test_a_game_on_the_pairings_layout_with_its_missions(client):
     assert [p['name'] for p in mission['primaries']] == ['Unstoppable Force', 'Immovable Object']
     first = mission['primaries'][0]['lines'][0]
     assert (first['text'], first['timing'], first['needs']) == ('Destroy an enemy unit this turn', 'End of your turn', None)
+    # What each line is worth: a set amount, or that much for each one (each objective held here)
+    assert [(line['vp'], line['each']) for line in mission['primaries'][0]['lines']] == [(3, False), (4, True), (3, False), (5, False)]
     assert mission['caps'] == {'round': 15, 'game': 45} and game['score'] == [0, 0]
     assert set(mission['now'][0]) == {line['id'] for line in mission['primaries'][0]['lines'] if not line['needs']}
     randomly = client.post('/api/play/games', json={'armies': [red, blue], 'battlefield': 'pairing:random'}).get_json()

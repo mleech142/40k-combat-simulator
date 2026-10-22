@@ -211,3 +211,16 @@
 .play-tag.destroyed { border-color: var(--error); color: var(--error); text-transform: uppercase; }
 .play-unit.destroyed { opacity: 0.45; }
 .play-unit.destroyed .play-unit-name { text-decoration: line-through; }
+
+/* The score header stands apart from the missions below it */
+.play-army-head { border-bottom: 2px solid color-mix(in srgb, var(--player) 70%, transparent); }
+
+/* Mission lines: what each is worth on the left, then the condition and when it scores */
+.play-mission-lines li { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto; column-gap: 0.5rem; align-items: start; }
+.play-mission-lines li > span:first-child { flex: none; }
+.play-mission-lines li > small { grid-column: 2 / -1; }
+.play-line-vp { grid-row: span 2; display: flex; flex-direction: column; align-items: center; justify-content: center; align-self: start; min-height: 1.9rem;
+    padding: 0.15rem 0; border-radius: 6px; font-size: 0.9rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums;
+    color: var(--text-primary); background: color-mix(in srgb, var(--player) 22%, var(--bg-tertiary));
+    border: 1px solid color-mix(in srgb, var(--player) 50%, var(--border)); }
+.play-line-vp small { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }

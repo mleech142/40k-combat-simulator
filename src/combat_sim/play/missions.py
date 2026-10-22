@@ -587,6 +587,11 @@ def card(key):
     return primary(key) if key in PRIMARIES else secondary(key)
 
 
+def scores_each(entry):
+    """Whether a line scores its VP for each one (objective held, unit destroyed...) rather than once."""
+    return (entry['score'] or '').startswith('per_')
+
+
 def timing(entry):
     """When a line scores, for people: 'End of your turn · rounds 2-5' and so on."""
     when = {'turn': 'End of your turn', 'any_turn': 'End of every turn', 'battle': 'End of the battle',

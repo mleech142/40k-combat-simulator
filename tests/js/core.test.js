@@ -625,6 +625,12 @@ test('playUsableNow offers stratagems for the current phase (any phase when the 
     assert.deepEqual(Core.playUsableNow(entries, 'deployment'), []);
 });
 
+test('playLineVp says what a mission line is worth', () => {
+    assert.deepEqual(Core.playLineVp({ vp: 3, each: false, turn_cap: null }), { amount: '+3', each: false, note: '3VP' });
+    assert.deepEqual(Core.playLineVp({ vp: 2, each: true, turn_cap: null }), { amount: '+2', each: true, note: '2VP each' });
+    assert.deepEqual(Core.playLineVp({ vp: 4, each: true, turn_cap: 5 }), { amount: '+4', each: true, note: '4VP each, up to 5VP a turn' });
+});
+
 test('playResult says who won once the battle is over', () => {
     const players = [{ name: 'Red' }, { name: 'Blue' }];
     assert.equal(Core.playResult(players, [60, 120], { phase: 'ended' }), 'Game over: Blue wins, 120 to 60');

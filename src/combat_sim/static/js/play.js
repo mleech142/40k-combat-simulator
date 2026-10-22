@@ -486,7 +486,7 @@
                 const now = (m.now[i] || {})[line.id];
                 const badge = line.needs ? '<span class="play-mission-later">comes with actions</span>'
                     : now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
-                return `<li class="${line.needs ? 'later' : ''}"><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
+                return `<li class="${line.needs ? 'later' : ''}">${vpChip(line)}<span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
             }).join('');
             const locating = m.choice && m.choice.kind === 'locate' && m.choice.player === i;
             const locate = locating ? `<div class="play-mission-choice"><strong>Locate and Deny:</strong>
@@ -549,6 +549,12 @@
         }
     }
 
+    /** A mission line's VP chip: what it's worth, and "each" when it scores per objective, unit and so on. */
+    function vpChip(line) {
+        const worth = Core.playLineVp(line);
+        return `<span class="play-line-vp" title="${escapeHtml(worth.note)}">${worth.amount}${worth.each ? '<small>each</small>' : ''}</span>`;
+    }
+
     /** A player's secondary missions in the Mission panel: each card's lines and VP against its cap. */
     function secondaryCards(m, i, turn) {
         const chosen = m.secondaries && m.secondaries[i];
@@ -563,7 +569,7 @@
                 <ul class="play-mission-lines">${c.lines.map(line => {
                     const now = (m.now[i] || {})[line.id];
                     const badge = now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
-                    return `<li><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
+                    return `<li>${vpChip(line)}<span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
                 }).join('')}</ul></div>`).join('')}</div>`;
     }
 
@@ -577,7 +583,7 @@
             const lines = c.lines.map(line => {
                 const now = (m.now[i] || {})[line.id];
                 const badge = now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
-                return `<li><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
+                return `<li>${vpChip(line)}<span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
             }).join('');
             const extra = c.short === 'beacon' && chosen.beacon ? `<p class="play-hint">Beacon: ${escapeHtml(name(chosen.beacon))}</p>`
                 : c.short === 'a-tempting-target' && chosen.tempting ? `<p class="play-hint">Tempting target: ${escapeHtml(chosen.tempting)}</p>`

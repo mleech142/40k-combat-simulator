@@ -48,7 +48,8 @@ def mission_response(state):
     def described(card):
         return {'key': card['key'], 'name': card['name'],
                 'lines': [{'id': entry['id'], 'text': entry['text'], 'timing': missions.timing(entry),
-                           'needs': entry['needs'], 'either': entry['either']} for entry in card['lines']]}
+                           'needs': entry['needs'], 'either': entry['either'], 'vp': entry['vp'],
+                           'each': missions.scores_each(entry), 'turn_cap': entry['turn_cap']} for entry in card['lines']]}
 
     # Each player's own force disposition (a twist can give them another disposition's primary)
     primaries = [dict(described(missions.primary(key)),
