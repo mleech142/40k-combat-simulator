@@ -11,10 +11,10 @@ Tick each item when the engine matches (with a test).
 
 ## Main mismatches
 
-- [ ] **One stratagem per unit per phase** (15.01): a player can't target the same unit with more than one
+- [x] **One stratagem per unit per phase** (15.01): a player can't target the same unit with more than one
   stratagem in a phase. The engine only stops each stratagem being used twice in a phase.
-- [ ] **Ordered Retreat** (09.07): a unit that Falls Back while not battle-shocked takes a battle-shock roll
-  afterwards. The engine has no roll.
+- [x] **Ordered Retreat** (09.07): a unit that Falls Back while not battle-shocked takes a battle-shock roll
+  afterwards. The engine rolls it as the Movement phase ends (moves can be redone until then).
 - [ ] **Fights First from datasheets** (24.13): a unit whose models all have Fights First fights in the Fights
   First step, as charging units do. The engine only gives it to units that charged.
 - [ ] **Fight eligibility and overrun fights** (12.04, 12.06): units that charged this turn, or were engaged when

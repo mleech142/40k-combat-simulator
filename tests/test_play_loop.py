@@ -114,6 +114,21 @@ def test_battle_shocked_units_fall_back_by_desperate_escape():
     assert [m['wounds_left'] for m in unit_by_id(state, 'p1-squad')['models']] == [2, 2, 1]
 
 
+def test_a_unit_that_falls_back_in_ordered_retreat_takes_a_battle_shock_roll():
+    """Core rules 09.07: a unit that Falls Back while not battle-shocked (Ordered Retreat) makes a battle-shock roll
+    afterwards; the game rolls it as the Movement phase ends, before control of objectives is settled."""
+    squad = (model('Squad', 3, 2), *row(10, 6))
+    mob = (model('Mob', 3), *row(10, 8.5))
+    for faces, shocked in (((3, 2), True), ((4, 3), False)):  # Leadership 7+ (the default)
+        state = battle([squad], [mob], phase='movement')
+        back = [(10, 2), (11.5, 2), (13, 2)]
+        state, _ = act(state, {'type': 'move', 'unit': 'p1-squad', 'mode': 'fall_back',
+                               'models': [{'id': f'p1-squad-0-{i + 1}', 'x': x, 'y': y} for i, (x, y) in enumerate(back)]})
+        state, event = act(state, {'type': 'next_phase'}, *faces)
+        assert [(b['name'], b['total'], b['shocked'], b['reason']) for b in event['battle_shock']] == [('Squad', sum(faces), shocked, 'Ordered Retreat')]
+        assert unit_by_id(state, 'p1-squad')['status']['shocked'] is shocked
+
+
 # --- Hazard rolls (11th edition) --------------------------------------------------------------------------
 
 def test_hazardous_weapons_fail_on_1_or_2_and_cost_the_unit_a_mortal_wound():
@@ -181,6 +196,15 @@ def test_a_stratagem_spends_command_points_once_per_phase_and_its_effect_reaches
     assert shot['rolls'][0]['need'] == 2  # BS3+ improved by 1
     state, _ = act(state, {'type': 'next_phase'})
     assert unit_by_id(state, 'p1-gunner')['effects'] == []  # It lasted the phase
+
+
+def test_a_unit_can_be_targeted_by_one_stratagem_per_phase():
+    """Core rules 15.01: a player can't target the same unit with more than one stratagem in a phase."""
+    state, _ = act(shooting_game(cp=3), {'type': 'stratagem', 'player': 0, 'key': 'stratagem:1', 'unit': 'p1-gunner'})
+    assert 'one stratagem' in refused(state, {'type': 'stratagem', 'player': 0, 'key': 'stratagem:2', 'unit': 'p1-gunner'})
+    state, _ = act(state, {'type': 'next_phase'})  # Charge phase: a new phase
+    state, _ = act(state, {'type': 'stratagem', 'player': 0, 'key': 'stratagem:2', 'unit': 'p1-gunner'})
+    assert state['players'][0]['cp'] == 0
 
 
 def test_stratagems_need_the_command_points_and_cant_target_battle_shocked_units():

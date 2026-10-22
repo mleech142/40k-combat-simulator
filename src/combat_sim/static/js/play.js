@@ -1007,7 +1007,8 @@
                     : `<p class="play-hint">Select one of ${escapeHtml(pl.name)}'s units to use these on it.</p>`;
                 $(`army-strats-${p}`).innerHTML = `<div class="play-player-stratagems ${PLAYER_CLASSES[p]}">${hint}
                     ${usable.map(e => {
-                        const disabled = !selected || selected.player !== p || (e.kind === 'stratagem' && (e.cp > (pl.cp ?? 0)
+                        const targeted = selected && (selected.status || {}).stratagem_phase === phaseId(turn);  // One per unit per phase
+                        const disabled = !selected || selected.player !== p || (e.kind === 'stratagem' && (e.cp > (pl.cp ?? 0) || targeted
                             || Object.values(used).length && used[e.key] === phaseId(turn)));
                         return `<button class="play-stratagem ${e.kind}" data-use="${p}|${e.key}" ${disabled ? 'disabled' : ''}
                             title="${escapeHtml(e.text || '')}"><span>${escapeHtml(e.name)}</span>
@@ -1471,7 +1472,7 @@
                 for (const b of event.battle_shock || []) {
                     const outcome = b.shocked ? '<strong class="play-shock-bad">battle-shocked</strong>'
                         : b.was_shocked ? '<strong class="play-shock-good">recovers</strong>' : '<strong class="play-shock-good">holds</strong>';
-                    lines.push(`<strong>${escapeHtml(b.name)}</strong> battle-shock test: ${dice(event.rolls[b.rolls[0]])}
+                    lines.push(`<strong>${escapeHtml(b.name)}</strong> battle-shock test${b.reason ? ` (${escapeHtml(b.reason)})` : ''}: ${dice(event.rolls[b.rolls[0]])}
                         = ${b.total} (needs ${b.leadership}+): ${outcome}`);
                 }
                 for (const h of event.hazards || []) {

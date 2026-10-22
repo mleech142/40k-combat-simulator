@@ -356,6 +356,8 @@ def _next_phase(state, dice):
     """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate); effects that
     lasted until then end."""
     report = {'battle_shock': [], 'hazards': [], 'vp': []}  # Which units rolled and what scored, for the log
+    if state['turn']['phase'] == 'movement':
+        _fall_backs(state, dice, report)  # Before control is settled: a battle-shocked unit has no OC
     if state['turn']['phase'] in PHASES:
         update_control(state)  # The end of this phase (and, after the Fight phase, of the turn)
     _change_phase(state, dice, report)
@@ -376,8 +378,6 @@ def _change_phase(state, dice, report):
     if turn['phase'] == 'command':
         mission_state.require_no_choice(state)
         mission_state.score(state, 'command', [turn['player']], report)
-    if turn['phase'] == 'movement':
-        _desperate_escapes(state, dice, report)
     if turn['phase'] == 'fight' and turn.get('step') == 'pile_in':
         turn['step'] = 'fight'
         turn['fight'] = {'stage': 'fights_first', 'picker': turn['player']}
@@ -436,13 +436,20 @@ def _start_turn(state, round_number, player, dice, report):
     for unit in state['units']:
         status = unit.setdefault('status', {'shocked': False})
         if unit['player'] == player and _placed_shapes(unit) and (status['shocked'] or half_strength(unit)):
-            leadership = min(unit['parts'][m['part']]['stats'].get('leadership') or 7 for m in unit['models'] if m['alive'])
-            first, was = len(dice.log), status['shocked']
-            total = dice.roll_value('2D6', 'battle-shock')
-            status['shocked'] = total < leadership
-            report['battle_shock'].append({'unit': unit['id'], 'name': unit['name'], 'total': total, 'leadership': leadership,
-                                           'shocked': status['shocked'], 'was_shocked': was, 'rolls': [first, len(dice.log)]})
+            _battle_shock_roll(unit, dice, report)
     mission_state.start_turn(state, dice, report)
+
+
+def _battle_shock_roll(unit, dice, report, reason=None):
+    """2D6 against the unit's best Leadership: under it, the unit is battle-shocked; at or over it, it isn't (any more)."""
+    status = unit.setdefault('status', {'shocked': False})
+    leadership = min(unit['parts'][m['part']]['stats'].get('leadership') or 7 for m in unit['models'] if m['alive'])
+    first, was = len(dice.log), status['shocked']
+    total = dice.roll_value('2D6', 'battle-shock')
+    status['shocked'] = total < leadership
+    report['battle_shock'].append({'unit': unit['id'], 'name': unit['name'], 'total': total, 'leadership': leadership,
+                                   'shocked': status['shocked'], 'was_shocked': was, 'rolls': [first, len(dice.log)],
+                                   **({'reason': reason} if reason else {})})
 
 
 def _phase_id(turn):
@@ -494,12 +501,14 @@ def _player_entry(state, action, kind):
 def _stratagem(state, action):
     """
     Use a stratagem on one of the player's units (either player, any phase): it costs its CP, each
-    stratagem once per phase per player, and not on a battle-shocked unit. Its effect, if the app
-    reads one, lasts the phase; otherwise its text is logged for the players to apply.
+    stratagem once per phase per player, one stratagem per unit per phase (core rules 15.01), and not on
+    a battle-shocked unit. Its effect, if the app reads one, lasts the phase; otherwise its text is
+    logged for the players to apply.
     """
     _in_battle(state)
     player, entry, unit = _player_entry(state, action, 'stratagem')
-    if unit.get('status', {}).get('shocked'):
+    status = unit.setdefault('status', {'shocked': False})
+    if status.get('shocked'):
         raise ActionError(f'{unit["name"]} is battle-shocked: stratagems can\'t target it.')
     owner = state['players'][player]
     if owner.get('cp', 0) < entry['cp']:
@@ -507,8 +516,11 @@ def _stratagem(state, action):
     used = owner.setdefault('used', {})
     if used.get(entry['key']) == _phase_id(state['turn']):
         raise ActionError(f'{entry["name"]} has already been used this phase (once per phase).')
+    if status.get('stratagem_phase') == _phase_id(state['turn']):
+        raise ActionError(f'{unit["name"]} has already been targeted by a stratagem this phase (one stratagem per unit per phase).')
     owner['cp'] -= entry['cp']
     used[entry['key']] = _phase_id(state['turn'])
+    status['stratagem_phase'] = _phase_id(state['turn'])
     if entry.get('modifier'):
         _add_effect(state, unit, entry['name'], entry.get('applies_to'), entry.get('phase'), entry['modifier'], 'phase', 'stratagem')
     return {'stratagem': entry['name'], 'cp': entry['cp'], 'player': player, 'unit': unit['id'], 'text': entry.get('text', '')}
@@ -557,15 +569,22 @@ def half_strength(unit):
     return bool(alive) and alive[0]['wounds_left'] * 2 <= unit['parts'][alive[0]['part']]['stats']['wounds']
 
 
-def _desperate_escapes(state, dice, report):
-    """As the Movement phase ends, a battle-shocked unit that Fell Back (Desperate Escape) makes a hazard
-    roll for each of its models."""
+def _fall_backs(state, dice, report):
+    """
+    As the Movement phase ends (moves can be redone until then), each unit that Fell Back rolls for it
+    (core rules 09.07): a battle-shocked one (Desperate Escape) makes a hazard roll for each of its
+    models; any other (Ordered Retreat) makes a battle-shock roll.
+    """
     for unit in state['units']:
-        if unit['activity'].get('desperate') and unit['activity'].get('moved') == 'fall_back':
+        if unit['activity'].get('moved') != 'fall_back' or not _placed_shapes(unit):
+            continue
+        if unit['activity'].get('desperate'):
             first = len(dice.log)
             result = _hazard(state, unit, sum(m['alive'] for m in unit['models']), dice)
             report['hazards'].append({'unit': unit['id'], 'name': unit['name'], 'reason': 'Desperate Escape', **result,
                                       'rolls': [first, len(dice.log)]})
+        else:
+            _battle_shock_roll(unit, dice, report, 'Ordered Retreat')
 
 
 def _hazard(state, unit, rolls, dice):
