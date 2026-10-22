@@ -3,11 +3,13 @@ Play mode's page and API (/play, /api/play/...). A game is stored as its frozen 
 log (SavedGame); its state is always their replay, so a game reads the same however it was made.
 """
 
+import random
+
 from flask import current_app, jsonify, render_template, request
 
 from .. import armies
 from ..models import SavedArmy, SavedBattlefield, SavedGame, db
-from . import battlefields
+from . import battlefields, mission_state, missions
 from .dice import Dice
 from ..settings import update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
@@ -30,7 +32,38 @@ def game_response(saved):
                     'ready': ready_units(state),
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
                     'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},
-                    'manual_effects': [{'key': k, 'name': n, 'side': side} for k, (n, side, _) in MANUAL_EFFECTS.items()]})
+                    'manual_effects': [{'key': k, 'name': n, 'side': side} for k, (n, side, _) in MANUAL_EFFECTS.items()],
+                    'mission': mission_response(state)})
+
+
+def mission_response(state):
+    """The Mission panel's data: both primaries with their lines and timings, what each line would score
+    now, VP and the caps, and Punishment's condemned units and choice; None without missions."""
+    mission = state.get('mission')
+    if not mission:
+        return None
+    primaries = []
+    for key in mission['primaries']:
+        card = missions.primary(key)
+        primaries.append({'key': key, 'name': card['name'], 'disposition': missions.DISPOSITIONS[card['disposition']],
+                          'lines': [{'id': entry['id'], 'text': entry['text'], 'timing': missions.timing(entry),
+                                     'needs': entry['needs'], 'either': entry['either']} for entry in card['lines']]})
+    now = []
+    for player, key in enumerate(mission['primaries']):
+        context = mission_state.context(state, player)
+        now.append({line_id: {'vp': vp, 'how': how} for line_id, (vp, how) in missions.preview(key, context).items()})
+    return {'primaries': primaries, 'now': now, 'vp': [p.get('vp') or mission_state.new_vp() for p in state['players']],
+            'caps': {'round': missions.PRIMARY_ROUND_CAP, 'game': missions.PRIMARY_GAME_CAP},
+            'condemned': mission['condemned'], 'choice': mission['choice'], 'condemn_options': mission_state.condemn_options(state)}
+
+
+def pairing_layouts(first, second):
+    """The Event Companion layouts (A, B, C) for a pair of force dispositions (keys or names), in order."""
+    if not (first and second):
+        return []
+    pair = sorted(missions.BY_NAME.get(d, d) for d in (first, second))
+    return sorted((b for b in battlefields.BUILTIN.values() if b['kind'] == 'layout' and sorted(b['dispositions']) == pair),
+                  key=lambda b: b['layout'])
 
 
 def find_battlefield(key):
@@ -83,6 +116,15 @@ def register_play_routes(app):
             except armies.ArmyError as error:
                 return jsonify({'error': str(error)}), 400
         battlefield = None
+        if str(data.get('battlefield') or '').startswith('pairing:'):  # The two dispositions' Event Companion layout
+            layouts = pairing_layouts(frozen[0].get('disposition'), frozen[1].get('disposition'))
+            if not layouts:
+                return jsonify({'error': "Both armies need a force disposition to play their pairing's layouts."}), 400
+            letter = data['battlefield'].split(':', 1)[1]
+            chosen = random.choice(layouts) if letter == 'random' else next((b for b in layouts if b['layout'] == letter), None)
+            if chosen is None:
+                return jsonify({'error': 'Choose layout A, B or C.'}), 400
+            data = dict(data, battlefield=f'builtin:{chosen["id"]}')
         if data.get('battlefield'):
             battlefield = find_battlefield(data['battlefield'])
             if battlefield is None:
@@ -93,6 +135,22 @@ def register_play_routes(app):
         db.session.add(saved)
         db.session.commit()
         return game_response(saved)
+
+    @app.route('/api/play/matchup')
+    def api_matchup():
+        """For the new-game form: two saved armies' force dispositions, the primary missions they give, and
+        their pairing's Event Companion layouts."""
+        found = []
+        for army_id in request.args.getlist('armies')[:2]:
+            saved = db.session.get(SavedArmy, int(army_id)) if str(army_id).isdigit() else None
+            found.append(armies.price_army(saved.to_dict())['disposition'] if saved else None)
+        if len(found) != 2:
+            return jsonify({'error': 'Choose two saved armies.'}), 400
+        keys = [missions.primary_for(found[0], found[1]), missions.primary_for(found[1], found[0])] if all(found) else None
+        return jsonify({'dispositions': found,
+                        'primaries': [missions.primary(k)['name'] for k in keys] if keys and all(keys) else None,
+                        'layouts': [{'key': f'builtin:{b["id"]}', 'name': b['name'], 'layout': b['layout']}
+                                    for b in (pairing_layouts(*found) if all(found) else [])]})
 
     @app.route('/api/play/games/<int:game_id>')
     def api_get_game(game_id):

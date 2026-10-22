@@ -4,7 +4,7 @@ they join, enhancements and a Warlord, priced and checked. The Armies page sends
 every change (price_army) so the game rules stay in Python; Analytics takes a saved list as its
 attackers or defenders (`roster`).
 
-An army is {'name', 'faction_id', 'detachment_keys', 'points_limit', 'warlord', 'units': [{'uid',
+An army is {'name', 'faction_id', 'detachment_keys', 'points_limit', 'warlord', 'disposition', 'units': [{'uid',
 'unit_id', 'models', 'attached_to', 'enhancement', 'wargear'}]}. `wargear` is the unit's chosen
 options ({k: count}, see wargear.py; None = BSData's defaults). `uid` names an entry within the list (the
 same datasheet can be taken more than once); a leader's or support unit's `attached_to` is the
@@ -21,6 +21,7 @@ What is checked (an army that breaks a rule can still be saved; the problems are
 - leaders and support units: attached only to units their Leader / Support ability names, at
   most one leader and one support unit per unit;
 - a Warlord: one of the army's Characters;
+- the force disposition: one of its detachments' (the first, to be confirmed, when none is chosen);
 - enhancements: at most 2 at Incursion and 4 otherwise, each once, on Characters but not Epic
   Heroes, with their detachment chosen and their bearer allowed (BSData's own conditions:
   enhancement_hidden); Upgrades go on their own unit, up to three of the same, and don't count
@@ -88,7 +89,7 @@ def clean_army(data):
         raise ArmyError('detachment_keys must be a list.')
     keys = list(dict.fromkeys(str(k)[:40] for k in keys if k))  # Each detachment once, in order
     return {'name': name[:200], 'faction_id': faction_id, 'detachment_keys': keys, 'points_limit': limit,
-            'warlord': _short(data.get('warlord')), 'units': entries}
+            'warlord': _short(data.get('warlord')), 'disposition': _short(data.get('disposition')), 'units': entries}
 
 
 def clean_wargear(value):
@@ -285,6 +286,8 @@ def price_army(army):
     problems += check_copies(entries, units)
     warlord, warlord_problems = check_warlord(army, entries)
     problems += warlord_problems
+    disposition, options, disposition_problems = check_disposition(army, detachments)
+    problems += disposition_problems
     count, enhancement_problems = check_enhancements(entries, enhancements, army['points_limit'])
     problems += enhancement_problems
 
@@ -298,7 +301,9 @@ def price_army(army):
             'roster': roster(entries, enhancements), 'faction': faction.name if faction else None,
             'detachments': detachments, 'detachment': ', '.join(d['name'] for d in detachments) or None,
             'dp_total': sum(d['dp'] or 0 for d in detachments), 'dp_limit': dp_limit(limit), 'warlord': warlord,
-            'enhancement_count': count, 'enhancement_limit': enhancement_limit(limit)}
+            'enhancement_count': count, 'enhancement_limit': enhancement_limit(limit),
+            'disposition': disposition, 'disposition_options': options,
+            'disposition_unconfirmed': not army.get('disposition') and len(options) > 1}
 
 
 def check_attachments(entries, units):
@@ -350,6 +355,16 @@ def check_warlord(army, entries):
     if warlord is None and any(e['is_character'] for e in entries):
         return None, ['Choose a Warlord (one of your Characters).']
     return warlord, []
+
+
+def check_disposition(army, detachments):
+    """(the force disposition, the ones its detachments offer, problems): one of those offered; when none
+    is chosen yet (lists saved before dispositions), the first: the page asks to confirm it when there are several."""
+    options = list(dict.fromkeys(d for detachment in detachments for d in detachment['dispositions']))
+    chosen = army.get('disposition')
+    if chosen and chosen not in options:
+        return None, options, [f"{chosen} isn't a force disposition of this army's detachments."]
+    return chosen or (options[0] if options else None), options, []
 
 
 def check_enhancements(entries, enhancements, points_limit):

@@ -15,7 +15,7 @@ WEAPON_FIELDS = ('name', 'type', 'attacks', 'skill', 'strength', 'ap', 'damage',
 def freeze_army(army):
     """
     An army (the Armies page's form: name, faction_id, units, warlord, ...) as
-    {'name', 'faction', 'units': [{'uid', 'name', 'parts': [part, ...]}]}. A unit's first part is the
+    {'name', 'faction', 'disposition', 'units': [{'uid', 'name', 'parts': [part, ...]}]}. A unit's first part is the
     unit itself ('bodyguard' when others join it, else 'unit'); its leaders and support units follow.
     """
     army = armies.clean_army(army)
@@ -36,7 +36,7 @@ def freeze_army(army):
         parts = [_part(entry, role, catalogue, priced['warlord'])] + \
                 [_part(e, r, catalogue, priced['warlord']) for e, r in attached]
         units.append({'uid': entry['uid'], 'name': entry['name'], 'parts': parts})
-    return {'name': army['name'], 'faction': priced['faction'], 'units': units,
+    return {'name': army['name'], 'faction': priced['faction'], 'disposition': priced['disposition'], 'units': units,
             'stratagems': _stratagems(army), 'rules': _rules(army)}
 
 

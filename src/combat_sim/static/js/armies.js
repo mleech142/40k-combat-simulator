@@ -28,7 +28,7 @@
     document.addEventListener('DOMContentLoaded', init);
 
     function newArmy(factionId = null) {
-        return { id: null, name: '', faction_id: factionId, detachment_keys: [], points_limit: DEFAULT_LIMIT, warlord: null, units: [] };
+        return { id: null, name: '', faction_id: factionId, detachment_keys: [], points_limit: DEFAULT_LIMIT, warlord: null, disposition: null, units: [] };
     }
 
     function newUid() {
@@ -41,8 +41,11 @@
         $('army-faction').addEventListener('change', e => changeFaction(e.target.value ? parseInt(e.target.value) : null));
         $('army-detachments').addEventListener('change', () => {
             state.army.detachment_keys = [...$('army-detachments').querySelectorAll('input:checked')].map(cb => cb.dataset.key);
+            const offered = state.detachments.filter(d => state.army.detachment_keys.includes(d.key)).flatMap(d => d.dispositions || []);
+            if (!offered.includes(state.army.disposition)) state.army.disposition = null;  // Its detachment was unticked
             changed();
         });
+        $('army-disposition').addEventListener('change', e => { state.army.disposition = e.target.value || null; changed(); });
         $('army-limit').addEventListener('change', e => { state.army.points_limit = e.target.value ? parseInt(e.target.value) : null; changed(); });
         $('unit-search').addEventListener('input', renderPicker);
         $('unit-legends').addEventListener('change', loadFactionUnits);
@@ -138,6 +141,22 @@
         reprice();
     }
 
+    /** The force disposition: one of the chosen detachments' (it decides the primary mission in Play). */
+    function renderDisposition() {
+        const priced = state.priced;
+        const options = priced?.disposition_options || [];
+        $('army-disposition-row').hidden = !options.length;
+        $('army-disposition').innerHTML = options.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+        $('army-disposition').value = priced?.disposition || '';
+        $('army-disposition').disabled = options.length < 2;
+        const note = $('army-disposition-note');
+        note.innerHTML = priced?.disposition_unconfirmed
+            ? 'It decides your primary mission in Play. <button class="btn-small" id="army-disposition-confirm">Confirm</button>' : '';
+        if (priced?.disposition_unconfirmed) {
+            $('army-disposition-confirm').addEventListener('click', () => { state.army.disposition = priced.disposition; changed(); });
+        }
+    }
+
     async function reprice() {
         const request = ++priceRequest;
         if (!state.army.faction_id) {
@@ -179,6 +198,7 @@
         $('army-detachments-chosen').textContent = names.length ? names.join(' + ') : 'None chosen';
         $('army-dp').classList.toggle('over', !!dp?.over);
         renderDetachments();
+        renderDisposition();
 
         const problems = priced?.problems || [];
         $('army-problems').innerHTML = problems.map(p => `<li>${escapeHtml(p)}</li>`).join('');

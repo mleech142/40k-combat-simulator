@@ -3820,3 +3820,8 @@ h4 .fa-solid,
 @media (max-width: 1100px) {
     .play-layout { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Armies: the force disposition, beside the detachments */
+.army-disposition { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0; }
+.army-disposition label { font-weight: 600; }
+.army-disposition-note { color: var(--warning); font-size: 0.85rem; }

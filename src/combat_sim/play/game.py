@@ -16,7 +16,7 @@ from dataclasses import asdict
 from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
-from . import battlefields
+from . import battlefields, mission_state
 from .geometry import clear_line
 from .geometry import footprint as footprint_shape
 from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, hull_shape,
@@ -98,7 +98,7 @@ def new_game(armies, battlefield=None, roles=None, setup=False):
     for player, army in enumerate(armies):
         state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0,
                                  'stratagems': copy.deepcopy(army.get('stratagems', []) + army.get('rules', [])),
-                                 'used': {}})
+                                 'used': {}, 'vp': mission_state.new_vp(), 'disposition': army.get('disposition')})
         for unit in army['units']:
             unit_id = f'p{player + 1}-{unit["uid"]}'
             models = [{'id': f'{unit_id}-{part_index}-{n + 1}', 'part': part_index,
@@ -109,6 +109,7 @@ def new_game(armies, battlefield=None, roles=None, setup=False):
             state['units'].append({'id': unit_id, 'player': player, 'name': unit['name'],
                                    'parts': copy.deepcopy(unit['parts']), 'models': models, 'activity': {},
                                    'status': {'shocked': False}, 'effects': []})
+    state['mission'] = mission_state.new_mission(armies)  # None: no force dispositions, kill points instead
     return state
 
 
@@ -122,8 +123,9 @@ def _snapshot(state):
     return {'models': {m['id']: {k: m[k] for k in MODEL_FIELDS} for u in state['units'] for m in u['models']},
             'units': {u['id']: {'activity': u.get('activity', {}), 'status': u.get('status', {'shocked': False}),
                                 'effects': u.get('effects', [])} for u in state['units']},
-            'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0), 'used': p.get('used', {})}
-                        for p in state['players']],
+            'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0), 'used': p.get('used', {}),
+                         **({'vp': p['vp']} if 'vp' in p else {})} for p in state['players']],
+            'mission': state.get('mission'),
             'turn': state.get('turn'), 'pending': state.get('pending'), 'roles': state.get('roles'),
             'objectives': {o['id']: o.get('controller') for o in state.get('objectives', [])},
             'layout': [{k: v for k, v in o.items() if k != 'controller'} for o in state.get('objectives', [])]}
@@ -146,7 +148,7 @@ def resolve_action(state, action, dice):
                 'remove_effect': lambda s: _remove_effect(s, action), 'correction': lambda s: _correction(s, action),
                 'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False),
                 'roll_objectives': lambda s: _roll_objectives(s, dice), 'roll_off': lambda s: _roll_off_roles(s, dice),
-                'choose_role': lambda s: _choose_role(s, action)}
+                'choose_role': lambda s: _choose_role(s, action), 'condemn': lambda s: mission_state.condemn(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
         raise ActionError(f'Unknown action: {kind}')
@@ -158,6 +160,8 @@ def resolve_action(state, action, dice):
     state = copy.deepcopy(state)
     start = len(dice.log)
     detail = handlers[kind](state) or {}
+    alive_before = {u['id'] for u in state['units'] if any(before['models'][m['id']]['alive'] for m in u['models'])}
+    mission_state.log_destroyed(state, alive_before, action)
     after = _snapshot(state)
     event = {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]],
              'models': {k: v for k, v in after['models'].items() if v != before['models'][k]},
@@ -170,6 +174,8 @@ def resolve_action(state, action, dice):
         event['pending'] = after['pending']
     if after['roles'] != before['roles']:
         event['roles'] = after['roles']
+    if after['mission'] != before['mission']:
+        event['mission'] = after['mission']
     if after['layout'] != before['layout']:  # Objectives added, moved or changing hands (setup)
         event['layout'] = after['layout']
     changed = {k: v for k, v in after['objectives'].items() if before['objectives'].get(k) != v}
@@ -196,6 +202,8 @@ def apply_event(state, event):
         state['pending'] = copy.deepcopy(event['pending'])
     if 'roles' in event:
         state['roles'] = dict(event['roles'])
+    if 'mission' in event:
+        state['mission'] = copy.deepcopy(event['mission'])
     if 'layout' in event:
         held = {o['id']: o.get('controller') for o in state.get('objectives', [])}
         state['objectives'] = [dict(o, controller=held.get(o['id'])) for o in copy.deepcopy(event['layout'])]
@@ -230,6 +238,7 @@ def _end_deployment(state, dice):
         report['first_turn'] = _roll_off(dice, 'first turn')
         first = report['first_turn']['winner']
     state['roles'] = dict(state.get('roles') or {'attacker': 0, 'defender': 1}, first=first)
+    update_control(state)  # Who holds what as the battle begins
     _start_turn(state, 1, first, dice, report)
     _prune_effects(state)
     return {k: v for k, v in report.items() if v}
@@ -295,7 +304,7 @@ def _choose_role(state, action):
 def _next_phase(state, dice):
     """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate); effects that
     lasted until then end."""
-    report = {'battle_shock': [], 'hazards': []}  # Which units rolled, for the log
+    report = {'battle_shock': [], 'hazards': [], 'vp': []}  # Which units rolled and what scored, for the log
     if state['turn']['phase'] in PHASES:
         update_control(state)  # The end of this phase (and, after the Fight phase, of the turn)
     _change_phase(state, dice, report)
@@ -309,6 +318,9 @@ def _change_phase(state, dice, report):
         raise ActionError('The battle is over.')
     if turn['phase'] not in PHASES:
         raise ActionError('The battle has not started yet.')
+    if turn['phase'] == 'command':
+        mission_state.require_no_choice(state)
+        mission_state.score(state, 'command', [turn['player']], report)
     if turn['phase'] == 'movement':
         _desperate_escapes(state, dice, report)
     if turn['phase'] == 'fight' and turn.get('step') == 'pile_in':
@@ -328,9 +340,13 @@ def _change_phase(state, dice, report):
         turn['phase'] = PHASES[i + 1]
         if turn['phase'] == 'fight':
             turn['step'] = 'pile_in'
-    elif turn['player'] == first_player(state):
+        return
+    mission_state.score(state, 'turn', [turn['player']], report)  # The end of the turn
+    mission_state.score(state, 'any_turn', [turn['player'], 1 - turn['player']], report)
+    if turn['player'] == first_player(state):
         _start_turn(state, turn['round'], 1 - turn['player'], dice, report)
     elif turn['round'] >= BATTLE_ROUNDS:
+        mission_state.score(state, 'battle', [first_player(state), 1 - first_player(state)], report)
         state['turn'] = {'phase': 'ended', 'round': turn['round'], 'player': turn['player']}
     else:
         _start_turn(state, turn['round'] + 1, first_player(state), dice, report)
@@ -362,6 +378,7 @@ def _start_turn(state, round_number, player, dice, report):
             status['shocked'] = total < leadership
             report['battle_shock'].append({'unit': unit['id'], 'name': unit['name'], 'total': total, 'leadership': leadership,
                                            'shocked': status['shocked'], 'was_shocked': was, 'rolls': [first, len(dice.log)]})
+    mission_state.start_turn(state)
 
 
 def _phase_id(turn):
@@ -516,7 +533,10 @@ def _mortal_wounds(state, unit, count, dice):
 
 
 def score(state):
-    """Each player's kill points: the points of the enemy units they have destroyed."""
+    """Each player's VP when the game has missions, else their kill points (the points of the enemy units
+    they have destroyed)."""
+    if state.get('mission'):
+        return [mission_state.total(state, p) for p in (0, 1)]
     points = [0, 0]
     for unit in state['units']:
         if unit['models'] and not any(m['alive'] for m in unit['models']):
@@ -1547,7 +1567,8 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
 def _correction(state, action):
     """
     Propose a correction (either player, any time): models' wounds, whether they're alive and where
-    they are, and players' CP. Nothing else can happen until the other player accepts or declines it.
+    they are, players' CP, and VP to add to or take from a player's score. Nothing else can happen until
+    the other player accepts or declines it.
     """
     try:
         player = int(action.get('player'))
@@ -1583,9 +1604,16 @@ def _correction(state, action):
         if str(key) not in ('0', '1') or not isinstance(value, int) or value < 0:
             raise ActionError('Command points are a whole number for player 0 or 1.')
         cp[str(key)] = value
-    if not changes and not cp:
+    vp = {}
+    for key, value in (action.get('vp') or {}).items():
+        if str(key) not in ('0', '1') or not isinstance(value, int) or isinstance(value, bool):
+            raise ActionError('VP are a whole number (more or less) for player 0 or 1.')
+        if value:
+            vp[str(key)] = value
+    if not changes and not cp and not vp:
         raise ActionError('A correction must change something.')
-    state['pending'] = {'player': player, 'note': str(action.get('note') or '')[:300], 'models': changes, 'cp': cp}
+    state['pending'] = {'player': player, 'note': str(action.get('note') or '')[:300], 'models': changes, 'cp': cp,
+                        **({'vp': vp} if vp else {})}
 
 
 def _answer(state, action, accept):
@@ -1609,6 +1637,9 @@ def _answer(state, action, accept):
                     model['wounds_left'] = unit['parts'][model['part']]['stats']['wounds']
     for key, value in pending['cp'].items():
         state['players'][int(key)]['cp'] = value
+    for key, value in (pending.get('vp') or {}).items():
+        vp = state['players'][int(key)].setdefault('vp', mission_state.new_vp())
+        vp['adjust'] = vp.get('adjust', 0) + value
     return {'corrected': pending['note']}
 
 

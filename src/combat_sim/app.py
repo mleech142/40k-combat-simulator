@@ -1887,7 +1887,7 @@ def register_routes(app):
         saved = db.get_or_404(SavedArmy, army_id)
         copy = SavedArmy(name=f'{saved.name} (copy)'[:200], faction_id=saved.faction_id,
                          detachment_keys=saved.to_dict()['detachment_keys'], points_limit=saved.points_limit,
-                         warlord=saved.warlord,
+                         warlord=saved.warlord, disposition=saved.disposition,
                          units=list(saved.units or []))
         db.session.add(copy)
         db.session.commit()

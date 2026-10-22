@@ -597,6 +597,7 @@ class SavedArmy(db.Model):
     detachment_keys = db.Column(JSON, nullable=True)  # BSData detachment IDs
     points_limit = db.Column(db.Integer, nullable=True)  # None = no limit
     warlord = db.Column(db.String(40), nullable=True)  # The uid of the Warlord's entry
+    disposition = db.Column(db.String(40), nullable=True)  # Its force disposition (None: not chosen yet)
     # [{"uid", "unit_id", "models", "attached_to" (uid of the unit it joins, or null), "enhancement" (BSData ID)}]
     units = db.Column(JSON, nullable=False, default=list)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -605,7 +606,8 @@ class SavedArmy(db.Model):
     def to_dict(self):
         keys = self.detachment_keys if self.detachment_keys is not None else ([self.detachment_key] if self.detachment_key else [])
         return {'id': self.id, 'name': self.name, 'faction_id': self.faction_id, 'detachment_keys': keys,
-                'points_limit': self.points_limit, 'warlord': self.warlord, 'units': self.units or [],
+                'points_limit': self.points_limit, 'warlord': self.warlord, 'disposition': self.disposition,
+                'units': self.units or [],
                 'updated_at': (self.updated_at or self.created_at).isoformat() if (self.updated_at or self.created_at) else None}
 
 

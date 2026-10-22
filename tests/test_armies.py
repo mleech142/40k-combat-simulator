@@ -351,3 +351,30 @@ def test_enhancement_effects_in_the_matrix(client):
     # Bastion Ward: while its bearer leads the unit, that unit has a 4+ invulnerable save
     warded, _ = matrix([], defender_enhancements=[{'id': enhancements['Bastion Ward'], 'bearer': 'leader'}])
     assert warded['avg_damage'] < plain['avg_damage']
+
+
+# --- Force disposition ---------------------------------------------------------------------------
+
+def test_the_force_disposition_is_one_of_the_chosen_detachments(client):
+    factions, _ = ids(client)
+    both = price(client, army(factions, detachment_keys=['d-vanguard', 'd-bastion'], disposition='Take and Hold'))
+    assert both['disposition_options'] == ['Purge the Foe', 'Take and Hold']
+    assert (both['disposition'], both['disposition_unconfirmed']) == ('Take and Hold', False)
+    # Not chosen: the first, to be confirmed (as lists saved before dispositions open)
+    unset = price(client, army(factions, detachment_keys=['d-vanguard', 'd-bastion']))
+    assert (unset['disposition'], unset['disposition_unconfirmed']) == ('Purge the Foe', True)
+    wrong = price(client, army(factions, detachment_keys=['d-vanguard'], disposition='Disruption'))
+    assert wrong['disposition'] is None
+    assert "Disruption isn't a force disposition of this army's detachments." in wrong['problems']
+    none = price(client, army(factions, detachment_keys=[]))
+    assert (none['disposition'], none['disposition_options']) == (None, [])
+
+
+def test_the_force_disposition_is_saved_with_the_list(client):
+    factions, _ = ids(client)
+    created = client.post('/api/armies', json=army(factions, detachment_keys=['d-vanguard', 'd-bastion'],
+                                                   disposition='Take and Hold', name='Holders')).get_json()
+    assert created['disposition'] == 'Take and Hold'
+    assert client.get(f'/api/armies/{created["id"]}').get_json()['disposition'] == 'Take and Hold'
+    copy = client.post(f'/api/armies/{created["id"]}/copy').get_json()
+    assert copy['disposition'] == 'Take and Hold'
