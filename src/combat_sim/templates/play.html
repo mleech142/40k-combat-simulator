@@ -10,28 +10,37 @@
 <div class="play-layout play-layout-game" id="tab-games">
 
     <section class="card play-board-card">
-        <div class="play-toolbar">
-            <strong id="game-title">Choose or start a game</strong>
-            <span class="play-twist" id="twist-chip" hidden></span>
-            <span class="play-turn" id="turn-banner"></span>
-            <span class="play-scoreboard" id="scoreboard"></span>
-        </div>
-        <div class="play-subbar">
-            <span class="play-message" id="play-message" role="status"></span>
-            <div class="play-phases" id="phase-track" aria-label="Phases of this turn"></div>
-            <span class="play-toolbar-actions">
-                <button class="btn-small" id="phase-btn" hidden><i class="fa-solid fa-forward-step" aria-hidden="true"></i> <span>Next phase</span></button>
-                <button class="btn-small" id="correct-btn" hidden><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i> Correct the game</button>
-                <button class="btn-small" id="undo-btn" disabled><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Undo</button>
-                <button class="btn-small" id="fit-btn"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Fit board</button>
-            </span>
+        <div class="play-hud">
+            <div class="play-versus">
+                <div class="play-side play-p1" id="hud-side-0"></div>
+                <div class="play-scorebox">
+                    <div class="play-score" id="hud-score"></div>
+                    <div class="play-pips" id="hud-pips" title="Battle round"></div>
+                </div>
+                <div class="play-side play-p2 right" id="hud-side-1"></div>
+            </div>
+            <div class="play-steps">
+                <span class="play-steps-left"><strong id="game-title">Choose or start a game</strong>
+                    <span class="play-twist" id="twist-chip" hidden></span></span>
+                <div class="play-phases" id="phase-track" aria-label="Phases of this turn"></div>
+                <span class="play-turn" id="turn-banner"></span>
+                <span class="play-toolbar-actions">
+                    <button class="play-icon-btn" id="correct-btn" hidden title="Correct the game" aria-label="Correct the game"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i></button>
+                    <button class="play-icon-btn" id="undo-btn" disabled title="Undo" aria-label="Undo"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
+                    <button class="play-icon-btn" id="fit-btn" title="Fit board" aria-label="Fit board"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i></button>
+                </span>
+            </div>
+            <div class="play-message" id="play-message" role="status"></div>
         </div>
         <div class="play-pending" id="pending-bar" hidden></div>
         <div class="play-pending play-setup" id="setup-bar" hidden></div>
         <div class="play-pending play-place" id="place-bar" hidden></div>
         <div class="play-correction" id="correction-panel" hidden></div>
-        <svg id="play-board" class="play-board" xmlns="http://www.w3.org/2000/svg" role="img"
-             aria-label="The battlefield, seen from above"></svg>
+        <div class="play-board-wrap">
+            <svg id="play-board" class="play-board" xmlns="http://www.w3.org/2000/svg" role="img"
+                 aria-label="The battlefield, seen from above"></svg>
+            <button class="play-go" id="phase-btn" hidden><span>Next phase</span> <i class="fa-solid fa-forward-step" aria-hidden="true"></i></button>
+        </div>
         <div class="play-log">
             <h3>Dice</h3>
             <div id="dice-log"><p class="empty-message">No dice rolled yet</p></div>

@@ -448,8 +448,9 @@
         const result = game && Core.playResult(game.state.players, game.score, turn);
         if (result) banner = result;
         $('turn-banner').textContent = banner;
-        $('scoreboard').innerHTML = game && !['setup', 'deployment'].includes(turn.phase) ? game.state.players.map((pl, i) =>
-            `<span class="${PLAYER_CLASSES[i]}">${escapeHtml(pl.name)}: ${pl.cp ?? 0} CP · ${game.score[i]} ${game.mission ? 'VP' : 'pts'}</span>`).join('') : '';
+        // The banner says what the board above doesn't: setup, deployment, the result, and who picks in the Fight phase
+        $('turn-banner').hidden = !banner || (turn && !result && !['setup', 'deployment', 'fight'].includes(turn.phase));
+        renderHud();
         $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player] : ''}`;
         $('phase-btn').hidden = !game || turn.phase === 'ended' || setup;
         $('correct-btn').hidden = !game || ['setup', 'deployment'].includes(turn.phase);
@@ -657,6 +658,26 @@
                     : `${game.state.players[button.dataset.lock].name}'s secondary missions are locked in.`);
             }
         }));
+    }
+
+    /** The scoreboard above the board: each player's name and CP either side of the score (the player acting
+     * lit up), and a pip for each battle round. */
+    function renderHud() {
+        const game = state.game;
+        const turn = game && game.state.turn;
+        const playing = turn && !['setup', 'deployment'].includes(turn.phase);
+        const acting = turn && (turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player);
+        [0, 1].forEach(i => {
+            const side = $(`hud-side-${i}`);
+            const player = game && game.state.players[i];
+            side.classList.toggle('active', !!playing && turn.phase !== 'ended' && acting === i);
+            side.innerHTML = player ? `<span class="play-side-name">${escapeHtml(player.name)}</span>
+                <span class="play-side-cp">${player.cp ?? 0} CP</span>` : '';
+        });
+        $('hud-score').innerHTML = game ? `${game.score[0]}<span>–</span>${game.score[1]}` : '';
+        $('hud-score').title = game ? (game.mission ? 'Victory points' : 'Kill points') : '';
+        $('hud-pips').innerHTML = game ? [1, 2, 3, 4, 5].map(r =>
+            `<span class="play-pip ${r < turn.round || turn.phase === 'ended' ? 'done' : r === turn.round && playing ? 'now' : ''}"></span>`).join('') : '';
     }
 
     /** The squares above the board: this turn's phases, the current one lit in the active player's colour. */

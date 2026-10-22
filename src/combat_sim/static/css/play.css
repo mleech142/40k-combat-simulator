@@ -112,3 +112,44 @@
     .play-layout.play-layout-game { grid-template-columns: minmax(0, 1fr); }
     .play-games-body { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* The scoreboard above the board: names and CP either side of the score, round pips, the phase steps */
+.play-hud { margin-bottom: 0.6rem; }
+.play-versus { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; }
+.play-side { --player: var(--play-p1); display: flex; align-items: baseline; gap: 0.6rem; padding: 0.2rem 0.9rem; min-height: 2.1rem;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--player) 35%, transparent), transparent); border-radius: 8px 0 0 8px; align-content: center; }
+.play-side.play-p2 { --player: var(--play-p2); }
+.play-side.right { justify-content: flex-start; flex-direction: row-reverse;
+    background: linear-gradient(270deg, color-mix(in srgb, var(--player) 35%, transparent), transparent); border-radius: 0 8px 8px 0; }
+.play-side { align-items: center; }
+.play-side.active { box-shadow: inset 0 0 0 2px var(--player), 0 0 12px color-mix(in srgb, var(--player) 45%, transparent); }
+.play-side-name { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+.play-side-cp { font-size: 0.75rem; color: var(--text-secondary); }
+.play-scorebox { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.1rem 1.3rem;
+    background: var(--bg-primary); border: 1px solid var(--border); clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%); }
+.play-score { font-size: 1.6rem; font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.play-score span { margin: 0 0.4rem; color: var(--text-muted); }
+.play-pips { display: flex; gap: 0.3rem; margin: 0.1rem 0 0.15rem; }
+.play-pip { width: 0.5rem; height: 0.5rem; border-radius: 50%; border: 1px solid var(--text-muted); }
+.play-pip.done { background: var(--text-muted); }
+.play-pip.now { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.play-steps { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.75rem; margin-top: 0.45rem; }
+.play-steps-left { display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-size: 0.85rem; color: var(--text-secondary); }
+.play-steps-left strong { color: var(--text-secondary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-steps .play-phases[hidden] { display: none; }
+.play-steps .play-turn { grid-column: 2; }
+.play-steps .play-phases:not([hidden]) + .play-turn { grid-column: auto; grid-row: 2; grid-column: 1 / -1; justify-self: center; }
+.play-steps .play-toolbar-actions { grid-column: 3; justify-self: end; }
+.play-icon-btn { background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary); border-radius: 8px;
+    padding: 0.35rem 0.55rem; cursor: pointer; font-size: 0.85rem; }
+.play-icon-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--accent); }
+.play-icon-btn:disabled { opacity: 0.4; cursor: default; }
+.play-hud .play-message { margin: 0.4rem auto 0; width: fit-content; max-width: 90%; text-align: center; background: var(--bg-tertiary);
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.8rem; }
+.play-hud .play-message:empty { display: none; }
+.play-board-wrap { position: relative; }
+.play-go { position: absolute; right: 1.2rem; bottom: 1.2rem; z-index: 5; display: inline-flex; align-items: center; gap: 0.5rem;
+    background: var(--accent); color: var(--on-accent); border: none; border-radius: 999px; padding: 0.65rem 1.2rem;
+    font-weight: 700; font-size: 1rem; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+.play-go:hover { background: var(--accent-hover); }
+.play-go[hidden] { display: none; }
