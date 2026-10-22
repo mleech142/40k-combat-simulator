@@ -129,6 +129,18 @@ def test_a_unit_that_falls_back_in_ordered_retreat_takes_a_battle_shock_roll():
         assert unit_by_id(state, 'p1-squad')['status']['shocked'] is shocked
 
 
+def test_units_out_of_coherency_lose_models_at_the_end_of_the_turn():
+    """Core rules 03.03: at the end of each turn a unit out of coherency has models removed until it is back in it
+    (the straggler here); they don't count as destroyed by the enemy."""
+    squad = (model('Squad', 4), (10, 6), (11.5, 6), (13, 6), (30, 6))  # The last model 15.7" from the others
+    state = battle([squad], [MOB], phase='fight')
+    state['turn']['step'] = 'consolidate'
+    state, event = act(state, {'type': 'next_phase'})
+    assert [m['alive'] for m in unit_by_id(state, 'p1-squad')['models']] == [True, True, True, False]
+    assert event['coherency'] == [{'unit': 'p1-squad', 'name': 'Squad', 'removed': ['p1-squad-0-4']}]
+    assert score(state) == [0, 0]
+
+
 # --- Hazard rolls (11th edition) --------------------------------------------------------------------------
 
 def test_hazardous_weapons_fail_on_1_or_2_and_cost_the_unit_a_mortal_wound():

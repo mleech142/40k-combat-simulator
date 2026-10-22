@@ -206,7 +206,8 @@ def resolve_action(state, action, dice):
     state = copy.deepcopy(state)
     start = len(dice.log)
     detail = handlers[kind](state) or {}
-    mission_state.log_destroyed(state, before['models'], action)
+    # Models removed to restore coherency don't count as destroyed (core rules 03.03)
+    mission_state.log_destroyed(state, before['models'], action, {m for c in detail.get('coherency', []) for m in c['removed']})
     after = _snapshot(state)
     event = {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]],
              'models': {k: v for k, v in after['models'].items() if v != before['models'][k]},
@@ -400,7 +401,8 @@ def _change_phase(state, dice, report):
         if turn['phase'] == 'fight':
             turn['step'] = 'pile_in'
         return
-    mission_state.complete_actions(state, report)  # The end of the turn: actions complete, then scoring
+    _restore_coherency(state, report)  # The end of the turn: units back in coherency, actions complete, then scoring
+    mission_state.complete_actions(state, report)
     # Each player scores, the player whose turn it is first; then they may discard Tactical cards for 1CP
     active, other = turn['player'], 1 - turn['player']
     last = turn['round'] >= BATTLE_ROUNDS and active != first_player(state)  # This turn ends battle round 5
@@ -1470,6 +1472,29 @@ def _move(state, action):
         activity['desperate'] = True  # Hazard rolls when the Movement phase ends
     else:
         activity.pop('desperate', None)
+
+
+def _restore_coherency(state, report):
+    """
+    At the end of each turn, a unit out of coherency has models removed one at a time until it is back in it
+    (core rules 03.03). Its player would choose; the game removes the model with the fewest others of its unit
+    within 2", then the one farthest from the rest, then the last-listed.
+    """
+    for unit in state['units']:
+        removed = []
+        while True:
+            placed = _placed_models(unit)
+            if not coherency_problem([shape for _, shape in placed]):
+                break
+            def badness(item):
+                model, shape = item
+                others = [base_distance(shape, s) for m, s in placed if m is not model]
+                return (-sum(d <= COHERENCY_RANGE + 1e-9 for d in others), sum(others), unit['models'].index(model))
+            model, _ = max(placed, key=badness)
+            model['alive'], model['wounds_left'] = False, 0
+            removed.append(model['id'])
+        if removed:
+            report.setdefault('coherency', []).append({'unit': unit['id'], 'name': unit['name'], 'removed': removed})
 
 
 def coherency_problem(shapes):

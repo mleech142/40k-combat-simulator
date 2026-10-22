@@ -506,16 +506,17 @@ def surveil_moves(state, start_key, report):
             _remove_markers(state, gone, report, f'surveilled by {unit["name"]}')
 
 
-def log_destroyed(state, models_before, action):
+def log_destroyed(state, models_before, action, uncounted=()):
     """Models that died in this action, and units whose last model did, with what destroyed them and where
-    they stood (`models_before`: each model's fields before the action)."""
+    they stood (`models_before`: each model's fields before the action); not those in `uncounted` (removed
+    without being destroyed, as for coherency)."""
     mission = state.get('mission')
     if not mission:
         return
     by = state_unit(state, action.get('unit')) if action.get('type') in ('shoot', 'fight') else None
     for unit in state['units']:
         for model in unit['models']:
-            if models_before[model['id']]['alive'] and not model['alive']:
+            if models_before[model['id']]['alive'] and not model['alive'] and model['id'] not in uncounted:
                 part = unit['parts'][model['part']]
                 mission.setdefault('models_destroyed', []).append({
                     'model': model['id'], 'unit': unit['id'], 'player': unit['player'],

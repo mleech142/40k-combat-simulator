@@ -38,7 +38,8 @@ Tick each item when the engine matches (with a test).
 - [ ] Pile in and Consolidate: the active player moves all their units first, then the opponent, once each; the
   engine lets either player go in any order and redo moves.
 - [ ] Charge moves (11.04): models that can end within 1" of, or engaged with, a target must; not enforced.
-- [ ] End-of-turn coherency (03.03): units out of coherency lose models until they're back in it; not done.
+- [x] End-of-turn coherency (03.03): units out of coherency lose models until they're back in it. Done automatically
+  (fewest unit-mates within 2" first), not counted as destroyed.
 - [x] Wound allocation (05.03): the defender orders the allocation groups; the engine uses standing orders
   (Characters last and wounded models first, as the rules say). Now: groups by W, Sv and invulnerable save, a
   wounded leader waits for its bodyguard, and the defender's group order is a standing order (the unit panel).

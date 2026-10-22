@@ -1348,6 +1348,7 @@
             .filter(([e]) => (e.attacks && e.attacks.length) || e.passed || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
                     && (e.rolls.length || (e.vp && e.vp.length) || (e.actions && e.actions.length) || (e.markers_removed && e.markers_removed.length)
+                        || (e.coherency && e.coherency.length)
                         || e.drawn || (e.discards && e.discards.length)))).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
@@ -1428,6 +1429,7 @@
             correction: 'fa-scale-balanced', accept: 'fa-scale-balanced', decline: 'fa-scale-balanced' };
         const icon = icons[event.action.type]
             || ((event.battle_shock || []).length ? 'fa-triangle-exclamation' : (event.hazards || []).length ? 'fa-skull'
+                : (event.coherency || []).length ? 'fa-link-slash'
                 : (event.vp || []).length ? 'fa-trophy' : event.drawn || (event.discards || []).length ? 'fa-layer-group' : 'fa-dice');
         return `fa-solid ${icon}`;
     }
@@ -1508,6 +1510,9 @@
                         : b.was_shocked ? '<strong class="play-shock-good">recovers</strong>' : '<strong class="play-shock-good">holds</strong>';
                     lines.push(`<strong>${escapeHtml(b.name)}</strong> battle-shock test${b.reason ? ` (${escapeHtml(b.reason)})` : ''}: ${dice(event.rolls[b.rolls[0]])}
                         = ${b.total} (needs ${b.leadership}+): ${outcome}`);
+                }
+                for (const c of event.coherency || []) {
+                    lines.push(`<strong>${escapeHtml(c.name)}</strong> was out of coherency: ${c.removed.length} model${c.removed.length === 1 ? '' : 's'} removed`);
                 }
                 for (const h of event.hazards || []) {
                     const hurt = h.mortal_wounds ? `${h.mortal_wounds} mortal wound${h.mortal_wounds === 1 ? '' : 's'}` : 'no harm';
