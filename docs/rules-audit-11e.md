@@ -35,8 +35,9 @@ Tick each item when the engine matches (with a test).
 - [x] Damaged X (24.39): -1 to hit while a model has X or fewer wounds left; not applied in Play.
 - [x] Precision (24.28): the attacker can make a visible Character's group the current allocation group; Play's
   allocation ignores it.
-- [ ] Pile in and Consolidate: the active player moves all their units first, then the opponent, once each; the
-  engine lets either player go in any order and redo moves.
+- [x] Pile in and Consolidate: the active player moves all their units first, then the opponent, once each. The
+  engine has a mover for those steps: Next step hands over to the other player (skipped if they have nothing to
+  move), and a player can redo their moves until they hand over.
 - [x] Charge moves (11.04): models that can end within 1" of, or engaged with, a target must. Enforced: a model is refused when the game
   finds a free spot (every 15 degrees round each target model) it could have reached.
 - [x] End-of-turn coherency (03.03): units out of coherency lose models until they're back in it. Done automatically

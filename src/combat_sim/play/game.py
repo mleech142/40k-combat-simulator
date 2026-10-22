@@ -373,6 +373,12 @@ def _change_phase(state, dice, report):
         raise ActionError('The battle is over.')
     if turn['phase'] not in PHASES:
         raise ActionError('The battle has not started yet.')
+    if turn['phase'] == 'fight' and turn.get('step') in ('pile_in', 'consolidate'):
+        # The active player's units move first; then the other player's, if any can (core rules 12.03, 12.08)
+        if mover(turn) == turn['player'] and any(u['player'] != turn['player'] for u in _short_movers(state, turn['step'])):
+            turn['mover'] = 1 - turn['player']
+            return
+        turn.pop('mover', None)
     # Moves lock at the end of a phase or Fight step (Surveil the Foe removes markers then)
     locking = START_KEYS.get(turn.get('step') if turn['phase'] == 'fight' else turn['phase'])
     if locking:
@@ -1790,6 +1796,7 @@ def _pile_in(state, action):
     unit = _unit_or_error(state, action.get('unit'))
     if state['turn']['phase'] != 'fight' or state['turn'].get('step') != 'pile_in':
         raise ActionError('Units only pile in during the Fight phase\'s Pile in step.')
+    _require_mover(state, unit, 'piles in')
     activity = unit['activity']
     start = _start_shapes(unit, 'pile_start')
     engaged = [u for u in state['units'] if u['player'] != unit['player'] and _engaged(start, _placed_shapes(u))]
@@ -1815,6 +1822,7 @@ def _consolidate(state, action):
     unit = _unit_or_error(state, action.get('unit'))
     if state['turn']['phase'] != 'fight' or state['turn'].get('step') != 'consolidate':
         raise ActionError('Units only consolidate during the Fight phase\'s Consolidate step.')
+    _require_mover(state, unit, 'consolidates')
     if not unit['activity'].get('fought'):
         raise ActionError(f'Only units that fought this phase consolidate ({unit["name"]} didn\'t).')
     start = _start_shapes(unit, 'consolidate_start')
@@ -2015,9 +2023,8 @@ def ready_units(state):
             _charge_checks(state, unit)
             return True
         return [u['id'] for u in mine if quietly(can_charge, u)]
-    if phase == 'fight' and step == 'pile_in':
-        return [u['id'] for u in on_board if 'pile_start' not in u['activity'] and _placed_shapes(u)
-                and (_is_engaged(state, u) or u['activity'].get('charged'))]
+    if phase == 'fight' and step in ('pile_in', 'consolidate'):
+        return [u['id'] for u in _short_movers(state, step) if u['player'] == mover(turn)]
     if phase == 'fight' and step == 'fight':
         fight = turn.get('fight') or {}
         if fight.get('picker') is None:
@@ -2025,16 +2032,38 @@ def ready_units(state):
         first = fight['stage'] == 'fights_first'
         return [u['id'] for u in on_board if u['player'] == fight['picker'] and _can_fight(state, u)
                 and (_fights_first(u) or not first)]
-    if phase == 'fight' and step == 'consolidate':
-        def can_consolidate(unit):
-            enemies = [e for e in on_board if e['player'] != unit['player'] and _placed_shapes(e)]
-            mine_shapes = _placed_shapes(unit)
-            return (any(_unit_distance(mine_shapes, _placed_shapes(e)) <= CONSOLIDATE_MOVE + 1e-9 for e in enemies)
-                    or any(base_distance(s, objective_shape(o)) <= CONSOLIDATE_MOVE + 1e-9  # An Objective consolidation
-                           for o in state.get('objectives', []) for s in mine_shapes))
-        return [u['id'] for u in on_board if u['activity'].get('fought') and 'consolidate_start' not in u['activity']
-                and can_consolidate(u)]
     return []
+
+
+def mover(turn):
+    """Whose units pile in or consolidate now: the active player's, then (Next step) the other's (core rules 12.03, 12.08)."""
+    return turn.get('mover', turn['player'])
+
+
+def _short_movers(state, step):
+    """Both players' units that can still pile in (step 'pile_in') or consolidate ('consolidate') this step."""
+    on_board = [u for u in state['units'] if any(m['alive'] for m in u['models']) and _placed_shapes(u)]
+    if step == 'pile_in':
+        return [u for u in on_board if 'pile_start' not in u['activity']
+                and (_is_engaged(state, u) or u['activity'].get('charged'))]
+
+    def can_consolidate(unit):
+        enemies = [e for e in on_board if e['player'] != unit['player']]
+        mine_shapes = _placed_shapes(unit)
+        return (any(_unit_distance(mine_shapes, _placed_shapes(e)) <= CONSOLIDATE_MOVE + 1e-9 for e in enemies)
+                or any(base_distance(s, objective_shape(o)) <= CONSOLIDATE_MOVE + 1e-9  # An Objective consolidation
+                       for o in state.get('objectives', []) for s in mine_shapes))
+    return [u for u in on_board if u['activity'].get('fought') and 'consolidate_start' not in u['activity'] and can_consolidate(u)]
+
+
+def _require_mover(state, unit, verb):
+    """Refuse a pile-in or consolidation by the player who isn't moving now."""
+    turn = state['turn']
+    if unit['player'] != mover(turn):
+        name = state['players'][mover(turn)]['name']
+        if mover(turn) == turn['player']:
+            raise ActionError(f'{name} {verb} first: {state["players"][unit["player"]]["name"]} moves after Next step.')
+        raise ActionError(f'{name} {verb} now: {state["players"][unit["player"]]["name"]}\'s moves are done.')
 
 
 # --- Objectives ----------------------------------------------------------------------------------------------

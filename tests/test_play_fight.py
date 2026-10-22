@@ -170,6 +170,8 @@ MISS = (1, 1)  # Two attacks that miss
 def test_the_fight_phase_runs_pile_in_then_fights_then_consolidate():
     state, _ = act(fighters(), {'type': 'next_phase'})
     assert state['turn']['phase'] == 'fight' and state['turn']['step'] == 'pile_in'
+    state, _ = act(state, {'type': 'next_phase'})  # Red has piled in; Blue's turn to
+    assert state['turn']['step'] == 'pile_in' and state['turn']['mover'] == 1
     state, _ = act(state, {'type': 'next_phase'})
     assert state['turn']['step'] == 'fight'
     assert 'can still fight' in refused(state, {'type': 'next_phase'})
@@ -177,6 +179,8 @@ def test_the_fight_phase_runs_pile_in_then_fights_then_consolidate():
         state, _ = act(state, fight(unit), *MISS * 3)
     state, _ = act(state, {'type': 'next_phase'})
     assert state['turn']['step'] == 'consolidate'
+    state, _ = act(state, {'type': 'next_phase'})  # Red has consolidated; Blue's turn to
+    assert state['turn']['mover'] == 1
     state, _ = act(state, {'type': 'next_phase'})
     assert state['turn'] == {'phase': 'command', 'round': 1, 'player': 1, 'seq': 1}
 
@@ -282,11 +286,16 @@ def test_pile_in_moves_up_to_3_inches_closer_to_the_enemy():
     assert event['rolls'] == [] and positions(state2, 'p1-squad')[2] == (13, 15.5)
     assert 'at most 3"' in refused(state, pile((10, 15.5), (11.5, 15.5), (13, 17)))
     assert 'closer' in refused(state, pile((10, 15.5), (11.5, 15.5), (14.5, 13)))
-    assert 'pile in' in refused(state, {'type': 'pile_in', 'unit': 'p2-brute', 'models': [{'id': 'p2-brute-0-1', 'x': 40, 'y': 30}]})
-    # Blue piles in too, in the same step; then moves lock
-    act(state, {'type': 'pile_in', 'unit': 'p2-brute', 'models': [{'id': 'p2-brute-0-1', 'x': 40, 'y': 17.5}]})
+    assert 'piles in first' in refused(state, {'type': 'pile_in', 'unit': 'p2-brute', 'models': [{'id': 'p2-brute-0-1', 'x': 40, 'y': 30}]})
+    # The active player piles in first (core rules 12.03); then Blue, and Red's moves are locked
+    blue = {'type': 'pile_in', 'unit': 'p2-brute', 'models': [{'id': 'p2-brute-0-1', 'x': 40, 'y': 17.5}]}
+    assert 'Red piles in first' in refused(state, blue)
     state2, _ = act(state2, {'type': 'next_phase'})
-    assert 'pile in' in refused(state2, pile((10, 15.5), (11.5, 15.5), (13, 15.2)))
+    assert state2['turn']['step'] == 'pile_in' and state2['turn']['mover'] == 1
+    state2, _ = act(state2, blue)
+    assert 'Blue piles in now' in refused(state2, pile((10, 15.5), (11.5, 15.5), (13, 15.2)))
+    state2, _ = act(state2, {'type': 'next_phase'})
+    assert state2['turn']['step'] == 'fight'
 
 
 def test_units_that_fought_consolidate_up_to_3_inches():

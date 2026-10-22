@@ -306,6 +306,8 @@ def test_ready_units_in_the_fight_follow_whose_pick_it_is():
     from combat_sim.play.game import ready_units
     from test_play_fight import fighters, to_step
     state = to_step(fighters(), 'pile_in')
-    assert sorted(ready_units(state)) == ['p1-guard', 'p1-squad', 'p2-brute', 'p2-mob']  # Both players pile in
+    assert sorted(ready_units(state)) == ['p1-guard', 'p1-squad']  # Red piles in first...
+    state, _ = act(state, {'type': 'next_phase'})
+    assert sorted(ready_units(state)) == ['p2-brute', 'p2-mob']  # ...then Blue
     state = to_step(state, 'fight')
     assert ready_units(state) == ['p1-squad']  # Fights First: Red's charged Squad

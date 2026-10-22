@@ -492,7 +492,7 @@
                 banner += turn.fight.picker == null ? ': every unit has fought'
                     : ` (${turn.fight.stage === 'fights_first' ? 'Fights First' : 'remaining combats'}): ${game.state.players[turn.fight.picker].name} to pick`;
             }
-            if (turn.step === 'pile_in' || turn.step === 'consolidate') banner += ': both players';
+            if (turn.step === 'pile_in' || turn.step === 'consolidate') banner += `: ${game.state.players[turn.mover ?? turn.player].name} moves`;
         }
         const result = game && Core.playResult(game.state.players, game.score, turn);
         if (result) banner = result;
@@ -500,11 +500,13 @@
         // The banner says what the board above doesn't: setup, deployment, the result, and who picks in the Fight phase
         $('turn-banner').hidden = !banner || (turn && !result && !['setup', 'deployment', 'fight'].includes(turn.phase));
         renderHud();
-        $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player] : ''}`;
+        $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[actingPlayer(turn)] : ''}`;
         $('phase-btn').hidden = !game || turn.phase === 'ended' || setup;
         $('correct-btn').hidden = !game || ['setup', 'deployment'].includes(turn.phase);
         if (turn) {
             $('phase-btn').querySelector('span').textContent = turn.phase === 'deployment' ? 'Deployment done'
+                : turn.phase === 'fight' && ['pile_in', 'consolidate'].includes(turn.step) && (turn.mover ?? turn.player) === turn.player
+                    ? `${game.state.players[turn.player].name} done`  // The other player moves next, if they can
                 : turn.phase === 'fight' ? (turn.step === 'consolidate' ? 'End turn' : 'Next step') : 'Next phase';
         }
         renderPhaseTrack();
@@ -735,6 +737,7 @@
 
     /** Who is acting: the player whose turn it is, or whoever picks the next unit to fight. */
     function actingPlayer(turn) {
+        if (turn && ['pile_in', 'consolidate'].includes(turn.step)) return turn.mover ?? turn.player;  // Who is moving units
         return turn && (turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player);
     }
 
@@ -925,7 +928,7 @@
             const how = turn.step === 'pile_in' ? 'each model ending closer to the enemy, the unit ending engaged'
                 : 'staying engaged with its enemies; or, unengaged, ending engaged with an enemy within 3"; or, with neither, ending within range of an objective within 3"';
             controls = `<p class="play-hint">Drag the unit to ${verb} (up to 3", ${how}).
-                Both players can move units now; moves lock when the step ends.</p>
+                The player whose turn it is moves their units first, then the other player; a player's moves lock when they're done.</p>
                 ${moved ? '<div class="play-move-modes"><button class="btn-small" data-reset>Reset move</button></div>' : ''}`;
         }
         if (turn.phase !== 'deployment' && turn.phase !== 'ended') controls += effectsControls(unit);
