@@ -17,6 +17,7 @@ from .. import effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
 from . import battlefields, mission_state, tactical
+from .missions import MIRRORED_PRIMARIES, NIGHT_VISIBILITY
 from .geometry import clear_line
 from .geometry import footprint as footprint_shape
 from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, hull_shape,
@@ -73,13 +74,15 @@ class ActionError(ValueError):
     """An action the rules don't allow; its message says why, for the player."""
 
 
-def new_game(armies, battlefield=None, roles=None, setup=False):
+def new_game(armies, battlefield=None, roles=None, setup=False, twist=None):
     """
     A game between frozen armies (snapshot.freeze_army) on a battlefield (battlefields.BUILTIN's default
     if none), the first army's player attacking unless `roles` ({'attacker', 'defender'}: players) says.
     With `setup`, the game starts with the mission sequence (SETUP_STEPS): the central objective roll,
     the roll-off for attacker or defender, and (when deployment ends) the roll-off for the first turn;
     without it (games saved before setup existed), player 1 attacks, deploys first and goes first.
+    `twist` ({'key', 'primary'}; missions.TWISTS) is the Twist card the players agreed on, if any: Scrambled
+    Communications swaps the primaries, Mirrored World gives both its `primary` (or 'roll': a setup step).
     """
     battlefield = json.loads(json.dumps(battlefield or battlefields.BUILTIN[battlefields.DEFAULT]))  # Plain data
     roles = dict(roles or {'attacker': 0, 'defender': 1})
@@ -110,7 +113,39 @@ def new_game(armies, battlefield=None, roles=None, setup=False):
                                    'parts': copy.deepcopy(unit['parts']), 'models': models, 'activity': {},
                                    'status': {'shocked': False}, 'effects': []})
     state['mission'] = mission_state.new_mission(armies)  # None: no force dispositions, kill points instead
+    state['twist'] = dict(twist) if twist else None
+    if twist and state['mission']:
+        if twist['key'] == 'scrambled-communications':
+            state['mission']['primaries'].reverse()
+        if twist['key'] == 'mirrored-world' and twist.get('primary') in MIRRORED_PRIMARIES:
+            state['mission']['primaries'] = [twist['primary'], twist['primary']]
+        if twist['key'] == 'mirrored-world' and twist.get('primary') == 'roll' and setup:
+            state['turn'].update(step='mirrored', next_step=state['turn']['step'])
     return state
+
+
+def twist_is(state, key):
+    """Whether the game is played with this Twist card."""
+    return (state.get('twist') or {}).get('key') == key
+
+
+def _battleline(unit):
+    return any(_has(p['keywords'], 'Battleline') for p in unit['parts'])
+
+
+def _roll_mirrored(state, dice):
+    """Mirrored World, when the players didn't agree: a D6 (a 6 is rolled again) picks both players' primary."""
+    _require_setup(state, 'mirrored')
+    rolls = []
+    while True:
+        face = dice.roll_value('D6', 'Mirrored World')
+        rolls.append(face)
+        if face <= len(MIRRORED_PRIMARIES):
+            break
+    key = MIRRORED_PRIMARIES[face - 1]
+    state['mission']['primaries'] = [key, key]
+    state['turn']['step'] = state['turn'].pop('next_step')
+    return {'mirrored': {'rolls': rolls, 'primary': key}}
 
 
 def unit_by_id(state, unit_id):
@@ -154,6 +189,7 @@ def resolve_action(state, action, dice):
                 'beacon': lambda s: tactical.choose_beacon(s, action),
                 'tempting': lambda s: tactical.choose_tempting(s, action),
                 'set_guards': lambda s: tactical.set_guards(s, action),
+                'roll_mirrored': lambda s: _roll_mirrored(s, dice),
                 'start_action': lambda s: mission_state.start_action(s, action),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
@@ -637,7 +673,8 @@ def _shooter_checks(state, shooter):
         raise ActionError(f'{shooter["name"]} has already shot this phase.')
     if activity.get('moved') == 'fall_back':
         raise ActionError(f'{shooter["name"]} Fell Back this turn, so it can\'t shoot.')
-    if activity.get('action') and not any(_has(p['keywords'], 'Titanic') for p in shooter['parts']):
+    if activity.get('action') and not any(_has(p['keywords'], 'Titanic') for p in shooter['parts']) \
+            and not (twist_is(state, 'martial-pride') and _battleline(shooter)):
         raise ActionError(f'{shooter["name"]} started an action this turn, so it can\'t shoot.')
 
 
@@ -684,7 +721,7 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
         raise ActionError(f'Blast weapons can\'t target an engaged unit ({target["name"]}).')
     reach = weapon.get('range') or 0
     targets = _placed_models(target)
-    near, far, covered, hidden = [], [], set(), False
+    near, far, covered, hidden, dark = [], [], set(), False, False
     for model, shape in _placed_models(shooter):
         if model['part'] != int(part_index) or int(weapon_index) not in model['weapons']:
             continue
@@ -692,6 +729,7 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
         for target_model, other in targets:
             visible, why = sees(state, shape, other, target, target_model)
             hidden = hidden or why == 'hidden'
+            dark = dark or why == 'night'
             if visible:
                 seen.append(base_distance(shape, other))
         if seen and min(seen) <= reach + 1e-9:
@@ -699,6 +737,8 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
             if has_cover(state, shape, target):
                 covered.add(model['id'])
     if not near and not far:
+        if dark and not hidden:
+            raise ActionError(f'Night Fighting: {target["name"]} can\'t be seen from more than {NIGHT_VISIBILITY}" away.')
         if hidden:
             raise ActionError(f'{target["name"]} is hidden in terrain: no model carrying {weapon["name"]} is close '
                               f'enough to see it (within {DETECTION_RANGE}", or less if it has gone to ground).')
@@ -885,9 +925,9 @@ def _carried(unit):
             for part in unit['parts'] if part.get('enhancement')]
 
 
-def replay(armies, events, battlefield=None, setup=False):
-    """A game rebuilt from its frozen armies (on its battlefield) and its events, in order (no dice)."""
-    state = new_game(armies, battlefield, setup=setup)
+def replay(armies, events, battlefield=None, setup=False, twist=None):
+    """A game rebuilt from its frozen armies (on its battlefield, with its twist) and its events, in order (no dice)."""
+    state = new_game(armies, battlefield, setup=setup, twist=twist)
     for event in events:
         state = apply_event(state, event)
     return state
@@ -1288,7 +1328,8 @@ def _move(state, action):
                 here = {'x': a['x'] + t * (b['x'] - a['x']), 'y': a['y'] + t * (b['y'] - a['y']), 'angle': spot['angle']}
                 if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
                     raise ActionError(f'{part["name"]} can\'t move through enemy models.')
-                if _dense_in_the_way(state, part, model_shape(part, here)):
+                mobile = twist_is(state, 'ruinscape') and mode in ('normal', 'advance')  # Ruinscape: Mobile while moving
+                if not mobile and _dense_in_the_way(state, part, model_shape(part, here)):
                     raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         shapes[mid] = model_shape(part, spot)
 
@@ -1802,6 +1843,8 @@ def sees(state, a, b, unit_b, model_b):
     Swarm within a light or dense area, its unit not having shot this turn or last), within 15" (12" if it
     has gone to ground: not fully visible past dense terrain).
     """
+    if twist_is(state, 'night-fighting') and base_distance(a, b) > NIGHT_VISIBILITY + 1e-9:
+        return False, 'night'
     if not can_see(a, b, _view_blockers(state, a, b)):
         return False, 'sight'
     part = unit_b['parts'][model_b['part']]

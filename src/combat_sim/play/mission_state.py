@@ -304,7 +304,8 @@ def _start_problem(state, unit):
         return 'Its OC is 0.'
     if g._is_engaged(state, unit) and not keywords('Titanic'):
         return 'It is engaged.'
-    if activity.get('moved') in ('advance', 'fall_back'):
+    pride = g.twist_is(state, 'martial-pride') and g._battleline(unit)  # Martial Pride: Battleline may Advance first
+    if activity.get('moved') == 'fall_back' or (activity.get('moved') == 'advance' and not pride):
         return f'It {"Advanced" if activity["moved"] == "advance" else "Fell Back"} this turn.'
     if activity.get('shot'):
         return 'It has shot this turn.'

@@ -88,3 +88,7 @@
 .play-secondary-card.held > strong { opacity: 0.7; }
 .play-guards { display: grid; grid-template-columns: 1fr; gap: 0.2rem; font-size: 0.8rem; }
 .play-guards label { display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; }
+
+/* The game's twist, beside its name */
+.play-twist { font-size: 0.75rem; padding: 0.1rem 0.45rem; border: 1px solid var(--warning); border-radius: 999px; color: var(--warning); cursor: help; }
+#new-mirrored { margin-top: 0.3rem; }

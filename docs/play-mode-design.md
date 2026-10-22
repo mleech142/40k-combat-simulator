@@ -286,7 +286,7 @@ Agreed October 2026, after reading the 11th edition core rules and the 2026-27 m
    - **CP:** cards marked during your turn are discarded at the end of it, after scoring, for 1CP in all; once per battle in your Command phase, 1CP discards a card and draws another.
    - **Timings** added: the end of your opponent's turn, and "that or the end of round 5" (the second player's own turn in round 5). At the end of a turn the player whose turn it is scores first.
    - **Readings:** No Man's Land is outside both deployment zones; "not within your territory" means no part within it; Forward Position is your opponent's home objective or every expansion objective; Assassination (Tactical) also scores once every enemy Character is dead. Plunder and Cleanse are actions while their card is active.
-7. **Twists.**
+7. *Done:* **Twists** (`missions.TWISTS`). Agreed and built October 2026: chosen on the new-game form (None by default, any of the six, or Random), frozen into the game (`SavedGame.twist`), shown beside its name and logged. Scrambled Communications swaps the primaries; Mirrored World gives both players one of its five primaries, chosen on the form or rolled during setup (a D6, rolling a 6 again; `roll_mirrored`). Those two need both armies to have a force disposition; the rest work in any game: Martial Pride (Battleline units can start an action after Advancing and shoot after starting one), Ruinscape (Normal and Advance moves cross tall dense terrain), Night Fighting (units can't be seen from more than 18" away; Indirect Fire isn't modelled, so it needs sight like any weapon), Nowhere to Hide (no change on this flat board: Solid isn't modelled).
 
 ## Open questions
 

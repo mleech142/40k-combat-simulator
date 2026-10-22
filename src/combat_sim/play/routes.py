@@ -21,7 +21,7 @@ from .snapshot import freeze_army
 
 def game_response(saved):
     """A game with its state, and what the page needs to draw it: the board and each part's outline."""
-    state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup))
+    state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
                     'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH},
                     'zones': [deployment_zone(state, p) for p in (0, 1)],
@@ -33,7 +33,7 @@ def game_response(saved):
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
                     'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},
                     'manual_effects': [{'key': k, 'name': n, 'side': side} for k, (n, side, _) in MANUAL_EFFECTS.items()],
-                    'mission': mission_response(state)})
+                    'mission': mission_response(state), 'twist': twist_response(state)})
 
 
 def mission_response(state):
@@ -49,8 +49,10 @@ def mission_response(state):
                 'lines': [{'id': entry['id'], 'text': entry['text'], 'timing': missions.timing(entry),
                            'needs': entry['needs'], 'either': entry['either']} for entry in card['lines']]}
 
-    primaries = [dict(described(missions.primary(key)), disposition=missions.DISPOSITIONS[missions.primary(key)['disposition']])
-                 for key in mission['primaries']]
+    # Each player's own force disposition (a twist can give them another disposition's primary)
+    primaries = [dict(described(missions.primary(key)),
+                      disposition=state['players'][p].get('disposition') or missions.DISPOSITIONS[missions.primary(key)['disposition']])
+                 for p, key in enumerate(mission['primaries'])]
     chosen = mission.get('secondaries') or {}
     revealed = all(chosen.get(str(p)) for p in (0, 1))
     secondaries = []
@@ -89,6 +91,38 @@ def mission_response(state):
             if (mission.get('choice') or {}).get('kind') == 'tempting' else None,
             'locate_options': mission_state.locate_options(state, mission['choice']['player'])
             if (mission.get('choice') or {}).get('kind') == 'locate' else None}
+
+
+def pick_twist(asked, missions_on, setup):
+    """(the game's Twist {'key', 'primary'} or None, an error or None) from the new-game form's choice: a
+    twist's key or 'random', with Mirrored World's primary (one of its five, or 'roll')."""
+    if not asked:
+        return None, None
+    key, primary = (asked.get('key'), asked.get('primary')) if isinstance(asked, dict) else (asked, None)
+    usable = [k for k, (_, _, needs) in missions.TWISTS.items() if missions_on or not needs]
+    if key == 'random':
+        key = random.choice(usable)
+        primary = 'roll' if key == 'mirrored-world' else None
+    if key not in missions.TWISTS:
+        return None, 'Choose a twist, or none.'
+    if key not in usable:
+        return None, f'{missions.TWISTS[key][0]} needs both armies to have a force disposition.'
+    if key == 'mirrored-world':
+        primary = primary or 'roll'
+        if primary not in missions.MIRRORED_PRIMARIES + ['roll']:
+            return None, "Choose one of Mirrored World's primary missions, or roll for it."
+        if primary == 'roll' and not setup:
+            return None, "Mirrored World's roll happens during setup."
+        return {'key': key, 'primary': primary}, None
+    return {'key': key}, None
+
+
+def twist_response(state):
+    twist = state.get('twist')
+    if not twist:
+        return None
+    name, text, _ = missions.TWISTS[twist['key']]
+    return dict(twist, name=name, text=text)
 
 
 def pairing_layouts(first, second):
@@ -163,12 +197,21 @@ def register_play_routes(app):
             battlefield = find_battlefield(data['battlefield'])
             if battlefield is None:
                 return jsonify({'error': 'That battlefield is no longer saved.'}), 400
+        twist, error = pick_twist(data.get('twist'), all(a.get('disposition') for a in frozen), data.get('setup', True) is not False)
+        if error:
+            return jsonify({'error': error}), 400
         name = str(data.get('name') or '').strip()[:200] or f'{frozen[0]["name"]} vs {frozen[1]["name"]}'
-        saved = SavedGame(name=name, armies=frozen, events=[], battlefield=battlefield,
+        saved = SavedGame(name=name, armies=frozen, events=[], battlefield=battlefield, twist=twist,
                           setup=data.get('setup', True) is not False)  # Skipped only when asked
         db.session.add(saved)
         db.session.commit()
         return game_response(saved)
+
+    @app.route('/api/play/twists')
+    def api_twists():
+        """The Twist cards (for the new-game form) and Mirrored World's primaries."""
+        return jsonify({'twists': [{'key': k, 'name': n, 'text': t, 'needs_missions': needs} for k, (n, t, needs) in missions.TWISTS.items()],
+                        'mirrored': [{'key': k, 'name': missions.primary(k)['name']} for k in missions.MIRRORED_PRIMARIES]})
 
     @app.route('/api/play/matchup')
     def api_matchup():
@@ -203,7 +246,7 @@ def register_play_routes(app):
         action = request.get_json(silent=True)
         if not isinstance(action, dict):
             return jsonify({'error': 'Send the action as a JSON object.'}), 400
-        state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup))
+        state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
         try:
             event = resolve_action(state, action, Dice())
         except ActionError as error:
@@ -233,7 +276,7 @@ def register_play_routes(app):
         """What a unit can do now in the Shooting, Charge or Fight phase, and why not."""
         saved = db.get_or_404(SavedGame, game_id)
         try:
-            return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup)), unit_id))
+            return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist), unit_id))
         except ActionError as error:
             return jsonify({'error': str(error)}), 404
 

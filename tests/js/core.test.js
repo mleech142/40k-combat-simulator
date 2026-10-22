@@ -743,3 +743,9 @@ test('playMarker gives an operation marker its letter and what it marks', () => 
     assert.deepEqual(Core.playMarker('asset'), { letter: 'A', label: 'Locate and Deny marker' });
     assert.deepEqual(Core.playMarker('something'), { letter: 'M', label: 'Operation marker' });
 });
+
+test('playSetupPrompt rolls for Mirrored World\'s primary mission', () => {
+    const prompt = Core.playSetupPrompt({ phase: 'setup', step: 'mirrored', player: 0 }, [{ name: 'Red' }, { name: 'Blue' }]);
+    assert.deepEqual(prompt.buttons.map(b => b.action), [{ type: 'roll_mirrored' }]);
+    assert.match(prompt.text, /Mirrored World/);
+});

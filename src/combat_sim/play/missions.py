@@ -647,3 +647,21 @@ def preview(key, ctx):
         vp, how = SCORERS[entry['score']](ctx, entry['vp'], **entry['params'])
         out[entry['id']] = (min(vp, entry['turn_cap']) if entry['turn_cap'] is not None else vp, how)
     return out
+
+
+# --- Twists ------------------------------------------------------------------------------------------------------
+# Optional cards both players agree on before the battle: (name, the rule in brief, whether it needs missions).
+TWISTS = {
+    'nowhere-to-hide': ('Nowhere to Hide', 'Terrain features lose the Solid rule (no change on this flat board, where '
+                        'dense terrain blocks sight like light terrain).', False),
+    'mirrored-world': ('Mirrored World', 'Both players play the same primary mission: Battlefield Dominance, Meatgrinder, '
+                       'Outmanoeuvre, Gather Intel or Sabotage, agreed or rolled.', True),
+    'scrambled-communications': ('Scrambled Communications', 'The players swap primary missions.', True),
+    'martial-pride': ('Martial Pride', 'Battleline units can start an action after Advancing, and can shoot after '
+                      'starting an action.', False),
+    'ruinscape': ('Ruinscape', 'Models count as Mobile while making a Normal or Advance move (so tall dense terrain '
+                  "doesn't stop them).", False),
+    'night-fighting': ('Night Fighting', 'Units are not visible to enemy models more than 18" away.', False),
+}
+MIRRORED_PRIMARIES = ['battlefield-dominance', 'meatgrinder', 'outmanoeuvre', 'gather-intel', 'sabotage']  # D6: 1-5 (6 rerolls)
+NIGHT_VISIBILITY = 18

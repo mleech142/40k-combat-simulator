@@ -25,6 +25,12 @@
         </div>
         <p class="play-hint play-matchup" id="new-matchup"></p>
         <div class="form-group">
+            <label for="new-twist">Twist</label>
+            <select id="new-twist" class="filter-select"><option value="">None</option></select>
+            <select id="new-mirrored" class="filter-select" hidden></select>
+            <p class="play-hint" id="new-twist-text"></p>
+        </div>
+        <div class="form-group">
             <label for="new-battlefield">Battlefield</label>
             <select id="new-battlefield" class="filter-select"></select>
         </div>
@@ -39,6 +45,7 @@
     <section class="card play-board-card">
         <div class="play-toolbar">
             <strong id="game-title">Choose or start a game</strong>
+            <span class="play-twist" id="twist-chip" hidden></span>
             <span class="play-turn" id="turn-banner"></span>
             <span class="play-scoreboard" id="scoreboard"></span>
         </div>

@@ -622,6 +622,7 @@ class SavedGame(db.Model):
     events = db.Column(JSON, nullable=False, default=list)
     battlefield = db.Column(JSON, nullable=True)  # The game's own copy of its battlefield (None: the default map)
     setup = db.Column(db.Boolean, nullable=True)  # Starts with the mission sequence (None: saved before it existed)
+    twist = db.Column(JSON, nullable=True)  # The Twist card the players agreed on: {'key', 'primary'} (None: none)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -894,6 +894,10 @@
             return { text: 'Set up the battlefield: roll a D6 for the central objective (on a 6 there are two).',
                 buttons: [{ action: { type: 'roll_objectives' }, label: 'Roll for the central objective', icon: 'dice' }] };
         }
+        if (turn.step === 'mirrored') {
+            return { text: "Mirrored World: roll a D6 for the primary mission both players play (a 6 is rolled again).",
+                buttons: [{ action: { type: 'roll_mirrored' }, label: 'Roll for the primary', icon: 'dice' }] };
+        }
         if (turn.step === 'secondaries') {
             return { text: 'Each player chooses their secondary missions: Fixed (two cards kept all battle) or Tactical (two drawn at the start of each of your Command phases).',
                 buttons: [], secondaries: true };

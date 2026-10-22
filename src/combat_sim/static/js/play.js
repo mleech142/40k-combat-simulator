@@ -43,6 +43,8 @@
     async function init() {
         $('new-game-btn').addEventListener('click', newGame);
         $('new-red').addEventListener('change', loadMatchup);
+        $('new-twist').addEventListener('change', renderTwistChoice);
+        loadTwists();
         $('new-blue').addEventListener('change', loadMatchup);
         $('undo-btn').addEventListener('click', undo);
         $('fit-btn').addEventListener('click', () => { fitView(); drawBoard(); });
@@ -72,6 +74,29 @@
         $('new-game-btn').disabled = !armies.length;
     }
 
+    /** The Twist cards for the new-game form. */
+    async function loadTwists() {
+        state.twists = await fetch('/api/play/twists').then(r => r.json()).catch(() => ({ twists: [], mirrored: [] }));
+        $('new-mirrored').innerHTML = state.twists.mirrored.map(m => `<option value="${m.key}">${escapeHtml(m.name)}</option>`).join('')
+            + '<option value="roll" selected>Roll for it in setup</option>';
+        renderTwistChoice();
+    }
+
+    /** The twist picker: twists that change primaries only when both armies have a force disposition. */
+    function renderTwistChoice() {
+        if (!state.twists) return;
+        const select = $('new-twist');
+        const current = select.value;
+        const missions = !!(state.matchup && state.matchup.primaries);
+        select.innerHTML = '<option value="">None</option>' + state.twists.twists.map(t =>
+            `<option value="${t.key}" ${t.needs_missions && !missions ? 'disabled' : ''}>${escapeHtml(t.name)}</option>`).join('')
+            + '<option value="random">Random</option>';
+        select.value = [...select.options].some(o => o.value === current && !o.disabled) ? current : '';
+        const chosen = state.twists.twists.find(t => t.key === select.value);
+        $('new-mirrored').hidden = select.value !== 'mirrored-world';
+        $('new-twist-text').textContent = chosen ? chosen.text : select.value === 'random' ? 'A twist drawn at random.' : '';
+    }
+
     /** The two chosen armies' force dispositions and primary missions, and their pairing's layouts. */
     async function loadMatchup() {
         const red = $('new-red').value, blue = $('new-blue').value;
@@ -82,6 +107,7 @@
             : m.primaries ? `${m.dispositions[0]} vs ${m.dispositions[1]}. Primary missions: ${m.primaries[0]} / ${m.primaries[1]}.`
             : 'An army has no force disposition: this game is scored by kill points.';
         fillBattlefields(state.battlefields || [], true);
+        renderTwistChoice();
     }
 
     /** The New game form's battlefields (the editor sends the list whenever it changes): the pairing's
@@ -114,8 +140,10 @@
     }
 
     async function newGame() {
+        const twist = $('new-twist').value;
         const body = { armies: [$('new-red').value, $('new-blue').value].map(Number), name: $('new-name').value,
-                       battlefield: $('new-battlefield').value || null };
+                       battlefield: $('new-battlefield').value || null,
+                       twist: twist ? { key: twist, primary: twist === 'mirrored-world' ? $('new-mirrored').value : null } : null };
         const resp = await fetch('/api/play/games', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
@@ -297,6 +325,11 @@
     function render() {
         const game = state.game;
         $('game-title').textContent = game ? game.name : 'Choose or start a game';
+        $('twist-chip').hidden = !(game && game.twist);
+        if (game && game.twist) {
+            $('twist-chip').textContent = `Twist: ${game.twist.name}`;
+            $('twist-chip').title = game.twist.text;
+        }
         $('undo-btn').disabled = !game || !game.events.length || game.events[game.events.length - 1].rolls.length > 0;
         const turn = game && game.state.turn;
         const allPlaced = game && game.state.units.every(u => u.models.every(m => !m.alive || m.position));
@@ -1059,7 +1092,7 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
@@ -1130,6 +1163,9 @@
                 return `${escapeHtml(name(s.unit))} started <strong>${escapeHtml(actionName(s.action))}</strong> on ${escapeHtml(s.target)}${event.action_completed ? ': done' : ''}`
                     + markersRemoved(event);
             }
+            case 'roll_mirrored':
+                return `Mirrored World roll: ${event.mirrored.rolls.join(', then ')}: both players play <strong>${escapeHtml(
+                    (state.twists.mirrored.find(m => m.key === event.mirrored.primary) || { name: event.mirrored.primary }).name)}</strong>`;
             case 'tactical': {
                 const what = { hold: 'is holding', unhold: 'let go of', discard: 'will discard', keep: 'will keep',
                                redraw: 'redrew', redraw_cp: 'paid 1CP to discard' }[event.op] || event.op;
