@@ -17,8 +17,8 @@ def tank(move):
 
 
 def board(move=20):
-    """A Vehicle at (10, 14) below a tall Dense ruin (x 7-13, y 18-22) it can't cross."""
-    return game_on([piece('t1', 'dense', *BLOCK, height=3)], [tank(move)], [target(50, 40)], phase='movement')
+    """A Vehicle at (10, 14) below a 5" Dense ruin (x 7-13, y 18-22): climbing it costs 10" more."""
+    return game_on([piece('t1', 'dense', *BLOCK, height=5)], [tank(move)], [target(50, 40)], phase='movement')
 
 
 def go(x, y, waypoint=False):
@@ -39,7 +39,7 @@ def round_the_ruin(move=20):
 
 def test_a_unit_goes_round_terrain_by_way_of_waypoints():
     state = board()
-    assert 'Dense' in refused(state, go(10, 26))  # Straight through the ruin
+    assert 'Dense' in refused(state, go(10, 26))  # Straight over the ruin: 12" and 10" climbing
     state = round_the_ruin()
     state, _ = act(state, go(10, 26, waypoint=True))  # 5" more: 16" in all
     assert where(state) == (10, 26)

@@ -6,7 +6,7 @@ terrain areas from the 5 footprints, each Exposed, Light or Dense with a height.
 import copy
 
 from combat_sim.play.battlefields import BUILTIN
-from combat_sim.play.game import new_game, unit_by_id
+from combat_sim.play.game import can_fly, new_game, unit_by_id
 from test_play_game import army, gun, part
 from test_play_turns import act, put, refused
 
@@ -100,23 +100,60 @@ def test_hidden_models_behind_dense_terrain_have_gone_to_ground_12_inches():
 
 # --- Moving through terrain ------------------------------------------------------------------------------------
 
-def mover(keywords):
-    return (part('Walker', 1, 8, base=BASE, stats={'move': '20'}, keywords=list(keywords)), (10, 10))
+def mover(keywords, move=20):
+    return (part('Walker', 1, 8, base=BASE, stats={'move': str(move)}, keywords=list(keywords)), (10, 10))
 
 
-def walk_through(state):
-    return {'type': 'move', 'unit': 'p1-walker', 'mode': 'normal', 'models': [{'id': 'p1-walker-0-1', 'x': 10, 'y': 26}]}
+def walk_through(state, **extra):
+    """16" straight up the board, across the BLOCK footprint (y 18-22)."""
+    return {'type': 'move', 'unit': 'p1-walker', 'mode': 'normal', 'models': [{'id': 'p1-walker-0-1', 'x': 10, 'y': 26}], **extra}
 
 
-def test_monsters_and_vehicles_cant_cross_dense_terrain_over_2_inches_high():
-    tall = game_on([piece('t1', 'dense', *BLOCK, height=3)], [mover(['Vehicle'])], [target(50, 40)], phase='movement')
-    assert 'Dense' in refused(tall, walk_through(tall))
-    low = game_on([piece('t1', 'dense', *BLOCK, height=2)], [mover(['Vehicle'])], [target(50, 40)], phase='movement')
-    act(low, walk_through(low))
-    infantry = game_on([piece('t1', 'dense', *BLOCK, height=3)], [mover(['Infantry'])], [target(50, 40)], phase='movement')
-    act(infantry, walk_through(infantry))
-    light = game_on([piece('t1', 'light', *BLOCK, height=5)], [mover(['Vehicle'])], [target(50, 40)], phase='movement')
-    act(light, walk_through(light))
+def crossing(category, height, keywords, move=20):
+    return game_on([piece('t1', category, *BLOCK, height=height)], [mover(keywords, move)], [target(50, 40)], phase='movement')
+
+
+def test_monsters_and_vehicles_climb_dense_terrain_over_2_inches_high():
+    """Core rules 13.06: other models cross Dense terrain 2" high or lower freely; taller sections they climb, the
+    distance up and down added to the move (here up 3" and down 3" on top of the 16")."""
+    tall = crossing('dense', 3, ['Vehicle'])
+    error = refused(tall, walk_through(tall))
+    assert 'Dense terrain' in error and '6.0" climbing' in error
+    act(crossing('dense', 3, ['Monster'], move=22), walk_through(tall))
+    for low in (crossing('dense', 2, ['Vehicle']), crossing('light', 5, ['Vehicle'])):
+        act(low, walk_through(low))
+    for free in (['Infantry'], ['Beast'], ['Beasts'], ['Swarm'], ['Mobile', 'Vehicle']):
+        state = crossing('dense', 3, free)
+        act(state, walk_through(state))
+
+
+def test_a_keyword_starting_with_beast_isnt_beasts():
+    """BSData's keyword is 'Beast'; an Ork vehicle with 'Beast Snagga' still climbs."""
+    snagga = crossing('dense', 3, ['Vehicle', 'Beast Snagga'])
+    assert 'Dense terrain' in refused(snagga, walk_through(snagga))
+
+
+def test_fly_models_can_take_to_the_skies_for_2_inches_less():
+    """Core rules 21.03: a Fly unit can take to the skies for a Normal, Advance, Fall Back or Charge move: 2" off
+    its maximum, through all terrain and models. Otherwise it climbs like any other model."""
+    flyer = crossing('dense', 5, ['Vehicle', 'Fly'], move=18)
+    assert 'Dense terrain' in refused(flyer, walk_through(flyer))
+    act(flyer, walk_through(flyer, skies=True))  # 16" of 18 - 2
+    too_far = crossing('dense', 5, ['Vehicle', 'Fly'], move=17)
+    assert 'at most 15"' in refused(too_far, walk_through(too_far, skies=True))
+    grounded = crossing('dense', 5, ['Vehicle'])
+    assert 'Fly' in refused(grounded, walk_through(grounded, skies=True))
+
+
+def test_taking_to_the_skies_passes_over_enemy_models():
+    flyer = game_on([], [mover(['Infantry', 'Fly'], move=18)], [target(10, 18)], phase='movement')  # In the way
+    assert 'enemy models' in refused(flyer, walk_through(flyer))
+    act(flyer, walk_through(flyer, skies=True))
+
+
+def test_beasts_in_terrain_are_hidden_like_infantry():
+    far = game_on([piece('t1', 'light', *BLOCK)], [gunner(40, 20)], [target(10, 20, keywords=('Beast',))])
+    assert 'hidden' in refused(far, SHOOT)
 
 
 # --- Terrain objectives ---------------------------------------------------------------------------------------
@@ -132,3 +169,9 @@ def test_a_terrain_objectives_range_is_its_terrain_area():
                      phase='movement', objectives=objectives)  # 2.1" from the marker, but outside the area
     state, _ = act(beside, {'type': 'next_phase'})
     assert next(o for o in state['objectives'] if o['id'] == 'central-1')['controller'] is None
+
+
+def test_a_unit_can_fly_when_it_has_fly_models():
+    flyer = crossing('dense', 3, ['Vehicle', 'Fly'])
+    walker = crossing('dense', 3, ['Vehicle', 'Flyrant Brood'])  # Not Fly: only the whole keyword counts
+    assert can_fly(unit_by_id(flyer, 'p1-walker')) and not can_fly(unit_by_id(walker, 'p1-walker'))

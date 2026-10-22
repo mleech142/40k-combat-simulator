@@ -12,7 +12,7 @@ from ..models import SavedArmy, SavedBattlefield, SavedGame, db
 from . import battlefields, mission_state, missions, tactical
 from .dice import Dice
 from ..settings import update_settings
-from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, apply_event, charge_options,
+from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, apply_event, can_fly, charge_options,
                    deployment_zone, fight_options, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
                    score, shooting_options, terrain_areas)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
@@ -29,6 +29,7 @@ def game_response(saved, state=None):
                     'terrain': [{**piece, 'points': [list(pt) for pt in shape.points]} for piece, shape in terrain_areas(state)],
                     'outlines': {u['id']: [outline(p) for p in u['parts']] for u in state['units']},
                     'moves': {u['id']: [move_characteristic(p) for p in u['parts']] for u in state['units']},
+                    'fly': [u['id'] for u in state['units'] if can_fly(u)],
                     'score': score(state),
                     'ready': ready_units(state),
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},

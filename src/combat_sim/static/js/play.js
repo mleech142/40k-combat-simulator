@@ -18,6 +18,7 @@
     const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary' };
     const STEP_NAMES = { pile_in: 'Pile in', fight: 'Fight', consolidate: 'Consolidate' };
     const SHORT_MOVE = 3;  // Pile-in and consolidation moves, as the server sends them in errors
+    const SKIES = 2;  // Inches off a move or charge when a Fly unit takes to the skies (game.SKIES)
 
     const state = {
         game: null,  // /api/play/games/<id> answer
@@ -26,6 +27,7 @@
         view: null,  // The board's viewBox, in SVG units (inches, y down)
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
         moveMode: 'normal',  // How the selected unit will move (Movement phase)
+        skies: false,  // The selected Fly unit takes to the skies for its move or charge (2" less, over terrain and models)
         waypoint: false,  // Its next move carries on from where it stands (Movement phase)
         shooting: null,  // /api/play/games/<id>/shooting/<unit> for the selected unit (Shooting phase)
         targets: {},  // The target chosen for each weapon, 'part:weapon' -> unit id
@@ -283,6 +285,7 @@
         const turn = state.game.state.turn;
         if (await send({ type: turn.phase === 'deployment' ? 'end_deployment' : 'next_phase' })) {
             state.moveMode = 'normal';
+            state.skies = false;
             clearOptions();
             loadOptions();
             const now = state.game.state.turn;
@@ -323,13 +326,27 @@
      */
     function allowance(unit, model) {
         const turn = state.game.state.turn;
+        const skies = flying(unit) ? SKIES : 0;
         if (turn.phase === 'movement' && unit.player === turn.player) {
             const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
-            return state.game.moves[unit.id][model.part] + roll;
+            return state.game.moves[unit.id][model.part] + roll - skies;
         }
-        if (turn.phase === 'charge' && unit.player === turn.player) return unit.activity.charge_roll ?? null;
+        if (turn.phase === 'charge' && unit.player === turn.player) return unit.activity.charge_roll == null ? null : unit.activity.charge_roll - skies;
         if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) return SHORT_MOVE;
         return null;
+    }
+
+    /** Whether a unit is taking to the skies for the move it's about to make (only the selected Fly unit can). */
+    function flying(unit) {
+        return state.skies && state.selected === unit.id && state.game.fly.includes(unit.id);
+    }
+
+    /** The Take to the skies switch, for a unit with Fly models. */
+    function skiesButton(unit) {
+        if (!state.game.fly.includes(unit.id)) return '';
+        return `<button class="btn-small ${state.skies ? 'active' : ''}" data-skies
+            title="Core rules: 2&quot; off this move, but it passes over all terrain and models"><i class="fa-solid fa-plane-up" aria-hidden="true"></i>
+            Take to the skies (-2&quot;)</button>`;
     }
 
     /** Where a unit's moves this phase (or step) are measured from, in its activity. */
@@ -831,6 +848,7 @@
         state.selected = changed ? unitId : null;
         if (changed) {
             state.waypoint = false;
+            state.skies = false;
             const activity = unitById(unitId).activity;
             state.moveMode = activity.advance_roll != null ? 'advance'
                 : ['normal', 'fall_back'].includes(activity.moved) ? activity.moved : 'normal';
@@ -869,7 +887,10 @@
                 ${moved && moved !== 'stationary' ? `<button class="btn-small ${state.waypoint ? 'active' : ''}" data-mode="waypoint"
                     title="The next move carries on from here, so the unit can go round terrain"><i class="fa-solid fa-route" aria-hidden="true"></i> Waypoint</button>` : ''}
                 ${moved ? '<button class="btn-small" data-mode="reset">Reset move</button>' : ''}
+                ${state.moveMode !== 'stationary' ? skiesButton(unit) : ''}
             </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]}.
+                Climbing Dense terrain over 2" high (twice its height) counts against the move, unless the unit is Infantry,
+                Beasts, Swarm or Mobile, or takes to the skies.
                 ${state.waypoint ? 'Waypoint: the next drag carries on from where it stands, and the whole path counts.'
                     : 'Each drag is measured in a straight line from where it started; Waypoint carries on from where it stands instead.'}
                 You can move it again or reset it until the Movement phase ends; then moves are locked.</p>`;
@@ -905,6 +926,12 @@
             </div>`;
         }).join('');
         $('unit-detail').querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => movementChoice(b.dataset.mode)));
+        $('unit-detail').querySelectorAll('[data-skies]').forEach(b => b.addEventListener('click', () => {
+            state.skies = !state.skies;
+            message(state.skies ? `${unit.name} takes to the skies: 2" less, over all terrain and models.` : '');
+            renderDetail();
+            drawBoard();
+        }));
         $('unit-detail').querySelectorAll('[data-start-action]').forEach(b => b.addEventListener('click', () => startAction(unit, b.dataset.startAction)));
         $('unit-detail').querySelectorAll('[data-fire]').forEach(c => c.addEventListener('change', () => {
             state.fire[c.dataset.fire] = c.checked;
@@ -1167,7 +1194,7 @@
             the board), then drag the unit so it ends engaged with every one of them and no other.
             You can redo the move until the Charge phase ends.</p>
             <div class="play-move-modes">${chips}
-            ${unit.activity.charged ? '<button class="btn-small" data-reset>Reset charge</button>' : ''}</div>`;
+            ${unit.activity.charged ? '<button class="btn-small" data-reset>Reset charge</button>' : ''}${skiesButton(unit)}</div>`;
     }
 
     async function declareCharge() {
@@ -1794,10 +1821,11 @@
             }));
             if (turn.phase === 'movement') {
                 const mode = state.selected === unit.id ? state.moveMode : 'normal';
-                await send(Object.assign({ type: 'move', unit: unit.id, mode, models }, waypointing(unit) ? { waypoint: true } : {}));
+                await send(Object.assign({ type: 'move', unit: unit.id, mode, models }, waypointing(unit) ? { waypoint: true } : {},
+                    flying(unit) ? { skies: true } : {}));
             } else if (turn.phase === 'charge') {
                 const targets = state.charge && state.charge.unit === unit.id ? state.chargeTargets : [];
-                if (await send({ type: 'charge_move', unit: unit.id, targets, models })) loadOptions();
+                if (await send(Object.assign({ type: 'charge_move', unit: unit.id, targets, models }, flying(unit) ? { skies: true } : {}))) loadOptions();
             } else if (turn.phase === 'fight' && (turn.step === 'pile_in' || turn.step === 'consolidate')) {
                 await send({ type: turn.step, unit: unit.id, models });
             } else {

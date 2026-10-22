@@ -48,6 +48,7 @@ def test_new_game_from_two_saved_armies(client, game):
     assert game['objective_oc']['central-1'] == [0, 0] and game['objective_size'] == {'marker_mm': 40, 'range': 3}
     assert game['score'] == [0, 0] and {'key': 'cover', 'name': 'Benefit of cover', 'side': 'Target'} in game['manual_effects']
     assert game['moves'] == {'p1-w': [6], 'p1-c': [6], 'p2-g': [5]}  # Each part's Move, in inches
+    assert game['fly'] == []  # Units that can take to the skies
     assert game['outlines']['p1-w'] == [{'shape': 'round', 'length': 32 / 25.4, 'width': 32 / 25.4, 'estimated': False}]
     listed = client.get('/api/play/games').get_json()
     assert [(g['id'], g['name'], g['players']) for g in listed] == [(game['id'], 'First game', ['Red', 'Blue'])]

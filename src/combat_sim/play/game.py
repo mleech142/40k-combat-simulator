@@ -45,8 +45,9 @@ OBJECTIVE_RANGE = 3  # Inches from an objective marker's edge (11th edition; 5" 
 MARKER_MM = 40  # An objective marker's diameter
 DETECTION_RANGE = 15  # A hidden model can only be seen from this close...
 GONE_TO_GROUND = 3  # ...or this much closer when it has gone to ground behind dense terrain
-DENSE_CLIMB = 2  # Models that aren't Infantry, Beasts, Swarm, Mobile or Fly cross Dense terrain only this high or lower
-SNEAKY = ('Infantry', 'Beasts', 'Swarm')  # Keywords that take cover inside terrain areas and can be hidden
+DENSE_CLIMB = 2  # Models that aren't Infantry, Beasts, Swarm or Mobile cross Dense terrain this high or lower freely, else climb it
+SKIES = 2  # Inches off the maximum distance when a Fly unit takes to the skies (core rules 21.03)
+SNEAKY = ('Infantry', 'Beasts', 'Beast', 'Swarm')  # Take cover inside terrain areas and can be hidden (BSData says 'Beast')
 DURATIONS = ('phase', 'turn', 'game')  # How long an effect lasts
 # Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
 MANUAL_EFFECTS = {
@@ -1226,15 +1227,17 @@ def _charge_move(state, action):
 
     living = {m['id']: m for m in unit['models'] if m['alive']}
     spots = _spots(unit, action, 'Move')
-    enemies = _enemy_shapes(state, unit)
+    skies = _skies(unit, action)
+    enemies = [] if skies else _enemy_shapes(state, unit)
     target_shapes = [shape for t in targets for shape in _placed_shapes(t)]
     shapes = {}
     for mid, spot in spots.items():
         model, part = living[mid], unit['parts'][living[mid]['part']]
         start = activity['charge_start'].get(mid) or model['position']
+        allowance = roll - (SKIES if skies else 0)
         distance = math.dist((start['x'], start['y']), (spot['x'], spot['y']))
-        if distance > roll + 1e-6:
-            raise ActionError(f'{part["name"]} can move at most {roll}" (the charge roll; {distance:.1f}" asked).')
+        climb = 0 if skies else _climb(state, part, [start, spot])
+        _within_allowance(part, distance, climb, allowance, f'the charge roll{" less 2 for taking to the skies" if skies else ""}')
         steps = max(1, math.ceil(distance / PATH_STEP))
         for i in range(1, steps):
             t = i / steps
@@ -1242,8 +1245,6 @@ def _charge_move(state, action):
                     'angle': spot['angle']}
             if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
                 raise ActionError(f'{part["name"]} can\'t move through enemy models.')
-            if _dense_in_the_way(state, part, model_shape(part, here)):
-                raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         shapes[mid] = model_shape(part, spot)
         if distance > 1e-6:
             before = min(base_distance(model_shape(part, start), t) for t in target_shapes)
@@ -1296,7 +1297,10 @@ def _move(state, action):
         raise ActionError('Choose a Normal move, Advance or Fall Back.')
     enemies = _enemy_shapes(state, unit)
     engaged = _engaged(_start_shapes(unit), enemies)  # Where it started the phase decides
-    if _big(unit) and mode in ('normal', 'advance'):  # Through anything but other Monsters and Vehicles
+    skies = _skies(unit, action)
+    if skies:  # Through all models
+        blocking = []
+    elif _big(unit) and mode in ('normal', 'advance'):  # Through anything but other Monsters and Vehicles
         blocking = [shape for u in state['units'] if u['player'] != unit['player'] and _big(u) for shape in _placed_shapes(u)]
     elif mode == 'fall_back' and unit.get('status', {}).get('shocked'):  # Desperate Escape: through enemy models
         blocking = []
@@ -1324,10 +1328,11 @@ def _move(state, action):
             if _xy(here) not in (_xy(start), _xy(spot)) and not (via[mid] and _xy(via[mid][-1]) == _xy(here)):
                 via[mid].append(dict(here))
         path = [start, *via[mid], spot]
-        allowance = move_characteristic(part) + (activity.get('advance_roll', 0) if mode == 'advance' else 0)
+        allowance = move_characteristic(part) + (activity.get('advance_roll', 0) if mode == 'advance' else 0) - (SKIES if skies else 0)
         distance = path_length(path)
-        if distance > allowance + 1e-6:
-            raise ActionError(f'{part["name"]} can move at most {allowance}" ({distance:.1f}" asked).')
+        mobile = twist_is(state, 'ruinscape') and mode in ('normal', 'advance')  # Ruinscape: Mobile while moving
+        climb = 0 if skies or mobile else _climb(state, part, path)
+        _within_allowance(part, distance, climb, allowance, 'less 2 for taking to the skies' if skies else '')
         for a, b in zip(path, path[1:]):  # Every leg, waypoints included
             steps = max(1, math.ceil(math.dist(_xy(a), _xy(b)) / PATH_STEP))
             for i in range(1, steps + (b is not spot)):
@@ -1335,9 +1340,6 @@ def _move(state, action):
                 here = {'x': a['x'] + t * (b['x'] - a['x']), 'y': a['y'] + t * (b['y'] - a['y']), 'angle': spot['angle']}
                 if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
                     raise ActionError(f'{part["name"]} can\'t move through enemy models.')
-                mobile = twist_is(state, 'ruinscape') and mode in ('normal', 'advance')  # Ruinscape: Mobile while moving
-                if not mobile and _dense_in_the_way(state, part, model_shape(part, here)):
-                    raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         shapes[mid] = model_shape(part, spot)
 
     for shape in shapes.values():
@@ -1613,8 +1615,10 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
         start_shape = model_shape(part, start)
         if any(base_distance(start_shape, e) <= 1e-6 for e in enemies):
             raise ActionError(f'{part["name"]} is in base contact with an enemy model, so it can\'t {verb}.')
-        if distance > limit + 1e-6:
-            raise ActionError(f'{part["name"]} can {verb} at most {limit}" ({distance:.1f}" asked).')
+        climb = _climb(state, part, [start, spot])
+        if distance + climb > limit + 1e-6:
+            raise ActionError(f'{part["name"]} can {verb} at most {limit}" ({distance:.1f}" asked'
+                              + (f', plus {climb:.1f}" climbing Dense terrain' if climb else '') + ').')
         steps = max(1, math.ceil(distance / PATH_STEP))
         for i in range(1, steps):
             t = i / steps
@@ -1622,8 +1626,6 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
                     'angle': spot['angle']}
             if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
                 raise ActionError(f'{part["name"]} can\'t move through enemy models.')
-            if _dense_in_the_way(state, part, model_shape(part, here)):
-                raise ActionError(f'{part["name"]} can\'t move through Dense terrain over {DENSE_CLIMB}" high.')
         if target_shapes:
             before = min(base_distance(start_shape, t) for t in target_shapes)
             if min(base_distance(shapes[mid], t) for t in target_shapes) >= before - 1e-9:
@@ -1841,7 +1843,9 @@ def within(shape, area):
 
 
 def _keyword(part, names):
-    return any(_has(part['keywords'], name) for name in names)
+    """Whether a part has one of these keywords exactly (any case): 'Beast Snagga' isn't 'Beast'."""
+    names = {n.lower() for n in names}
+    return any(k.lower() in names for k in part['keywords'] or [])
 
 
 def _view_blockers(state, a, b, categories=('light', 'dense')):
@@ -1898,9 +1902,46 @@ def has_cover(state, a, unit):
     return bool(_placed_models(unit))
 
 
-def _dense_in_the_way(state, part, shape):
-    """Whether a model (not Infantry, Beasts, Swarm, Mobile or Fly) is crossing Dense terrain over 2" high."""
-    if _keyword(part, SNEAKY + ('Mobile', 'Fly')):
+def _climb(state, part, path):
+    """
+    How far a model climbs along a path (positions), to add to the distance it moves (core rules 13.06):
+    models that aren't Infantry, Beasts, Swarm or Mobile cross Dense terrain over 2" high by climbing it, up
+    and down. On this flat board each such area the path goes into or out of is one climb: twice its height.
+    """
+    if _keyword(part, SNEAKY + ('Mobile',)):
+        return 0
+    tall = [(piece, area) for piece, area in terrain_areas(state)
+            if piece['category'] == 'dense' and (piece.get('height') or 0) > DENSE_CLIMB]
+    if not tall:
+        return 0
+    crossed = set()
+    for a, b in zip(path, path[1:]):
+        steps = max(1, math.ceil(math.dist(_xy(a), _xy(b)) / PATH_STEP))
+        for i in range(steps + 1):
+            t = i / steps
+            here = model_shape(part, {'x': a['x'] + t * (b['x'] - a['x']), 'y': a['y'] + t * (b['y'] - a['y']), 'angle': b.get('angle', 0)})
+            for piece, area in tall:
+                if piece['id'] not in crossed and overlaps(here, area) != overlaps(model_shape(part, path[0]), area):
+                    crossed.add(piece['id'])
+    return sum(2 * piece['height'] for piece, _ in tall if piece['id'] in crossed)
+
+
+def _within_allowance(part, distance, climb, allowance, why=''):
+    """Refuse a move longer than its allowance, counting the climbing."""
+    if distance + climb > allowance + 1e-6:
+        asked = f'{distance:.1f}" asked' + (f', plus {climb:.1f}" climbing Dense terrain' if climb else '')
+        raise ActionError(f'{part["name"]} can move at most {allowance}"{f" ({why})" if why else ""} ({asked}).')
+
+
+def can_fly(unit):
+    """Whether a unit has Fly models, so it can take to the skies (core rules 21.03)."""
+    return any(_keyword(part, ('Fly',)) for part in unit['parts'])
+
+
+def _skies(unit, action):
+    """Whether a unit takes to the skies for this move (core rules 21.03); only a unit with Fly models can."""
+    if not action.get('skies'):
         return False
-    return any(piece['category'] == 'dense' and (piece.get('height') or 0) > DENSE_CLIMB and overlaps(shape, area)
-               for piece, area in terrain_areas(state))
+    if not can_fly(unit):
+        raise ActionError(f'{unit["name"]} can\'t take to the skies: it has no Fly models.')
+    return True
