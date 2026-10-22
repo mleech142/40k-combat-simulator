@@ -262,6 +262,35 @@ def test_units_that_fought_consolidate_up_to_3_inches():
     assert 'closer' in refused(state, move_guard(14))
 
 
+def consolidating(guard_at, *enemies):
+    """Red's Guard (it fought) in the Consolidate step; Blue's units as (part, *spots)."""
+    state = battle([(model('Guard', 1, weapons=[SWORD]), guard_at)], list(enemies))
+    state['turn'] = {'phase': 'fight', 'round': 1, 'player': 0, 'step': 'consolidate'}
+    unit_by_id(state, 'p1-guard')['activity'] = {'fought': True}
+    return state
+
+
+def consolidate_to(x, y, **extra):
+    return {'type': 'consolidate', 'unit': 'p1-guard', 'models': [{'id': 'p1-guard-0-1', 'x': x, 'y': y}], **extra}
+
+
+def test_an_engaging_consolidation_ends_engaged():
+    """Core rules 12.08: unengaged, with enemies within 3", the unit must end engaged with the ones it chooses."""
+    state = consolidating((40, 10), (model('Brute', 1), (40, 14)))  # 2.74" away
+    act(state, consolidate_to(40, 11.5))  # Engaged (1.24")
+    assert 'engaged' in refused(state, consolidate_to(40, 10.5))  # Closer, but 2.24" away
+
+
+def test_an_objective_consolidation_ends_within_range_of_the_objective():
+    """Core rules 12.08: with no enemy within 3" but an objective within 3", the unit moves to end within its range."""
+    state = consolidating((10, 28.5), (model('Brute', 1), (40, 40)))  # In range of the expansion objective at (10, 25)
+    after, _ = act(state, consolidate_to(10, 27))
+    assert positions(after, 'p1-guard') == [(10, 27)]
+    assert 'closer' in refused(state, consolidate_to(10, 30))
+    nothing = consolidating((25, 30), (model('Brute', 1), (40, 40)))  # Over 3" from any objective and enemy
+    assert 'nothing' in refused(nothing, consolidate_to(25, 29))
+
+
 # --- What the page offers ---------------------------------------------------------------------------------
 
 def test_charge_options_say_whether_a_unit_can_charge_and_what_it_can_reach():

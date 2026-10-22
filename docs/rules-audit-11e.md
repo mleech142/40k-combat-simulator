@@ -21,7 +21,7 @@ Tick each item when the engine matches (with a test).
 - [ ] **Fight eligibility and overrun fights** (12.04, 12.06): units that charged this turn, or were engaged when
   the Fight step began, can fight; an unengaged eligible unit makes an overrun fight (an extra pile-in, then
   fights). The engine needs a unit to be engaged when it fights.
-- [ ] **Consolidation modes** (12.08), in order: Ongoing (engaged: stay engaged with them), Engaging (enemies
+- [x] **Consolidation modes** (12.08), in order: Ongoing (engaged: stay engaged with them), Engaging (enemies
   within 3": end engaged with the ones chosen), Objective (an objective within 3": end within its range). The
   engine has no Objective consolidation.
 - [x] **Monsters and Vehicles move through models on every move** (17.01 and its FAQ), except other Monsters and

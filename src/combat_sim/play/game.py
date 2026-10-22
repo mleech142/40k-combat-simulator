@@ -1600,12 +1600,21 @@ def _pile_in(state, action):
         raise ActionError(f'{unit["name"]} can\'t pile in: it isn\'t engaged and didn\'t charge this turn.')
     targets = engaged or [u for u in state['units'] if u['player'] != unit['player'] and _placed_shapes(u)
                           and _unit_distance(start, _placed_shapes(u)) <= PILE_IN_REACH + 1e-9]
-    _short_move(state, unit, action, 'pile_start', PILE_IN_MOVE, 'pile in', targets, must_engage=True)
+
+    def finish(placed):
+        if not _engaged(placed, _enemy_shapes(state, unit)):
+            raise ActionError(f'{unit["name"]} must end its pile in move engaged with an enemy unit.')
+    _short_move(state, unit, action, 'pile_start', PILE_IN_MOVE, 'pile in', _shapes_of(targets), 'the closest enemy', finish)
 
 
 def _consolidate(state, action):
-    """A consolidation move (both players, in the Consolidate step) by a unit that fought: up to 3"
-    towards the enemy it is engaged with or, if none, enemy units within 3"."""
+    """
+    A consolidation move (both players, in the Consolidate step) by a unit that fought: up to 3", in the
+    first of these modes that applies (core rules 12.08). Ongoing: engaged, it ends engaged with every
+    enemy unit it was engaged with. Engaging: with enemy units within 3", it ends engaged with at least
+    one of them. Objective: with an objective within 3" (`objective`, else the closest), it ends within
+    range of it. With none of these, it can't consolidate.
+    """
     unit = _unit_or_error(state, action.get('unit'))
     if state['turn']['phase'] != 'fight' or state['turn'].get('step') != 'consolidate':
         raise ActionError('Units only consolidate during the Fight phase\'s Consolidate step.')
@@ -1614,18 +1623,42 @@ def _consolidate(state, action):
     start = _start_shapes(unit, 'consolidate_start')
     enemies = [u for u in state['units'] if u['player'] != unit['player'] and _placed_shapes(u)]
     engaged = [u for u in enemies if _engaged(start, _placed_shapes(u))]
-    targets = engaged or [u for u in enemies if _unit_distance(start, _placed_shapes(u)) <= CONSOLIDATE_MOVE + 1e-9]
-    if not targets:
-        raise ActionError(f'{unit["name"]} has no enemy unit within {CONSOLIDATE_MOVE}" to consolidate towards.')
-    _short_move(state, unit, action, 'consolidate_start', CONSOLIDATE_MOVE, 'consolidate', targets, must_engage=bool(engaged))
+    near = [u for u in enemies if _unit_distance(start, _placed_shapes(u)) <= CONSOLIDATE_MOVE + 1e-9]
+    if engaged:  # Ongoing
+        def finish(placed):
+            for other in engaged:
+                if not _engaged(placed, _placed_shapes(other)):
+                    raise ActionError(f'{unit["name"]} must end its consolidation still engaged with {other["name"]}.')
+        _short_move(state, unit, action, 'consolidate_start', CONSOLIDATE_MOVE, 'consolidate', _shapes_of(engaged), 'the closest enemy', finish)
+    elif near:  # Engaging
+        def finish(placed):
+            if not any(_engaged(placed, _placed_shapes(other)) for other in near):
+                raise ActionError(f'{unit["name"]} must end its consolidation engaged with an enemy unit within {CONSOLIDATE_MOVE}".')
+        _short_move(state, unit, action, 'consolidate_start', CONSOLIDATE_MOVE, 'consolidate', _shapes_of(near), 'the closest enemy', finish)
+    else:  # Objective
+        objectives = [(min(base_distance(s, objective_shape(o)) for s in start), o) for o in state.get('objectives', [])]
+        objectives = [(d, o) for d, o in objectives if d <= CONSOLIDATE_MOVE + 1e-9]
+        if not objectives:
+            raise ActionError(f'{unit["name"]} has nothing to consolidate towards: no enemy unit or objective within {CONSOLIDATE_MOVE}".')
+        chosen = next((o for _, o in objectives if o['id'] == action.get('objective')), min(objectives, key=lambda pair: pair[0])[1])
+
+        def finish(placed):
+            if not any(in_range(shape, chosen, state) for shape in placed):
+                raise ActionError(f'{unit["name"]} must end its consolidation within range of objective {chosen["id"]}.')
+        _short_move(state, unit, action, 'consolidate_start', CONSOLIDATE_MOVE, 'consolidate', [objective_shape(chosen)],
+                    f'objective {chosen["id"]}', finish)
 
 
-def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
+def _shapes_of(units):
+    return [shape for u in units for shape in _placed_shapes(u)]
+
+
+def _short_move(state, unit, action, key, limit, verb, target_shapes, toward, finish):
     """
     Pile in or consolidate: each model up to `limit` inches in a straight line from where it started
     the step, not through enemy models; models in base contact with an enemy stay put; each model that
-    moves ends closer to the closest target model. The unit ends in coherency (and engaged, if
-    `must_engage`). It can be redone until the step ends.
+    moves ends closer to the closest of `target_shapes` (`toward` says what they are). The unit ends in
+    coherency, and `finish(shapes)` checks the rest. It can be redone until the step ends.
     """
     activity = unit['activity']
     if key not in activity:
@@ -1634,7 +1667,6 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
     spots = _spots(unit, action, verb.capitalize())
     enemies = _enemy_shapes(state, unit)
     blocking = _blocking(state, unit)
-    target_shapes = [shape for t in targets for shape in _placed_shapes(t)]
     shapes = {}
     for mid, spot in spots.items():
         part = unit['parts'][living[mid]['part']]
@@ -1660,11 +1692,10 @@ def _short_move(state, unit, action, key, limit, verb, targets, must_engage):
         if target_shapes:
             before = min(base_distance(start_shape, t) for t in target_shapes)
             if min(base_distance(shapes[mid], t) for t in target_shapes) >= before - 1e-9:
-                raise ActionError(f'Each model that moves must end closer to the closest enemy ({part["name"]} doesn\'t).')
+                raise ActionError(f'Each model that moves must end closer to {toward} ({part["name"]} doesn\'t).')
     placed = list(shapes.values())
     _check_end_of_move(state, unit, placed)
-    if must_engage and not _engaged(placed, enemies):
-        raise ActionError(f'{unit["name"]} must end its {verb} move engaged with an enemy unit.')
+    finish(placed)
     for mid, spot in spots.items():
         living[mid]['position'] = spot
 
@@ -1801,7 +1832,9 @@ def ready_units(state):
         def can_consolidate(unit):
             enemies = [e for e in on_board if e['player'] != unit['player'] and _placed_shapes(e)]
             mine_shapes = _placed_shapes(unit)
-            return any(_unit_distance(mine_shapes, _placed_shapes(e)) <= CONSOLIDATE_MOVE + 1e-9 for e in enemies)
+            return (any(_unit_distance(mine_shapes, _placed_shapes(e)) <= CONSOLIDATE_MOVE + 1e-9 for e in enemies)
+                    or any(base_distance(s, objective_shape(o)) <= CONSOLIDATE_MOVE + 1e-9  # An Objective consolidation
+                           for o in state.get('objectives', []) for s in mine_shapes))
         return [u['id'] for u in on_board if u['activity'].get('fought') and 'consolidate_start' not in u['activity']
                 and can_consolidate(u)]
     return []
