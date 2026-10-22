@@ -38,3 +38,23 @@
 .play-bf-letters { display: inline-flex; gap: 0.2rem; flex-shrink: 0; }
 .play-bf-letters .btn-small { min-width: 1.8rem; padding: 0.15rem 0.4rem; }
 .play-bf-letters .btn-small.active { border-color: var(--accent); background: var(--accent-tint); }
+
+/* Missions: the panel above the stratagems, condemned units, VP lines in the log */
+.play-mission { margin-bottom: 0.75rem; }
+.play-mission-player { border-left: 3px solid var(--player); padding: 0.2rem 0 0.2rem 0.5rem; margin-bottom: 0.4rem; }
+.play-mission-player.play-p1 { --player: var(--play-p1); }
+.play-mission-player.play-p2 { --player: var(--play-p2); }
+.play-mission-player summary { cursor: pointer; display: flex; justify-content: space-between; gap: 0.5rem; }
+.play-mission-vp { font-weight: 700; white-space: nowrap; }
+.play-mission-lines { list-style: none; margin: 0.3rem 0 0; padding: 0; font-size: 0.82rem; }
+.play-mission-lines li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.4rem; padding: 0.2rem 0; border-top: 1px solid var(--border); }
+.play-mission-lines li span:first-child { flex: 1 1 60%; }
+.play-mission-lines li small { flex-basis: 100%; color: var(--text-secondary); }
+.play-mission-lines li.later { opacity: 0.6; }
+.play-mission-now { color: var(--success); font-weight: 600; white-space: nowrap; }
+.play-mission-later { color: var(--text-secondary); font-style: italic; white-space: nowrap; }
+.play-mission-choice { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.4rem; margin: 0.3rem 0; border: 1px solid var(--warning); border-radius: 6px; font-size: 0.85rem; }
+.play-unit-group.condemned .play-unit-outline { stroke: var(--error); stroke-width: 0.12; stroke-dasharray: 0.4 0.25; }
+.play-vp-line { color: var(--success); }
+
+.play-matchup { margin: 0 0 0.75rem; }

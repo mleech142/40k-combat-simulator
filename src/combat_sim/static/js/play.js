@@ -42,6 +42,8 @@
 
     async function init() {
         $('new-game-btn').addEventListener('click', newGame);
+        $('new-red').addEventListener('change', loadMatchup);
+        $('new-blue').addEventListener('change', loadMatchup);
         $('undo-btn').addEventListener('click', undo);
         $('fit-btn').addEventListener('click', () => { fitView(); drawBoard(); });
         $('phase-btn').addEventListener('click', nextPhase);
@@ -53,6 +55,7 @@
         board.addEventListener('pointerup', pointerUp);
         document.addEventListener('battlefields-changed', e => fillBattlefields(e.detail));
         await Promise.all([loadArmies(), loadGames()]);
+        await loadMatchup();
         const id = new URLSearchParams(location.search).get('game');
         if (id) await openGame(id);
     }
@@ -69,13 +72,32 @@
         $('new-game-btn').disabled = !armies.length;
     }
 
-    /** The New game form's battlefields (the editor sends the list whenever it changes). */
-    function fillBattlefields(list) {
+    /** The two chosen armies' force dispositions and primary missions, and their pairing's layouts. */
+    async function loadMatchup() {
+        const red = $('new-red').value, blue = $('new-blue').value;
+        state.matchup = red && blue
+            ? await fetch(`/api/play/matchup?armies=${red}&armies=${blue}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+        const m = state.matchup;
+        $('new-matchup').textContent = !m ? ''
+            : m.primaries ? `${m.dispositions[0]} vs ${m.dispositions[1]}. Primary missions: ${m.primaries[0]} / ${m.primaries[1]}.`
+            : 'An army has no force disposition: this game is scored by kill points.';
+        fillBattlefields(state.battlefields || [], true);
+    }
+
+    /** The New game form's battlefields (the editor sends the list whenever it changes): the pairing's
+     * Event Companion layouts first, chosen at random unless one is picked. */
+    function fillBattlefields(list, matchupChanged = false) {
+        state.battlefields = list;
         const select = $('new-battlefield');
         const current = select.value;
-        select.innerHTML = Core.playBattlefieldGroups(list).map(g => `<optgroup label="${escapeHtml(g.label)}">${g.items.map(b =>
+        const layouts = (state.matchup && state.matchup.layouts) || [];
+        const pairing = layouts.length ? `<optgroup label="This pairing (Event Companion)">
+            <option value="pairing:random">Random layout (A, B or C)</option>
+            ${layouts.map(b => `<option value="pairing:${b.layout}">${escapeHtml(b.name)}</option>`).join('')}</optgroup>` : '';
+        select.innerHTML = pairing + Core.playBattlefieldGroups(list).map(g => `<optgroup label="${escapeHtml(g.label)}">${g.items.map(b =>
             `<option value="${b.key}">${escapeHtml(g.kind === 'layout' ? b.name : b.label)}${g.kind === 'saved' && b.terrain ? ` (${b.terrain} terrain)` : ''}</option>`).join('')}</optgroup>`).join('');
-        if (list.some(b => b.key === current)) select.value = current;
+        if (matchupChanged && layouts.length) select.value = 'pairing:random';
+        else if ([...select.options].some(o => o.value === current)) select.value = current;
     }
 
     async function loadGames() {
@@ -299,7 +321,7 @@
         if (result) banner = result;
         $('turn-banner').textContent = banner;
         $('scoreboard').innerHTML = game && !['setup', 'deployment'].includes(turn.phase) ? game.state.players.map((pl, i) =>
-            `<span class="${PLAYER_CLASSES[i]}">${escapeHtml(pl.name)}: ${pl.cp ?? 0} CP · ${game.score[i]} pts</span>`).join('') : '';
+            `<span class="${PLAYER_CLASSES[i]}">${escapeHtml(pl.name)}: ${pl.cp ?? 0} CP · ${game.score[i]} ${game.mission ? 'VP' : 'pts'}</span>`).join('') : '';
         $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[turn.step === 'fight' && turn.fight && turn.fight.picker != null ? turn.fight.picker : turn.player] : ''}`;
         $('phase-btn').hidden = !game || turn.phase === 'ended' || setup;
         $('correct-btn').hidden = !game || ['setup', 'deployment'].includes(turn.phase);
@@ -313,8 +335,51 @@
         renderLog();
         renderPending();
         renderSetup();
+        renderMission();
         renderCorrection();
         renderStratagems();
+    }
+
+    /** The Mission panel: each player's primary mission, its lines (when each scores, what it would score
+     * now), VP against the caps, and Punishment's condemned units and choice. */
+    function renderMission() {
+        const game = state.game;
+        const panel = $('mission-panel');
+        const m = game && game.mission;
+        panel.hidden = !m;
+        if (!m) return;
+        const turn = game.state.turn;
+        const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
+        panel.innerHTML = '<h3>Missions</h3>' + m.primaries.map((p, i) => {
+            const caps = Core.playVpCaps(m.vp[i], turn.round, m.caps);
+            const lines = p.lines.map(line => {
+                const now = (m.now[i] || {})[line.id];
+                const badge = line.needs ? '<span class="play-mission-later">comes with actions</span>'
+                    : now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
+                return `<li class="${line.needs ? 'later' : ''}"><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
+            }).join('');
+            const condemned = m.condemned[String(i)] || [];
+            const choosing = m.choice && m.choice.player === i && m.condemn_options;
+            const choice = choosing ? `<div class="play-mission-choice"><strong>Punishment:</strong>
+                ${m.condemn_options.any ? 'no enemy unit qualifies, so condemn any one.' : 'condemn 1 to 3 enemy units within range of objectives or that destroyed one of yours last turn.'}
+                ${m.condemn_options.units.map(id => `<label><input type="checkbox" data-condemn="${escapeHtml(id)}"> ${escapeHtml(name(id))}</label>`).join('')}
+                <button class="btn-small" id="condemn-btn">Condemn</button></div>` : '';
+            return `<details class="play-mission-player ${PLAYER_CLASSES[i]}" ${turn.player === i || choosing ? 'open' : ''}>
+                <summary><strong>${escapeHtml(game.state.players[i].name)} · ${escapeHtml(p.name)}</strong>
+                    <span class="play-mission-vp">${caps.total} VP</span></summary>
+                <p class="play-hint">${escapeHtml(p.disposition)} · this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
+                    · primary ${caps.primary}/${caps.gameCap}</p>
+                ${choice}
+                ${condemned.length ? `<p class="play-hint">Condemned: ${condemned.map(id => escapeHtml(name(id))).join(', ')}</p>` : ''}
+                <ul class="play-mission-lines">${lines}</ul></details>`;
+        }).join('');
+        const button = $('condemn-btn');
+        if (button) {
+            button.addEventListener('click', async () => {
+                const units = [...panel.querySelectorAll('[data-condemn]:checked')].map(cb => cb.dataset.condemn);
+                if (await send({ type: 'condemn', units })) message(`Condemned: ${units.map(name).join(', ')}.`);
+            });
+        }
     }
 
     /** The setup bar: the mission sequence's next step (central objective roll, roll-off, attacker or defender). */
@@ -590,7 +655,8 @@
         if (!pending) return;
         const by = game.state.players[pending.player].name, other = game.state.players[1 - pending.player].name;
         const models = Object.keys(pending.models).length;
-        const cp = Object.entries(pending.cp).map(([p, v]) => `${game.state.players[p].name} ${v} CP`).join(', ');
+        const cp = [...Object.entries(pending.cp).map(([p, v]) => `${game.state.players[p].name} ${v} CP`),
+                    ...Object.entries(pending.vp || {}).map(([p, v]) => `${game.state.players[p].name} ${v > 0 ? '+' : ''}${v} VP`)].join(', ');
         $('pending-bar').innerHTML = `<strong>${escapeHtml(by)} proposes a correction:</strong> ${escapeHtml(pending.note || '(no note)')}
             <small>${models ? `${models} model${models === 1 ? '' : 's'} changed` : ''}${models && cp ? '; ' : ''}${escapeHtml(cp)}</small>
             <span class="play-pending-actions">${escapeHtml(other)}:
@@ -621,6 +687,8 @@
             ${unit ? `<table class="data-table data-table-compact"><thead><tr><th>${escapeHtml(unit.name)}</th><th>Wounds</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ''}
             <div class="play-correction-row">${game.state.players.map((pl, i) =>
                 `<label>${escapeHtml(pl.name)} CP <input type="number" min="0" value="${pl.cp ?? 0}" data-fix-cp="${i}" class="filter-input"></label>`).join('')}</div>
+            ${game.mission ? `<div class="play-correction-row">${game.state.players.map((pl, i) =>
+                `<label>${escapeHtml(pl.name)} VP + / − <input type="number" step="1" value="0" data-fix-vp="${i}" class="filter-input"></label>`).join('')}</div>` : ''}
             <div class="play-correction-row"><input type="text" id="fix-note" class="filter-input" maxlength="300" placeholder="What went wrong?">
                 <select id="fix-by" class="filter-select">${game.state.players.map((pl, i) => `<option value="${i}">Proposed by ${escapeHtml(pl.name)}</option>`).join('')}</select>
                 <button class="btn btn-primary" id="fix-propose">Propose</button>
@@ -645,7 +713,11 @@
             const i = Number(input.dataset.fixCp);
             if (Number(input.value) !== (game.state.players[i].cp ?? 0)) cp[i] = Number(input.value);
         });
-        if (await send({ type: 'correction', player: Number($('fix-by').value), note: $('fix-note').value, models, cp })) {
+        const vp = {};
+        $('correction-panel').querySelectorAll('[data-fix-vp]').forEach(input => {
+            if (Number(input.value)) vp[input.dataset.fixVp] = Math.trunc(Number(input.value));
+        });
+        if (await send({ type: 'correction', player: Number($('fix-by').value), note: $('fix-note').value, models, cp, vp })) {
             state.correcting = false;
             message('Correction proposed: waiting for the other player.');
         }
@@ -816,10 +888,10 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'condemn', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
-                || (['next_phase', 'end_deployment'].includes(e.action.type) && e.rolls.length)).reverse() : [];
+                || (['next_phase', 'end_deployment'].includes(e.action.type) && (e.rolls.length || (e.vp && e.vp.length)))).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
             return;
@@ -861,6 +933,8 @@
                 return `Central objective roll: ${dice(event.rolls[0])}: <strong>${event.central.objectives === 2 ? 'two central objectives' : 'one central objective'}</strong>`;
             case 'roll_off':
                 return `Roll-off for attacker or defender: ${escapeHtml(Core.playRollOff(event.roll_off, state.game.state.players))}`;
+            case 'condemn':
+                return `<strong>${player(state.game.state.turn.player)}</strong> condemned ${escapeHtml(a.units.map(name).join(', '))} (Punishment)`;
             case 'choose_role':
                 return `<strong>${player(event.chose.player)}</strong> chose to be the ${event.chose.role}`;
             case 'correction':
@@ -880,6 +954,9 @@
                     const hurt = h.mortal_wounds ? `${h.mortal_wounds} mortal wound${h.mortal_wounds === 1 ? '' : 's'}` : 'no harm';
                     const dead = h.killed.length ? `, ${h.killed.length} model${h.killed.length === 1 ? '' : 's'} lost` : '';
                     lines.push(`<strong>${escapeHtml(h.name)}</strong> ${escapeHtml(h.reason)} hazard rolls: ${dice(event.rolls[h.rolls[0]])}: ${hurt}${dead}`);
+                }
+                for (const v of event.vp || []) {
+                    lines.push(`<span class="play-vp-line">${escapeHtml(Core.playVpLine(v, state.game.state.players))}</span>`);
                 }
                 if (event.first_turn) {
                     lines.unshift(`First turn roll-off: ${escapeHtml(Core.playRollOff(event.first_turn, state.game.state.players))} and goes first`);
@@ -934,8 +1011,9 @@
                 && Object.entries(state.targets).some(([key, id]) => id === unit.id && state.fire[key]))
                 || (game.state.turn.phase === 'charge' && state.charge && state.chargeTargets.includes(unit.id));
             const shocked = unit.status && unit.status.shocked ? 'shocked' : '';
+            const condemned = game.mission && Object.values(game.mission.condemned).some(ids => ids.includes(unit.id)) ? 'condemned' : '';
             const ready = game.ready.includes(unit.id) ? 'ready' : '';
-            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked} ${ready}`,
+            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked} ${ready} ${condemned}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
             const reach = m => Math.max(game.outlines[unit.id][m.part].length, game.outlines[unit.id][m.part].width) / 2 + 0.4;

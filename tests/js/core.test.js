@@ -709,3 +709,18 @@ test('playBattlefieldGroups groups maps, Event layouts by pairing, then saved ba
     ]);
     assert.equal(groups[1].items[0].key, 'builtin:th-a');
 });
+
+test('playVpLine writes one scoring line for the log, saying when a cap cut it', () => {
+    const players = [{ name: 'Red' }, { name: 'Blue' }];
+    assert.equal(Core.playVpLine({ player: 0, mission: 'Battlefield Dominance', text: 'Each objective you hold', how: '2 objectives × 3VP', vp: 6, asked: 6 }, players),
+        'Red · Battlefield Dominance: Each objective you hold (2 objectives × 3VP): 6VP');
+    assert.equal(Core.playVpLine({ player: 1, mission: 'Outmanoeuvre', text: 'Round 1: each objective', how: '4 objectives × 4VP', vp: 5, asked: 16 }, players),
+        'Blue · Outmanoeuvre: Round 1: each objective (4 objectives × 4VP): 5VP (16VP, cut by the cap)');
+});
+
+test('playVpCaps sums a player\'s primary VP this round and in all against the caps', () => {
+    const vp = { primary: 23, rounds: { 1: 8, 2: 15 }, battle: 0, adjust: 2 };
+    assert.deepEqual(Core.playVpCaps(vp, 2, { round: 15, game: 45 }),
+        { total: 25, round: 15, roundCap: 15, primary: 23, gameCap: 45, roundFull: true });
+    assert.equal(Core.playVpCaps(vp, 3, { round: 15, game: 45 }).round, 0);
+});

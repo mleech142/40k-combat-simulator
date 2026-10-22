@@ -910,6 +910,20 @@
         return `${rounds.join(', then ')}: ${players[result.winner].name} wins`;
     }
 
+    /** Play: one primary-mission scoring line for the log (an event's `vp` entry). */
+    function playVpLine(entry, players) {
+        const how = entry.how ? ` (${entry.how})` : '';
+        const cut = entry.vp < entry.asked ? ` (${entry.asked}VP, cut by the cap)` : '';
+        return `${players[entry.player].name} · ${entry.mission}: ${entry.text}${how}: ${entry.vp}VP${cut}`;
+    }
+
+    /** Play: a player's VP ({primary, rounds, battle, adjust}) this round and in all against the caps. */
+    function playVpCaps(vp, roundNumber, caps) {
+        const round = (vp.rounds || {})[roundNumber] || 0;
+        return { total: vp.primary + (vp.adjust || 0), round, roundCap: caps.round, primary: vp.primary,
+                 gameCap: caps.game, roundFull: round >= caps.round };
+    }
+
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
         if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
@@ -925,7 +939,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playVpLine, playVpCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
