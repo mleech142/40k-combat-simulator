@@ -41,6 +41,13 @@ def plain_text(text):
     return re.sub(r' {2,}', ' ', MARKUP.sub('', tidy_text(text)))
 
 
+def has_core_ability(text, name):
+    """Whether a datasheet's abilities text lists a core ability ('Fights First', 'Deep Strike'): BSData puts
+    each on its own line, where a unit's own abilities say 'Name: what it does'."""
+    name = name.lower()
+    return any(line.strip().rstrip('.').lower() == name for line in plain_text(text).split('\n'))
+
+
 # ---------------------------------------------------------------------------
 # Leader buffs: "While this model is leading a unit, ..." as modifier rows
 # ---------------------------------------------------------------------------

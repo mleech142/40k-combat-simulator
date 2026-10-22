@@ -13,7 +13,7 @@ import shutil
 import pytest
 
 from combat_sim import wahapedia, wahapedia_download
-from combat_sim.rules_text import parse_effects, parse_leader_buffs
+from combat_sim.rules_text import has_core_ability, parse_effects, parse_leader_buffs
 from conftest import BSDATA_FIXTURES, WAHAPEDIA_FIXTURES
 
 APP_DATA = {
@@ -134,6 +134,13 @@ def test_parse_effects_reads(text, expected):
     found = parse_effects(text)
     assert buffs(text) == expected
     assert found['skipped'] == []
+
+
+def test_has_core_ability_finds_a_core_ability_on_its_own_line():
+    text = 'Deep Strike\n\n**Fights First**\n\nBlade Dance: After this unit ends a Charge move, it does not have the Fights First ability.'
+    assert has_core_ability(text, 'Fights First') and has_core_ability(text, 'deep strike')
+    assert not has_core_ability('Blade Dance: this unit has the Fights First ability while leading.', 'Fights First')
+    assert not has_core_ability(None, 'Fights First')
 
 
 def test_parse_effects_keeps_conditions_and_skips_the_rest():

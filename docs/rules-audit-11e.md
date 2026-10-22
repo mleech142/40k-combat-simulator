@@ -15,8 +15,9 @@ Tick each item when the engine matches (with a test).
   stratagem in a phase. The engine only stops each stratagem being used twice in a phase.
 - [x] **Ordered Retreat** (09.07): a unit that Falls Back while not battle-shocked takes a battle-shock roll
   afterwards. The engine rolls it as the Movement phase ends (moves can be redone until then).
-- [ ] **Fights First from datasheets** (24.13): a unit whose models all have Fights First fights in the Fights
-  First step, as charging units do. The engine only gives it to units that charged.
+- [x] **Fights First from datasheets** (24.13): a unit whose models all have Fights First fights in the Fights
+  First step, as charging units do. Read from the datasheet when the army is frozen (games started before
+  this have no record of it).
 - [ ] **Fight eligibility and overrun fights** (12.04, 12.06): units that charged this turn, or were engaged when
   the Fight step began, can fight; an unengaged eligible unit makes an overrun fight (an extra pile-in, then
   fights). The engine needs a unit to be engaged when it fights.

@@ -174,6 +174,17 @@ def test_fights_first_units_fight_first_then_players_alternate():
     assert state['turn']['fight'] == {'stage': 'done', 'picker': None}
 
 
+def test_units_with_the_fights_first_ability_fight_in_the_fights_first_step():
+    """Core rules 24.13: a unit whose models all have Fights First fights first, as charging units do."""
+    state = fighters()
+    unit_by_id(state, 'p2-brute')['parts'][0]['fights_first'] = True
+    state = to_step(state, 'fight')
+    state, _ = act(state, fight('p1-squad'), *MISS * 3)
+    assert state['turn']['fight'] == {'stage': 'fights_first', 'picker': 1}  # Blue's Brute has Fights First
+    state, _ = act(state, fight('p2-brute'), *MISS)
+    assert state['turn']['fight'] == {'stage': 'remaining', 'picker': 0}
+
+
 def test_only_models_engaged_with_the_target_attack():
     state = fighters()
     put(state, 'p1-squad', (10, 15.5), (11.5, 15.5), (13, 13))  # The last model 4.74" from the Mob

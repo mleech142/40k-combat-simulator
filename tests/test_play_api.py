@@ -49,6 +49,7 @@ def test_new_game_from_two_saved_armies(client, game):
     assert game['score'] == [0, 0] and {'key': 'cover', 'name': 'Benefit of cover', 'side': 'Target'} in game['manual_effects']
     assert game['moves'] == {'p1-w': [6], 'p1-c': [6], 'p2-g': [5]}  # Each part's Move, in inches
     assert game['fly'] == []  # Units that can take to the skies
+    assert not any(p['fights_first'] for u in game['state']['units'] for p in u['parts'])  # Frozen from the datasheet
     assert game['outlines']['p1-w'] == [{'shape': 'round', 'length': 32 / 25.4, 'width': 32 / 25.4, 'estimated': False}]
     listed = client.get('/api/play/games').get_json()
     assert [(g['id'], g['name'], g['players']) for g in listed] == [(game['id'], 'First game', ['Red', 'Blue'])]

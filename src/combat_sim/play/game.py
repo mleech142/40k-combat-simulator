@@ -1424,7 +1424,12 @@ def _can_fight(state, unit):
 
 
 def _fights_first(unit):
-    return bool(unit['activity'].get('charged'))
+    """A unit that charged this turn, or whose models all have Fights First (core rules 24.13): every part
+    of it, leaders included, has the ability on its datasheet (frozen with the army)."""
+    if unit['activity'].get('charged'):
+        return True
+    living = {m['part'] for m in unit['models'] if m['alive']}
+    return bool(living) and all(unit['parts'][p].get('fights_first') for p in living)
 
 
 def _settle_picker(state):

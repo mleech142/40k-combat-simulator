@@ -6,7 +6,7 @@ Needs an app context; everything else in the play package works on the plain dat
 
 from .. import armies
 from ..models import Enhancement, Faction, FactionRule, MeleeWeapon, RangedWeapon, Stratagem, Unit, db
-from ..rules_text import plain_text
+from ..rules_text import has_core_ability, plain_text
 
 STATS = ('move', 'toughness', 'save', 'wounds', 'invulnerable_save', 'feel_no_pain', 'oc', 'leadership')
 WEAPON_FIELDS = ('name', 'type', 'attacks', 'skill', 'strength', 'ap', 'damage', 'range', 'abilities')
@@ -85,6 +85,7 @@ def _part(entry, role, catalogue, warlord):
         'leader_buffs': unit.effective_leader_buffs if role == 'leader' else [],
         'enhancement': {'name': enhancement.name, 'buffs': enhancement.buffs or []} if enhancement else None,
         'warlord': entry['uid'] == warlord,
+        'fights_first': has_core_ability(unit.abilities, 'Fights First'),
     }
 
 
