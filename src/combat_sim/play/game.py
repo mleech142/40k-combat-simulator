@@ -148,7 +148,8 @@ def resolve_action(state, action, dice):
                 'remove_effect': lambda s: _remove_effect(s, action), 'correction': lambda s: _correction(s, action),
                 'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False),
                 'roll_objectives': lambda s: _roll_objectives(s, dice), 'roll_off': lambda s: _roll_off_roles(s, dice),
-                'choose_role': lambda s: _choose_role(s, action), 'condemn': lambda s: mission_state.condemn(s, action)}
+                'choose_role': lambda s: _choose_role(s, action), 'condemn': lambda s: mission_state.condemn(s, action),
+                'choose_secondaries': lambda s: mission_state.choose_secondaries(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
         raise ActionError(f'Unknown action: {kind}')
@@ -160,8 +161,7 @@ def resolve_action(state, action, dice):
     state = copy.deepcopy(state)
     start = len(dice.log)
     detail = handlers[kind](state) or {}
-    alive_before = {u['id'] for u in state['units'] if any(before['models'][m['id']]['alive'] for m in u['models'])}
-    mission_state.log_destroyed(state, alive_before, action)
+    mission_state.log_destroyed(state, before['models'], action)
     after = _snapshot(state)
     event = {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]],
              'models': {k: v for k, v in after['models'].items() if v != before['models'][k]},
@@ -298,6 +298,8 @@ def _choose_role(state, action):
         if objective.get('role'):
             objective['owner'] = state['roles'][objective['role']]
     state['turn'] = {'phase': 'deployment', 'round': 0, 'player': state['roles']['defender']}
+    if state.get('mission'):  # Then each player chooses their secondary missions
+        state['turn'] = {'phase': 'setup', 'round': 0, 'player': state['roles']['defender'], 'step': 'secondaries'}
     return {'chose': {'player': chooser, 'role': role}}
 
 

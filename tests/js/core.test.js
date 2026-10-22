@@ -724,3 +724,16 @@ test('playVpCaps sums a player\'s primary VP this round and in all against the c
         { total: 25, round: 15, roundCap: 15, primary: 23, gameCap: 45, roundFull: true });
     assert.equal(Core.playVpCaps(vp, 3, { round: 15, game: 45 }).round, 0);
 });
+
+test('playSetupPrompt asks both players to choose their secondary missions', () => {
+    const prompt = Core.playSetupPrompt({ phase: 'setup', step: 'secondaries', player: 1 }, [{ name: 'Red' }, { name: 'Blue' }]);
+    assert.equal(prompt.secondaries, true);
+    assert.deepEqual(prompt.buttons, []);
+    assert.match(prompt.text, /secondary missions/);
+});
+
+test('playSecondaryCaps sums secondary VP this round and in all against the caps', () => {
+    const vp = { secondary: 18, secondary_rounds: { 2: 15 }, cards: { assassination: 12 } };
+    assert.deepEqual(Core.playSecondaryCaps(vp, 2, { round: 15, game: 45, card: 20 }),
+        { total: 18, round: 15, roundCap: 15, gameCap: 45, roundFull: true, cardCap: 20 });
+});

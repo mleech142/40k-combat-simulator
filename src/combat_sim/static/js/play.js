@@ -371,7 +371,8 @@
                     · primary ${caps.primary}/${caps.gameCap}</p>
                 ${choice}
                 ${condemned.length ? `<p class="play-hint">Condemned: ${condemned.map(id => escapeHtml(name(id))).join(', ')}</p>` : ''}
-                <ul class="play-mission-lines">${lines}</ul></details>`;
+                <ul class="play-mission-lines">${lines}</ul>
+                ${secondaryCards(m, i, turn)}</details>`;
         }).join('');
         const button = $('condemn-btn');
         if (button) {
@@ -382,12 +383,33 @@
         }
     }
 
+    /** A player's secondary missions in the Mission panel: each card's lines and VP against its cap. */
+    function secondaryCards(m, i, turn) {
+        const chosen = m.secondaries && m.secondaries[i];
+        if (!chosen) return '';
+        if (!chosen.cards) return '<p class="play-hint">Secondary missions chosen: shown once both players have chosen.</p>';
+        const caps = Core.playSecondaryCaps(m.vp[i], turn.round, m.secondary_caps);
+        return `<p class="play-hint play-secondary-head">Secondary (${escapeHtml(chosen.mode)}) · ${caps.total} VP ·
+                this round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''} · ${caps.total}/${caps.gameCap}</p>
+            ${chosen.cards.map(c => `<div class="play-secondary-card"><strong>${escapeHtml(c.name)}</strong>
+                <span class="play-mission-vp">${(m.vp[i].cards || {})[c.key] || 0}/${caps.cardCap} VP</span>
+                <ul class="play-mission-lines">${c.lines.map(line => {
+                    const now = (m.now[i] || {})[line.id];
+                    const badge = now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
+                    return `<li><span>${escapeHtml(line.text)}</span>${badge}<small>${escapeHtml(line.timing)}</small></li>`;
+                }).join('')}</ul></div>`).join('')}`;
+    }
+
     /** The setup bar: the mission sequence's next step (central objective roll, roll-off, attacker or defender). */
     function renderSetup() {
         const game = state.game;
         const prompt = game && Core.playSetupPrompt(game.state.turn, game.state.players);
         $('setup-bar').hidden = !prompt;
         if (!prompt) return;
+        if (prompt.secondaries) {
+            renderSecondaryChoice(prompt);
+            return;
+        }
         $('setup-bar').innerHTML = `<span>${escapeHtml(prompt.text)}</span>
             <span class="play-pending-actions">${prompt.buttons.map((b, i) =>
                 `<button class="btn-small" data-setup="${i}"><i class="fa-solid fa-${b.icon}" aria-hidden="true"></i> ${escapeHtml(b.label)}</button>`).join('')}</span>`;
@@ -395,6 +417,33 @@
             const action = prompt.buttons[Number(button.dataset.setup)].action;
             if (await send(action) && state.game.state.turn.phase === 'deployment') {
                 message(`${state.game.state.players[state.game.state.turn.player].name} is the defender and deploys first.`);
+            }
+        }));
+    }
+
+    /** Setup: each player chooses Fixed and two Fixed secondary missions (a choice shows as 'chosen' until
+     * both have chosen; Tactical comes later). */
+    function renderSecondaryChoice(prompt) {
+        const game = state.game;
+        const m = game.mission;
+        const most = m.secondary_caps.cards;
+        $('setup-bar').innerHTML = `<span>${escapeHtml(prompt.text)}</span>
+            <div class="play-secondary-choice">${game.state.players.map((pl, i) => m.secondaries[i]
+                ? `<div class="${PLAYER_CLASSES[i]}"><strong>${escapeHtml(pl.name)}</strong>: chosen</div>`
+                : `<div class="${PLAYER_CLASSES[i]}" data-choose="${i}"><strong>${escapeHtml(pl.name)}</strong>
+                    <label><input type="radio" name="mode-${i}" value="fixed" checked> Fixed</label>
+                    <label class="play-mission-later"><input type="radio" name="mode-${i}" value="tactical" disabled> Tactical (comes later)</label>
+                    ${m.secondary_options.map(c => `<label title="${escapeHtml(c.lines.map(l => l.text).join(' / '))}">
+                        <input type="checkbox" data-card="${c.key}"> ${escapeHtml(c.name)}</label>`).join('')}
+                    <button class="btn-small" data-lock="${i}">Lock in ${most} for ${escapeHtml(pl.name)}</button></div>`).join('')}</div>`;
+        $('setup-bar').querySelectorAll('[data-lock]').forEach(button => button.addEventListener('click', async () => {
+            const box = $('setup-bar').querySelector(`[data-choose="${button.dataset.lock}"]`);
+            const cards = [...box.querySelectorAll('[data-card]:checked')].map(cb => cb.dataset.card);
+            if (cards.length !== most) return message(`Choose ${most} secondary missions.`, true);
+            if (await send({ type: 'choose_secondaries', player: Number(button.dataset.lock), mode: 'fixed', cards })) {
+                const now = state.game.state.turn;
+                message(now.phase === 'deployment' ? `Secondary missions revealed. ${state.game.state.players[now.player].name} is the defender and deploys first.`
+                    : `${game.state.players[button.dataset.lock].name}'s secondary missions are locked in.`);
             }
         }));
     }
@@ -888,7 +937,7 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'condemn', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type) && (e.rolls.length || (e.vp && e.vp.length)))).reverse() : [];
@@ -933,6 +982,12 @@
                 return `Central objective roll: ${dice(event.rolls[0])}: <strong>${event.central.objectives === 2 ? 'two central objectives' : 'one central objective'}</strong>`;
             case 'roll_off':
                 return `Roll-off for attacker or defender: ${escapeHtml(Core.playRollOff(event.roll_off, state.game.state.players))}`;
+            case 'choose_secondaries': {
+                const options = Object.fromEntries(((state.game.mission || {}).secondary_options || []).map(c => [c.key, c.name]));
+                const revealed = event.revealed ? ' · revealed: ' + Object.entries(event.revealed).map(([p, s]) =>
+                    `${state.game.state.players[p].name}: ${s.cards.map(k => options[k] || k).join(', ')}`).join(' · ') : '';
+                return `<strong>${player(a.player)}</strong> chose their secondary missions${escapeHtml(revealed)}`;
+            }
             case 'condemn':
                 return `<strong>${player(state.game.state.turn.player)}</strong> condemned ${escapeHtml(a.units.map(name).join(', '))} (Punishment)`;
             case 'choose_role':

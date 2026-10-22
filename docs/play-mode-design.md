@@ -263,7 +263,12 @@ Agreed October 2026, after reading the 11th edition core rules and the 2026-27 m
    - **Scoring** is automatic at each line's timing, logged line by line with any VP a cap cut; the scoreboard shows VP; "Correct the game" gets a VP field per player.
    - **Mission panel** (above the stratagems): both primaries, each line with its timing, whether it would score now and VP so far; primary VP this round against 15 and in all against 45.
    - **Tracking:** at the start of each turn the game records objective control and where each unit stands (in range of objectives, of central objectives, within terrain areas); each destroyed unit is logged with what destroyed it and where that unit stood; replays rebuild it from events.
-4. **Fixed secondaries.**
+4. *Done:* **Fixed secondaries.** Agreed and built October 2026, from the deck's wording:
+   - **Choosing:** after attacker and defender are decided, a setup step (`choose_secondaries`): each player picks Fixed or Tactical, and for Fixed two of the four Fixed cards (A Grievous Blow, Assassination, Bring It Down, Engage on All Fronts), active all battle. A choice shows only as chosen until both have chosen, then both are revealed in the log; deployment follows, the defender first. Tactical (two cards drawn at the start of each of your Command phases) is offered as "comes later" until step 6. Games without missions have no secondaries.
+   - **Scoring** (`missions.SECONDARIES`, Fixed values): A Grievous Blow 4VP per enemy unit of 13+ models (starting strength) destroyed and Bring It Down 4VP per enemy model with 10+ wounds destroyed, each at most 5VP a turn; Assassination 3VP per enemy Character model destroyed, +1VP each with 4+ wounds; all at the end of every turn. Engage on All Fronts 2VP for a presence in three table quarters, 4VP in four (units wholly within, not within 6" of the centre, not Aircraft or battle-shocked), at the end of your turn.
+   - **Destroyed models** are logged as they die, whatever destroys them (`mission['models_destroyed']`, cleared each turn), so a leader killed inside a unit counts.
+   - **Caps:** secondaries 15VP a battle round and 45VP a game, and each Fixed card 20VP; the player whose turn it is scores first. VP totals are primary + secondary + corrections.
+   - **Page:** the setup bar has each player's choice; the Mission panel shows each player's cards under their primary, with VP against 20, what each line would score now and the secondary caps.
 5. **Actions and operation markers** (unlocking the action-based primaries).
 6. **Tactical secondaries.**
 7. **Twists.**

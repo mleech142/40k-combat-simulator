@@ -13,10 +13,14 @@ Each primary is a list of lines; a line scores VP at its timing:
 the best of them scores. A line with `needs` 'actions' waits for actions and operation markers (Play
 mode's later step); it never scores yet.
 
-Scoring reads a Context (built by game.py from the game state): what each player controls now and
-did at the start of the turn, and the units destroyed this turn and the turn before. VP are capped
-(game.py): 15 per battle round and 45 per game for primaries; end-of-battle VP don't count towards the
-15 but do towards the 45.
+Secondary missions (SECONDARIES): before the battle each player plays Fixed (two of the cards marked
+Fixed, active all battle) or Tactical (two drawn at the start of each of their Command phases: Play mode's
+later step). Their lines are scored like a primary's; a line's `turn_cap` limits its VP in one turn.
+
+Scoring reads a Context (built by mission_state.py from the game state): what each player controls now
+and did at the start of the turn, and the units and models destroyed this turn and the turn before. VP
+are capped (mission_state.py): primaries 15 per battle round and 45 per game, end-of-battle VP not
+counting towards the 15; secondaries likewise 15 and 45, and each Fixed card at most 20.
 """
 
 from dataclasses import dataclass, field
@@ -27,6 +31,13 @@ BY_NAME = {name: key for key, name in DISPOSITIONS.items()}
 
 PRIMARY_ROUND_CAP = 15
 PRIMARY_GAME_CAP = 45
+SECONDARY_ROUND_CAP = 15
+SECONDARY_GAME_CAP = 45
+FIXED_CARD_CAP = 20
+FIXED_CARDS = 2  # A player playing Fixed chooses this many
+BIG_UNIT = 13  # A Grievous Blow: units with a starting strength of this many models or more
+BIG_MODEL_WOUNDS = 10  # Bring It Down: models with this many wounds or more
+TOUGH_CHARACTER_WOUNDS = 4  # Assassination: +1VP for a Character model with this many wounds or more
 
 # Your disposition -> your opponent's -> your primary mission
 MATRIX = {
@@ -75,6 +86,8 @@ class Context:
     quarters: int = 0
     enemy_wholly_in_my_territory: bool = False
     condemned: list = field(default_factory=list)
+    models_destroyed: list = field(default_factory=list)
+    presence: int = 0
 
     @property
     def enemy(self):
@@ -90,6 +103,10 @@ class Context:
     def kills(self):
         """Enemy units destroyed this turn."""
         return [d for d in self.destroyed if d['player'] == self.enemy]
+
+    def model_kills(self):
+        """Enemy models destroyed this turn: {'model', 'unit', 'player', 'character', 'wounds'}."""
+        return [m for m in self.models_destroyed if m['player'] == self.enemy]
 
 
 def _gained(ctx, exclude_home=True):
@@ -129,6 +146,15 @@ SCORERS = {
     'territory_clear': lambda ctx, vp: (vp, 'no enemy unit wholly in your territory') if not ctx.enemy_wholly_in_my_territory else (0, ''),
     'condemned_left': lambda ctx, vp: (vp, 'a condemned unit was destroyed')
     if any(d['unit'] in ctx.condemned for d in ctx.destroyed) else (0, ''),
+    # Secondary missions
+    'per_big_unit_killed': lambda ctx, vp: _each(sum((d.get('strength') or 0) >= BIG_UNIT for d in ctx.kills()), vp,
+                                                 f'unit of {BIG_UNIT}+ models destroyed'),
+    'per_character_killed': lambda ctx, vp, tough=False: _each(
+        sum(m['character'] and (not tough or (m['wounds'] or 0) >= TOUGH_CHARACTER_WOUNDS) for m in ctx.model_kills()), vp,
+        f'Character model{f" with {TOUGH_CHARACTER_WOUNDS}+ wounds" if tough else ""} destroyed'),
+    'per_big_model_killed': lambda ctx, vp: _each(sum((m['wounds'] or 0) >= BIG_MODEL_WOUNDS for m in ctx.model_kills()), vp,
+                                                  f'model with {BIG_MODEL_WOUNDS}+ wounds destroyed'),
+    'presence': lambda ctx, vp, count: (vp, f'a presence in {count} table quarters') if ctx.presence >= count else (0, ''),
 }
 WHERE = {'in_range': 'within range of an objective', 'central': 'within range of a central objective',
          'terrain': 'within a terrain area'}
@@ -138,9 +164,9 @@ def _each(count, vp, what):
     return count * vp, f'{count} {what}{"s" if count != 1 else ""} × {vp}VP' if count else ''
 
 
-def line(text, when, score=None, vp=0, rounds=(1, 5), round5_end=False, either=None, needs=None, **params):
+def line(text, when, score=None, vp=0, rounds=(1, 5), round5_end=False, either=None, needs=None, turn_cap=None, **params):
     return {'text': text, 'when': when, 'score': score, 'vp': vp, 'rounds': rounds, 'round5_end': round5_end,
-            'either': either, 'needs': needs, 'params': params}
+            'either': either, 'needs': needs, 'turn_cap': turn_cap, 'params': params}
 
 
 def _command(text, score, vp, **params):
@@ -322,11 +348,44 @@ PRIMARIES = {
 }
 
 
+# The secondary missions playable as Fixed (their Fixed values; the Tactical deck comes later)
+SECONDARIES = {
+    'a-grievous-blow': ('A Grievous Blow', [
+        line(f'Each enemy unit of {BIG_UNIT}+ models (starting strength) destroyed this turn, up to 5VP a turn', 'any_turn',
+             'per_big_unit_killed', 4, turn_cap=5),
+    ]),
+    'assassination': ('Assassination', [
+        line('Each enemy Character model destroyed this turn', 'any_turn', 'per_character_killed', 3),
+        line(f'Each of those with {TOUGH_CHARACTER_WOUNDS}+ wounds', 'any_turn', 'per_character_killed', 1, tough=True),
+    ]),
+    'bring-it-down': ('Bring It Down', [
+        line(f'Each enemy model with {BIG_MODEL_WOUNDS}+ wounds destroyed this turn, up to 5VP a turn', 'any_turn',
+             'per_big_model_killed', 4, turn_cap=5),
+    ]),
+    'engage-on-all-fronts': ('Engage on All Fronts', [
+        line('A presence in three table quarters (units wholly within, not within 6" of the centre, not Aircraft '
+             'or battle-shocked)', 'turn', 'presence', 2, either='quarters', count=3),
+        line('A presence in all four table quarters', 'turn', 'presence', 4, either='quarters', count=4),
+    ]),
+}
+
+
 def primary(key):
     """{'key', 'name', 'disposition', 'lines': [line with 'id']} for a primary mission's key."""
     name, disposition, lines = PRIMARIES[key]
     return {'key': key, 'name': name, 'disposition': disposition,
             'lines': [dict(entry, id=f'{key}:{i}') for i, entry in enumerate(lines)]}
+
+
+def secondary(key):
+    """{'key', 'name', 'lines': [line with 'id']} for a secondary mission's key."""
+    name, lines = SECONDARIES[key]
+    return {'key': key, 'name': name, 'lines': [dict(entry, id=f'{key}:{i}') for i, entry in enumerate(lines)]}
+
+
+def card(key):
+    """A primary or secondary mission by its key."""
+    return primary(key) if key in PRIMARIES else secondary(key)
 
 
 def timing(entry):
@@ -356,12 +415,15 @@ def due(entry, when, round_number):
 
 
 def score_lines(key, when, round_number, ctx):
-    """[(line, VP, how)] for the lines of a primary mission due now, each 'either' group's best only."""
+    """[(line, VP, how)] for the lines of a mission card due now, each 'either' group's best only, each
+    line within its `turn_cap`."""
     found, best = [], {}
-    for entry in primary(key)['lines']:
+    for entry in card(key)['lines']:
         if entry['needs'] or not entry['score'] or not due(entry, when, round_number):
             continue
         vp, how = SCORERS[entry['score']](ctx, entry['vp'], **entry['params'])
+        if entry['turn_cap'] is not None and vp > entry['turn_cap']:
+            vp, how = entry['turn_cap'], f'{how}, at most {entry["turn_cap"]}VP a turn'
         if not vp:
             continue
         if entry['either']:
@@ -376,8 +438,9 @@ def score_lines(key, when, round_number, ctx):
 def preview(key, ctx):
     """{line id: (VP, how)} for every line that would score right now, whatever its timing (Mission panel)."""
     out = {}
-    for entry in primary(key)['lines']:
+    for entry in card(key)['lines']:
         if entry['needs'] or not entry['score']:
             continue
-        out[entry['id']] = SCORERS[entry['score']](ctx, entry['vp'], **entry['params'])
+        vp, how = SCORERS[entry['score']](ctx, entry['vp'], **entry['params'])
+        out[entry['id']] = (min(vp, entry['turn_cap']) if entry['turn_cap'] is not None else vp, how)
     return out

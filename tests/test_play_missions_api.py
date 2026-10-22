@@ -55,3 +55,22 @@ def test_games_without_dispositions_have_no_mission(client):
     game = client.post('/api/play/games', json={'armies': [red, plain]}).get_json()
     assert game['mission'] is None
     assert client.post('/api/play/games', json={'armies': [red, plain], 'battlefield': 'pairing:A'}).status_code == 400
+
+
+def test_secondaries_are_chosen_in_setup_and_shown_once_both_are_chosen(client):
+    red, blue = saved_army(client, 'Red', ['d-vanguard']), saved_army(client, 'Blue', ['d-bastion'])
+    game = client.post('/api/play/games', json={'armies': [red, blue], 'battlefield': 'pairing:A'}).get_json()
+    url = f'/api/play/games/{game["id"]}/actions'
+    client.post(url, json={'type': 'roll_off'})
+    game = client.post(url, json={'type': 'choose_role', 'role': 'attacker'}).get_json()
+    assert game['state']['turn']['step'] == 'secondaries'
+    assert [c['name'] for c in game['mission']['secondary_options']] == [
+        'A Grievous Blow', 'Assassination', 'Bring It Down', 'Engage on All Fronts']
+    game = client.post(url, json={'type': 'choose_secondaries', 'player': 0, 'mode': 'fixed',
+                                  'cards': ['assassination', 'bring-it-down']}).get_json()
+    assert game['mission']['secondaries'] == [{'mode': 'fixed', 'chosen': True, 'cards': None}, None]  # Hidden for now
+    game = client.post(url, json={'type': 'choose_secondaries', 'player': 1, 'mode': 'fixed',
+                                  'cards': ['a-grievous-blow', 'engage-on-all-fronts']}).get_json()
+    assert [c['name'] for c in game['mission']['secondaries'][0]['cards']] == ['Assassination', 'Bring It Down']
+    assert game['mission']['secondary_caps'] == {'round': 15, 'game': 45, 'card': 20, 'cards': 2}
+    assert game['state']['turn']['phase'] == 'deployment'

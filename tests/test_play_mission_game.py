@@ -79,7 +79,9 @@ def test_destroyed_units_are_recorded_and_score():
     state, _ = act(state, {'type': 'correction', 'player': 0, 'models': {'p2-b0-0-1': {'alive': False}}, 'note': 'Shot'})
     state, _ = act(state, {'type': 'accept', 'player': 1})
     assert state['mission']['destroyed'] == [{'unit': 'p2-b0', 'player': 1, 'by': None, 'by_player': None, 'by_in_range': False,
-                                              'in_range': True, 'central': True, 'terrain': False}]
+                                              'in_range': True, 'central': True, 'terrain': False, 'strength': 1}]
+    assert state['mission']['models_destroyed'] == [{'model': 'p2-b0-0-1', 'unit': 'p2-b0', 'player': 1, 'character': False,
+                                                     'wounds': 1}]
     state, event = to_turn_end(state)
     assert [(v['player'], v['vp']) for v in event['vp']] == [(0, 3)]  # An enemy unit destroyed this turn
     assert state['mission']['destroyed'] == [] and len(state['mission']['destroyed_before']) == 1
@@ -123,3 +125,64 @@ def test_a_replay_gives_the_same_vp_and_mission():
     again = replay(frozen, events)
     assert vp(again) == vp(state) and vp(state)[0] > 0
     assert again['mission'] == state['mission']
+
+
+# --- Fixed secondary missions -----------------------------------------------------------------------------------
+
+def setup_game(red_units, blue_units):
+    """A game with setup: Take and Hold vs Take and Hold, Red attacking, at the secondaries step."""
+    frozen = armies('Take and Hold', 'Take and Hold', red_units, blue_units)
+    state = new_game(frozen, setup=True)
+    state, _ = act(state, {'type': 'roll_objectives'}, 1)
+    state, _ = act(state, {'type': 'roll_off'}, 6, 1)
+    state, _ = act(state, {'type': 'choose_role', 'role': 'attacker'})
+    return frozen, state
+
+
+def test_each_player_chooses_two_fixed_secondaries_before_deployment():
+    _, state = setup_game([('R0', 1, 1)], [('B0', 1, 1)])
+    assert state['turn']['step'] == 'secondaries'
+    assert 'come later' in refused(state, {'type': 'choose_secondaries', 'player': 0, 'mode': 'tactical'})
+    assert 'different' in refused(state, {'type': 'choose_secondaries', 'player': 0, 'mode': 'fixed',
+                                          'cards': ['assassination', 'assassination']})
+    state, event = act(state, {'type': 'choose_secondaries', 'player': 1, 'mode': 'fixed',
+                               'cards': ['assassination', 'bring-it-down']})
+    assert event['secondaries_chosen'] == 1 and 'revealed' not in event and state['turn']['step'] == 'secondaries'
+    state, event = act(state, {'type': 'choose_secondaries', 'player': 0, 'mode': 'fixed',
+                               'cards': ['a-grievous-blow', 'engage-on-all-fronts']})
+    assert event['revealed']['1']['cards'] == ['assassination', 'bring-it-down']
+    assert state['turn'] == {'phase': 'deployment', 'round': 0, 'player': 1}  # The defender deploys first
+
+
+def test_secondaries_score_with_the_primary_and_count_towards_the_total():
+    frozen = armies('Take and Hold', 'Take and Hold', [('R0', 1, 2)], [('B0', 1, 1)])
+    frozen[1]['units'][0]['parts'][0]['keywords'] = ['Infantry', 'Character']
+    frozen[1]['units'][0]['parts'][0]['stats']['wounds'] = 5
+    state = new_game(frozen)
+    state['mission']['secondaries'] = {'0': {'mode': 'fixed', 'cards': ['assassination', 'bring-it-down']}, '1': None}
+    put(state, 'p1-r0', FAR)
+    put(state, 'p2-b0', CENTRE)
+    state, _ = act(state, {'type': 'end_deployment'})
+    state, _ = act(state, {'type': 'correction', 'player': 0, 'models': {'p2-b0-0-1': {'alive': False}}, 'note': 'Shot'})
+    state, _ = act(state, {'type': 'accept', 'player': 1})
+    state, event = to_turn_end(state)
+    lines = [(v['kind'], v['mission'], v['vp']) for v in event['vp']]
+    assert ('secondary', 'Assassination', 3) in lines and ('secondary', 'Assassination', 1) in lines  # 5 wounds: +1VP
+    vp_red = state['players'][0]['vp']
+    assert (vp_red['secondary'], vp_red['cards']) == (4, {'assassination': 4}) and score(state)[0] == vp_red['primary'] + 4
+
+
+def test_a_fixed_card_scores_at_most_20vp():
+    frozen = armies('Take and Hold', 'Take and Hold', [('R0', 1, 2)], [('B0', 1, 1)])
+    frozen[1]['units'][0]['parts'][0]['keywords'] = ['Character']
+    state = new_game(frozen)
+    state['mission']['secondaries'] = {'0': {'mode': 'fixed', 'cards': ['assassination', 'bring-it-down']}, '1': None}
+    state['players'][0]['vp'].update(secondary=19, cards={'assassination': 19})
+    put(state, 'p1-r0', FAR)
+    put(state, 'p2-b0', FAR)
+    state, _ = act(state, {'type': 'end_deployment'})
+    state, _ = act(state, {'type': 'correction', 'player': 0, 'models': {'p2-b0-0-1': {'alive': False}}, 'note': 'Shot'})
+    state, _ = act(state, {'type': 'accept', 'player': 1})
+    state, event = to_turn_end(state)
+    assert [(v['vp'], v['asked']) for v in event['vp'] if v['kind'] == 'secondary'] == [(1, 3)]
+    assert state['players'][0]['vp']['cards'] == {'assassination': 20}

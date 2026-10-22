@@ -58,3 +58,13 @@
 .play-vp-line { color: var(--success); }
 
 .play-matchup { margin: 0 0 0.75rem; }
+
+/* Secondary missions: the setup choice and the cards in the Mission panel */
+.play-secondary-choice { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin-top: 0.4rem; width: 100%; }
+.play-secondary-choice > div { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.4rem 0.6rem; border-left: 3px solid var(--player); }
+.play-secondary-choice > div.play-p1 { --player: var(--play-p1); }
+.play-secondary-choice > div.play-p2 { --player: var(--play-p2); }
+.play-secondary-head { margin-top: 0.5rem; font-weight: 600; }
+.play-secondary-card { margin-top: 0.3rem; }
+.play-secondary-card > strong { font-size: 0.85rem; }
+.play-secondary-card .play-mission-vp { float: right; font-size: 0.85rem; }

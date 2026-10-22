@@ -37,23 +37,38 @@ def game_response(saved):
 
 
 def mission_response(state):
-    """The Mission panel's data: both primaries with their lines and timings, what each line would score
-    now, VP and the caps, and Punishment's condemned units and choice; None without missions."""
+    """The Mission panel's data: both primaries and each player's secondaries (just 'chosen' until both
+    have chosen) with their lines and timings, what each line would score now, VP and the caps, the Fixed
+    cards to choose from, and Punishment's condemned units and choice; None without missions."""
     mission = state.get('mission')
     if not mission:
         return None
-    primaries = []
-    for key in mission['primaries']:
-        card = missions.primary(key)
-        primaries.append({'key': key, 'name': card['name'], 'disposition': missions.DISPOSITIONS[card['disposition']],
-                          'lines': [{'id': entry['id'], 'text': entry['text'], 'timing': missions.timing(entry),
-                                     'needs': entry['needs'], 'either': entry['either']} for entry in card['lines']]})
+
+    def described(card):
+        return {'key': card['key'], 'name': card['name'],
+                'lines': [{'id': entry['id'], 'text': entry['text'], 'timing': missions.timing(entry),
+                           'needs': entry['needs'], 'either': entry['either']} for entry in card['lines']]}
+
+    primaries = [dict(described(missions.primary(key)), disposition=missions.DISPOSITIONS[missions.primary(key)['disposition']])
+                 for key in mission['primaries']]
+    chosen = mission.get('secondaries') or {}
+    revealed = all(chosen.get(str(p)) for p in (0, 1))
+    secondaries = []
+    for player in (0, 1):
+        mine = chosen.get(str(player))
+        secondaries.append(None if not mine else {'mode': mine['mode'], 'chosen': True,
+                                                  'cards': [described(missions.secondary(k)) for k in mine['cards']] if revealed else None})
     now = []
     for player, key in enumerate(mission['primaries']):
         context = mission_state.context(state, player)
-        now.append({line_id: {'vp': vp, 'how': how} for line_id, (vp, how) in missions.preview(key, context).items()})
-    return {'primaries': primaries, 'now': now, 'vp': [p.get('vp') or mission_state.new_vp() for p in state['players']],
+        keys = [key] + ((chosen.get(str(player)) or {}).get('cards', []) if revealed else [])
+        now.append({line_id: {'vp': vp, 'how': how} for k in keys for line_id, (vp, how) in missions.preview(k, context).items()})
+    return {'primaries': primaries, 'secondaries': secondaries, 'now': now,
+            'secondary_options': [described(missions.secondary(k)) for k in missions.SECONDARIES],
+            'vp': [dict(mission_state.new_vp(), **(p.get('vp') or {})) for p in state['players']],
             'caps': {'round': missions.PRIMARY_ROUND_CAP, 'game': missions.PRIMARY_GAME_CAP},
+            'secondary_caps': {'round': missions.SECONDARY_ROUND_CAP, 'game': missions.SECONDARY_GAME_CAP,
+                               'card': missions.FIXED_CARD_CAP, 'cards': missions.FIXED_CARDS},
             'condemned': mission['condemned'], 'choice': mission['choice'], 'condemn_options': mission_state.condemn_options(state)}
 
 

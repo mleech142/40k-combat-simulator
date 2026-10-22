@@ -93,3 +93,35 @@ def test_end_of_battle_lines():
 def test_punishment_scores_condemned_units_destroyed_in_either_turn():
     context = ctx(destroyed=[kill(unit='p2-x')], condemned=['p2-x'])
     assert scored('punishment', 'any_turn', 3, context) == {"A condemned enemy unit was destroyed this turn (either player's turn)": 5}
+
+
+# --- Fixed secondary missions ---------------------------------------------------------------------------------
+
+def model(character=False, wounds=1, player=BLUE):
+    return {'model': 'm', 'unit': 'u', 'player': player, 'character': character, 'wounds': wounds}
+
+
+def test_the_four_fixed_secondaries():
+    from combat_sim.play.missions import SECONDARIES
+    assert sorted(SECONDARIES) == ['a-grievous-blow', 'assassination', 'bring-it-down', 'engage-on-all-fronts']
+
+
+def test_a_grievous_blow_and_bring_it_down_score_up_to_5vp_a_turn():
+    big = ctx(destroyed=[kill(strength=20), kill(strength=13), kill(strength=10)])
+    assert scored('a-grievous-blow', 'any_turn', 2, big) == {
+        'Each enemy unit of 13+ models (starting strength) destroyed this turn, up to 5VP a turn': 5}  # 2 x 4VP, capped
+    one = ctx(models_destroyed=[model(wounds=12), model(wounds=9)])
+    assert sum(scored('bring-it-down', 'any_turn', 1, one).values()) == 4
+    assert scored('bring-it-down', 'turn', 1, one) == {}  # 'End of a turn': every turn, scored as 'any_turn'
+
+
+def test_assassination_counts_character_models_and_tough_ones_again():
+    killed = ctx(models_destroyed=[model(character=True, wounds=5), model(character=True, wounds=3), model(wounds=9),
+                                   model(character=True, wounds=6, player=RED)])  # Red's own Character doesn't count
+    assert sum(scored('assassination', 'any_turn', 3, killed).values()) == 2 * 3 + 1
+
+
+def test_engage_on_all_fronts_scores_the_best_presence():
+    assert sum(scored('engage-on-all-fronts', 'turn', 1, ctx(presence=4)).values()) == 4
+    assert sum(scored('engage-on-all-fronts', 'turn', 1, ctx(presence=3)).values()) == 2
+    assert scored('engage-on-all-fronts', 'turn', 1, ctx(presence=2)) == {}

@@ -894,6 +894,10 @@
             return { text: 'Set up the battlefield: roll a D6 for the central objective (on a 6 there are two).',
                 buttons: [{ action: { type: 'roll_objectives' }, label: 'Roll for the central objective', icon: 'dice' }] };
         }
+        if (turn.step === 'secondaries') {
+            return { text: 'Each player chooses their secondary missions: Fixed, two cards kept all battle (Tactical comes later).',
+                buttons: [], secondaries: true };
+        }
         if (turn.step === 'roll_off') {
             return { text: 'Roll off: the winner chooses to be the attacker or the defender. The defender deploys first.',
                 buttons: [{ action: { type: 'roll_off' }, label: 'Roll off', icon: 'dice' }] };
@@ -924,6 +928,13 @@
                  gameCap: caps.game, roundFull: round >= caps.round };
     }
 
+    /** Play: a player's secondary VP ({secondary, secondary_rounds}) this round and in all against the caps. */
+    function playSecondaryCaps(vp, roundNumber, caps) {
+        const round = (vp.secondary_rounds || {})[roundNumber] || 0;
+        return { total: vp.secondary || 0, round, roundCap: caps.round, gameCap: caps.game, roundFull: round >= caps.round,
+                 cardCap: caps.card };
+    }
+
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
         if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
@@ -939,7 +950,7 @@
     }
 
     return {
-        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playVpLine, playVpCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
