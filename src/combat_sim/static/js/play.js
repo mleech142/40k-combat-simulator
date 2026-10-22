@@ -755,14 +755,14 @@
                     : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
                        u.activity.shot ? 'shot' : '',
                        u.activity.charge_roll != null ? `charge roll ${u.activity.charge_roll}${u.activity.charged ? ', charged' : ''}` : '',
-                       u.activity.fought ? 'fought' : '',
-                       u.status && u.status.shocked ? 'BATTLE-SHOCKED' : '',
-                       (u.effects || []).length ? `${u.effects.length} effect${u.effects.length === 1 ? '' : 's'}` : '']
+                       u.activity.fought ? 'fought' : '']
                         .filter(Boolean).join(' · ');
                 const ready = game.ready.includes(u.id);
                 const acted = actedThisPhase(u, game.state.turn);
-                return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''} ${ready ? 'ready' : ''} ${acted ? 'acted' : ''}" data-unit="${u.id}">
-                    <span>${escapeHtml(u.name)}${ready ? '<em class="play-ready">Ready</em>' : ''}</span>
+                const tags = Core.playUnitTags(u, { ready, inRange: (game.unit_objectives || {})[u.id], objectives: game.state.objectives, players: game.state.players });
+                return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''} ${ready ? 'ready' : ''} ${acted ? 'acted' : ''} ${living.length ? '' : 'destroyed'}" data-unit="${u.id}">
+                    <span class="play-unit-name">${escapeHtml(u.name)}</span>${tags.length ? `<span class="play-tags">${tags.map(t =>
+                        `<span class="play-tag ${t.kind}" title="${escapeHtml(t.title)}">${t.icon ? `<i class="${t.icon}" aria-hidden="true"></i> ` : ''}${escapeHtml(t.label)}</span>`).join('')}</span>` : ''}
                     <small>${living.length} model${living.length === 1 ? '' : 's'}${done ? ' · ' + escapeHtml(done) : ''}</small>
                 </button>`;
             }).join('')}</div>`;

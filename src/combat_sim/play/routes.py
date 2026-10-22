@@ -13,7 +13,7 @@ from . import battlefields, mission_state, missions, tactical
 from .dice import Dice
 from ..settings import update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, charge_options,
-                   deployment_zone, fight_options, move_characteristic, objective_control, outline, ready_units, replay, resolve_action,
+                   deployment_zone, fight_options, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
                    score, shooting_options, terrain_areas)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army
@@ -31,6 +31,7 @@ def game_response(saved):
                     'score': score(state),
                     'ready': ready_units(state),
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
+                    'unit_objectives': {u['id']: objectives_in_range(state, u) for u in state['units']},
                     'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},
                     'manual_effects': [{'key': k, 'name': n, 'side': side} for k, (n, side, _) in MANUAL_EFFECTS.items()],
                     'mission': mission_response(state), 'twist': twist_response(state)})

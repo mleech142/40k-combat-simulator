@@ -1795,6 +1795,12 @@ def objective_control(state, objective):
     return totals
 
 
+def objectives_in_range(state, unit):
+    """The ids of the objectives a unit has a model within range of."""
+    shapes = _placed_shapes(unit)
+    return [o['id'] for o in state.get('objectives', []) if any(in_range(s, o, state) for s in shapes)]
+
+
 def update_control(state):
     """Settle who controls each objective: the player with more OC in range; a tie is nobody's."""
     for objective in state.get('objectives', []):

@@ -632,6 +632,18 @@ test('playResult says who won once the battle is over', () => {
     assert.equal(Core.playResult(players, [30, 0], { phase: 'shooting' }), null);
 });
 
+test('playUnitTags gives a unit row its badges: destroyed, ready, battle-shocked, objectives in range, effects', () => {
+    const players = [{ name: 'Red' }, { name: 'Blue' }];
+    const objectives = [{ id: 'home-attacker', kind: 'home', owner: 1 }, { id: 'central-1', kind: 'central' }];
+    const unit = { models: [{ alive: true }], status: { shocked: true }, effects: [{}, {}] };
+    const tags = Core.playUnitTags(unit, { ready: true, inRange: ['home-attacker', 'central-1'], objectives, players });
+    assert.deepEqual(tags.map(t => [t.kind, t.label]), [['ready', 'Ready'], ['shocked', 'Shocked'], ['objective', 'H C'], ['effects', '2']]);
+    assert.equal(tags[2].title, "Within range of Blue's home objective, a central objective");
+    assert.deepEqual(Core.playUnitTags({ models: [{ alive: true }] }, { inRange: [], objectives, players }), []);
+    const dead = Core.playUnitTags({ models: [{ alive: false }], status: { shocked: true } }, { ready: true, inRange: [], objectives, players });
+    assert.deepEqual(dead.map(t => t.kind), ['destroyed']);
+});
+
 test('playPhaseTrack marks the phases done, current and to come this turn', () => {
     const states = turn => Core.playPhaseTrack(turn).map(p => `${p.key}:${p.state}`);
     assert.deepEqual(states({ phase: 'shooting' }),

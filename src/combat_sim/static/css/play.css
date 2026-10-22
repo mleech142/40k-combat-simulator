@@ -189,3 +189,25 @@
 .play-mission-block { margin-bottom: 0.5rem; }
 .play-mission-block h6 { margin: 0.2rem 0 0.1rem; font-size: 0.85rem; display: flex; justify-content: space-between; gap: 0.5rem; }
 .play-mission-block .play-hint { margin: 0 0 0.2rem; }
+
+/* Each army panel scrolls on its own beside the board */
+@media (min-width: 1101px) {
+    .play-army { position: sticky; top: 0.75rem; max-height: calc(100vh - 1.5rem); overflow-y: auto; scrollbar-width: thin;
+        scrollbar-color: color-mix(in srgb, var(--player) 50%, transparent) transparent; }
+    .play-army-head { position: sticky; top: 0; z-index: 2; backdrop-filter: blur(6px);
+        background-color: color-mix(in srgb, var(--player) 20%, var(--bg-secondary)); }
+}
+
+/* Badges on a unit's row: Ready, Battle-shocked, objectives in range, effects, Destroyed */
+.play-unit-name { display: block; }
+.play-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0.2rem 0 0.1rem; }
+.play-tag { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.05rem 0.4rem; border-radius: 999px; font-size: 0.65rem;
+    font-weight: 700; letter-spacing: 0.03em; line-height: 1.5; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); }
+.play-tag i { font-size: 0.6rem; }
+.play-tag.ready { background: var(--success); border-color: var(--success); color: var(--on-accent); text-transform: uppercase; }
+.play-tag.shocked { border-color: var(--warning); color: var(--warning); text-transform: uppercase; }
+.play-tag.objective { border-color: color-mix(in srgb, var(--player) 70%, var(--border)); color: var(--text-primary);
+    background: color-mix(in srgb, var(--player) 25%, var(--bg-secondary)); }
+.play-tag.destroyed { border-color: var(--error); color: var(--error); text-transform: uppercase; }
+.play-unit.destroyed { opacity: 0.45; }
+.play-unit.destroyed .play-unit-name { text-decoration: line-through; }

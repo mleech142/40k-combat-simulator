@@ -960,6 +960,30 @@
         return { letter, label };
     }
 
+    /**
+     * The badges on a unit's row in the Play page's army panel ([{kind, icon, label, title}]): Destroyed (and
+     * nothing else), else Ready, Battle-shocked, the objectives it's in range of (the board's letters) and
+     * how many effects it has. `inRange` comes from the server (game rules stay in Python).
+     */
+    function playUnitTags(unit, { ready = false, inRange = [], objectives = [], players = [] } = {}) {
+        if (!unit.models.some(m => m.alive)) return [{ kind: 'destroyed', icon: 'fa-solid fa-skull', label: 'Destroyed', title: 'Every model destroyed' }];
+        const tags = [];
+        if (ready) tags.push({ kind: 'ready', icon: '', label: 'Ready', title: 'Can act now' });
+        if (unit.status && unit.status.shocked) {
+            tags.push({ kind: 'shocked', icon: 'fa-solid fa-triangle-exclamation', label: 'Shocked', title: 'Battle-shocked: Objective Control 0, no stratagems' });
+        }
+        const held = inRange.map(id => objectives.find(o => o.id === id)).filter(Boolean);
+        if (held.length) {
+            const letter = { home: 'H', central: 'C', expansion: 'E' };
+            const named = o => o.kind === 'home' && players[o.owner] ? `${players[o.owner].name}'s home objective` : `a ${o.kind} objective`;
+            tags.push({ kind: 'objective', icon: 'fa-solid fa-flag', label: held.map(o => letter[o.kind] || 'O').join(' '),
+                        title: `Within range of ${held.map(named).join(', ')}` });
+        }
+        const effects = (unit.effects || []).length;
+        if (effects) tags.push({ kind: 'effects', icon: 'fa-solid fa-wand-magic-sparkles', label: String(effects), title: `${effects} effect${effects === 1 ? '' : 's'}` });
+        return tags;
+    }
+
     function playResult(players, score, turn) {
         if (!turn || turn.phase !== 'ended') return null;
         if (score[0] === score[1]) return `Game over: a draw, ${score[0]} each`;
@@ -975,7 +999,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

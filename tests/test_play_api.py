@@ -108,6 +108,15 @@ def test_placing_a_unit_in_its_deployment_zone(client, game):
     assert client.get(f'/api/play/games/{game["id"]}').get_json() == after  # Saved
 
 
+def test_a_game_says_which_objectives_each_unit_is_in_range_of(client, game):
+    assert game['unit_objectives'] == {'p1-w': [], 'p1-c': [], 'p2-g': []}  # Nobody placed yet
+    home = next(o for o in game['state']['objectives'] if o['id'] == 'home-attacker')
+    response = place(client, game, 'p1-w', [(home['x'] - 3 + 1.5 * i, home['y'] - 2) for i in range(5)])
+    assert response.status_code == 200, response.get_json()
+    after = response.get_json()
+    assert after['unit_objectives'] == {'p1-w': ['home-attacker'], 'p1-c': [], 'p2-g': []}
+
+
 @pytest.mark.parametrize('spots,message', [
     ([(10 + 1.5 * i, 20) for i in range(5)], 'deployment zone'),  # Middle of the board
     ([(10 + 1.5 * i, 11.8) for i in range(5)], 'deployment zone'),  # Bases stick out past 12"
