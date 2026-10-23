@@ -3,4 +3,4 @@
 A Warhammer 40,000 11th Edition combat simulation tool.
 """
 
-__version__ = "2.3.2"
+__version__ = "2.4.0"
