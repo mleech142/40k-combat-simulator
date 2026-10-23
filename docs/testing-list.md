@@ -1,9 +1,13 @@
 # Testing list
 
 Things found while testing release 2.3.2 (October 2026) that still need work. Each is noted here when it's
-reported; work starts only when the project owner picks it up. The Play items are grouped into the roadmap in
+reported; work starts only when the project owner picks it up. The Play items are planned into releases in
 `play-mode-design.md` (Roadmap, steps 5 and 6), which refers to them by these numbers: keep the numbers, and mark an
 item done there and here when it's built.
+
+Release plan (agreed October 2026): **2.4.1** items 5 and 4; **2.5** items 9, 10, 8, 7, 2, 11 and 15; **2.6** item 6
+and the first batch of 3; **2.7** item 1 with Scouts, Infiltrators and Transports, and the next batch of 3; then a
+written scope for 12. Items 13 and 14 are parked.
 
 ## To do
 

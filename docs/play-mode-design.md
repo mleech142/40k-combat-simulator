@@ -47,10 +47,11 @@ The app assists with the rules but doesn't automate everything. The split:
 
 ### Mistakes and undo
 
-- **No take-backs** by default. Movement and setup can be undone freely until a roll is made. Rolling locks in the action and adds it to the log.
-- The game creator can **turn take-backs on** when starting a game. A take-back then needs the opponent's approval.
-- **Undo with the opponent's OK** (testing list item 11, not built): in a game against someone else, Undo should ask the other player to accept it. Today undo takes back your own last action at once, until a roll is made. To decide: what happens while they haven't answered, and whether it can cover actions with dice (overlapping the take-back setting above, which isn't built either).
-- **"Correct the game" request**, always available whatever the take-back setting. A player proposes a fix (move a model, restore wounds, re-run one attack), and it only happens if the opponent accepts. It's logged as a correction. This is the safety net for engine bugs, since line of sight and dice have no override.
+Two ideas only, **Undo** and **Correction** (see [GLOSSARY.md](../GLOSSARY.md)); the earlier "take-back" setting was dropped (agreed October 2026).
+
+- **Undo** takes back your own last action, as long as no roll has been made since. Rolling locks in the action and adds it to the log.
+- **Undo with the opponent's OK** (testing list item 11, release 2.5, not built): in a game against someone on another PC, Undo becomes a Correction request that rewinds your last action, and happens only if they accept. Hot-seat Undo stays immediate.
+- **"Correct the game" request**, always available. A player proposes a fix (move a model, restore wounds, re-run one attack), and it only happens if the opponent accepts. It's logged as a correction. This is the safety net for engine bugs, since line of sight and dice have no override.
 
 ## Decisions during the opponent's turn
 
@@ -64,6 +65,8 @@ The defender makes decisions during the attacker's turn: which models die, which
 
   The game only stops to ask the opponent when a decision isn't covered by a standing order.
 - **Prompts** (live games). The app asks the opponent each time.
+
+*Agreed October 2026:* live and async games use **one mechanism**, the **reaction window**: the game waits for the other player at each decision unless one of their standing orders answers it (a dialog in hot-seat, a wait through the relay online). Built in release 2.6.
 
 ## Game state
 
@@ -156,15 +159,18 @@ both players see the same one for the whole game with nothing stored, and it's s
 3. **Terrain and layout editor:** the five footprint shapes, layout files, the creator picks and the opponent accepts. Then missions: deployment zones and scoring.
 4. **Later:** terrain elevation, accounts, the phone version with push notifications.
 
-Steps 1 to 3 are built (see [Version 1 build plan](#version-1-build-plan) and [Missions plan](#missions-plan-11th-edition)), apart from manual standing orders, take-backs and email notices.
+Steps 1 to 3 are built (see [Version 1 build plan](#version-1-build-plan) and [Missions plan](#missions-plan-11th-edition)), apart from manual standing orders and email notices.
 
-5. **Next** (from testing, October 2026; numbers are the [testing list](testing-list.md)'s, where each item is described):
-   - **Fixes:** model bases that fit through a gap are treated as crossing Dense terrain (5); phase changes and actions are slow, measure first (4).
-   - **Board and controls:** drag to pan the camera (9); a Measure tool between two points (10); turning models and moving single models in the Movement phase (2); a unit's datasheet on hover (7); marking which model is the attached leader (8).
-   - **Rules:** Strategic Reserves, Deep Strike, ingress and Rapid Ingress (1); standing orders for reactions in the other player's turn, with Fire Overwatch and Command Re-rolls (6); reading many more abilities, stratagems and rules into effects the game applies, so fewer manual effects (3).
-   - **Game flow:** Undo asks the other player to accept (11).
-   - **Fun:** notices such as how lucky or unlucky a roll was against the expected result (15).
-6. **Bigger plans, each needing its own design first:** games with more than two players, 2v2 and free-for-all (13); computer-controlled armies and neutral units (14); a hosted or Docker version for browsers and phones (12, see [Platforms](#platforms)).
+5. **Next: release plan** (agreed October 2026, from testing; numbers are the [testing list](testing-list.md)'s, where each item is described). Small themed releases, in this order; each release's finer design is agreed when it starts.
+   1. **2.4.1 Fixes:** model bases that fit through a gap are treated as crossing Dense terrain (5); phase changes and actions are slow (4): measure offline against online first, aim for under about 300 ms an action offline and about 1 s online (adjusted once measured), with a timing test.
+   2. **2.5 Board and controls:** drag to pan the camera (9); a Measure tool between two points (10); marking the attached leader's model (8); a unit's datasheet on hover, with its leader's (7); turning models and the unit's formation and moving single models in the Movement phase (2); a unit border that wraps each model's base (each padded about 0.4" and joined, so a split unit shows as separate islands) instead of the box, also where the unit is clicked and dragged; Undo as a Correction request online (11); luck notices against the expected result (15).
+      - *Turning (agreed):* a move is measured by how far each model's centre travels. A model spinning on the spot costs nothing, oval and hull bases included; turning a unit costs each model its centre's travel, checked against the Move like any move.
+   3. **2.6 Reactions:** the reaction window and standing orders (6) with Fire Overwatch, Command Re-roll (re-rolling the die, not just logging it) and Heroic Intervention; Counteroffensive and faction reactive stratagems come with later effects batches. The first batch of effects read from rule text (3).
+   4. **2.7 Arriving and riding**, one release built in three steps, each to master with its tests: (a) Strategic Reserves, Deep Strike, ingress and Rapid Ingress (1, Rapid Ingress through the reaction window); (b) Scouts and Infiltrators; (c) Transports in full (embark and disembark, capacity and who may embark from the ability text, starting embarked and arriving in reserve inside one, Firing Deck, emergency disembark when destroyed, embarked units shown on the transport) and Deadly Demise. The next batch of effects (3).
+   5. **Then:** a written scope for a hosted or Docker version (12, see [Platforms](#platforms)): data licences first.
+
+   **Effects batches (3)** are an ongoing track, not one project: each release, a script runs the stratagems and abilities of the factions in the owner's saved armies through the rule parser and ranks what it can't read; the top of that list is the batch. It stops when manual effects are rarely needed.
+6. **Parked, each needing its own design first:** games with more than two players, 2v2 and free-for-all (13); computer-controlled armies and neutral units (14, after 13's third side and after 2.6 and the effects batches, since a computer player must make every reaction).
 
 ## Version 1 build plan
 
@@ -333,7 +339,6 @@ These are for later stages and are not yet decided:
 - Which standing orders exist, and their defaults.
 - Terrain categories and how they're stored, once the 11th edition terrain rules are written down in detail.
 - How reserves, Deep Strike and other set-up rules appear on the board.
-- How Undo with the opponent's OK works with the take-back setting and "correct the game".
 - Multiplayer (2v2, 1v1v1v1): which rules to follow, turn order, seats on the relay, board sizes.
 - A computer player: how it decides (moves, targets, stratagems, reactions), how good it should be, and how neutral units fit in (a third side).
 - Whether to host the app at all (see [Platforms](#platforms)).
