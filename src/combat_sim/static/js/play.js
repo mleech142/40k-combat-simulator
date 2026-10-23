@@ -54,7 +54,7 @@
         loadTwists();
         $('new-blue').addEventListener('change', loadMatchup);
         $('game-import').addEventListener('change', importGameFile);
-        $('join-btn').addEventListener('click', joinGame);
+        $('join-btn').addEventListener('click', () => joinGame());  // Not joinGame itself: the click would arrive as `army`
         $('join-code').addEventListener('keydown', e => { if (e.key === 'Enter') joinGame(); });
         document.addEventListener('visibilitychange', () => { if (!document.hidden) syncGame(); });
         $('undo-btn').addEventListener('click', undo);
