@@ -1,5 +1,6 @@
 /**
- * Armies page: build an army list, save it, share it as text, and send it to Analytics.
+ * Armies page: build an army list, save it, share it as text or a share code (and import one), and send
+ * it to Analytics.
  *
  * The list being built lives here (`state.army`); every change is sent to /api/armies/price,
  * which prices and checks it (the rules are in armies.py) and whose answer is what is drawn.
@@ -55,7 +56,16 @@
         $('attackers-btn').addEventListener('click', () => analyse('attacker'));
         $('defenders-btn').addEventListener('click', () => analyse('defender'));
         $('text-btn').addEventListener('click', showText);
-        $('copy-text-btn').addEventListener('click', copyText);
+        $('copy-text-btn').addEventListener('click', () => copyFrom('army-text', 'army-copied'));
+        $('share-btn').addEventListener('click', showShareCode);
+        $('copy-share-btn').addEventListener('click', () => copyFrom('share-code', 'share-copied'));
+        $('import-army-btn').addEventListener('click', () => {
+            $('import-code').value = '';
+            $('import-error').textContent = '';
+            $('import-modal').classList.add('show');
+            $('import-code').focus();
+        });
+        $('import-apply').addEventListener('click', importCode);
         $('wargear-sections').addEventListener('change', onWargearChange);
         $('wargear-size').addEventListener('change', e => { state.wargear.models = parseInt(e.target.value); loadWargear(); });
         $('wargear-apply').addEventListener('click', () => closeWargear(true));
@@ -74,8 +84,9 @@
     // The army being built
     // =========================
 
-    /** Show an army (a new one, a saved one, or the draft kept across tab changes). */
-    async function openArmy(army, dirty = false) {
+    /** Show an army (a new one, a saved one, the draft kept across tab changes, or an imported one with its notes). */
+    async function openArmy(army, dirty = false, notes = []) {
+        $('army-import-notes').innerHTML = notes.map(n => `<li>${escapeHtml(n)}</li>`).join('');
         state.army = { ...newArmy(), ...army, units: army.units || [], detachment_keys: Core.detachmentKeys(army.detachment_keys ?? army.detachment_key) };
         delete state.army.detachment_key;  // Drafts kept from before several detachments could be chosen
         state.dirty = dirty;
@@ -570,14 +581,52 @@
         $('text-modal').classList.add('show');
     }
 
-    async function copyText() {
-        const text = $('army-text').value;
+    /** A share code for the list as it stands (saved or not): units by their BSData IDs, wargear included. */
+    async function showShareCode() {
+        if (!state.army.faction_id || !state.army.units.length) {
+            alert('Add some units first.');
+            return;
+        }
+        const resp = await fetch('/api/armies/share', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...state.army, name: state.army.name || 'New army' }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            alert(data.error || 'This list could not be shared.');
+            return;
+        }
+        $('share-code').value = data.code;
+        $('share-copied').textContent = '';
+        $('share-modal').classList.add('show');
+        $('share-code').select();
+    }
+
+    /** Open a shared list as a new, unsaved army; anything not in this install's data is listed above the units. */
+    async function importCode() {
+        const code = $('import-code').value.trim();
+        if (!code) return;
+        const resp = await fetch('/api/armies/import', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            $('import-error').textContent = data.error || 'The code could not be imported.';
+            return;
+        }
+        if (!confirmDiscard()) return;
+        $('import-modal').classList.remove('show');
+        await openArmy({ ...data.army, id: null }, true, data.notes || []);
+    }
+
+    async function copyFrom(textareaId, labelId) {
+        const text = $(textareaId).value;
         try {
             await navigator.clipboard.writeText(text);
         } catch (err) {
-            $('army-text').select();
+            $(textareaId).select();
             document.execCommand('copy');
         }
-        $('army-copied').textContent = 'Copied';
+        $(labelId).textContent = 'Copied';
     }
 })();

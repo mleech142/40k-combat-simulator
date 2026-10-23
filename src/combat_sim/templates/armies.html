@@ -6,6 +6,7 @@
 <div class="page-header">
     <h2><i class="fa-solid fa-chess-rook" aria-hidden="true"></i> Armies</h2>
     <div class="header-actions">
+        <button class="btn btn-secondary" id="import-army-btn" title="Open a list someone shared as a code"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import code</button>
         <button class="btn btn-secondary" id="new-army-btn"><i class="fa-solid fa-plus" aria-hidden="true"></i> New army</button>
     </div>
 </div>
@@ -61,6 +62,7 @@
             <span class="army-enhancement-count" id="army-enhancement-count"></span>
             <span class="army-saved-state" id="army-saved-state"></span></div>
         <ul class="army-problems" id="army-problems"></ul>
+        <ul class="army-problems army-import-notes" id="army-import-notes"></ul>
 
         <div class="army-units-wrap">
         <table class="data-table army-units">
@@ -75,6 +77,7 @@
             <button class="btn btn-secondary" id="attackers-btn" title="Save, then open Analytics with this army as the attackers"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Analyse as attackers</button>
             <button class="btn btn-secondary" id="defenders-btn" title="Save, then open Analytics with this army as the defenders"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Analyse as defenders</button>
             <button class="btn btn-secondary" id="text-btn"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> Copy as text</button>
+            <button class="btn btn-secondary" id="share-btn" title="A code another player can import to get this exact list"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i> Share code</button>
         </div>
     </section>
 
@@ -119,6 +122,38 @@
         <div class="modal-actions">
             <span class="army-copied" id="army-copied"></span>
             <button class="btn btn-primary" id="copy-text-btn"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="share-modal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3>Share code</h3>
+            <button class="modal-close" data-close="share-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <p class="weapon-picker-hint army-share-hint">Anyone with this app can import this code with <strong>Import code</strong> to get
+            this exact list, wargear included. They need the same BSData files; points come from their own data.</p>
+        <textarea id="share-code" class="army-text army-share-code" rows="6" readonly></textarea>
+        <div class="modal-actions">
+            <span class="army-copied" id="share-copied"></span>
+            <button class="btn btn-primary" id="copy-share-btn"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="import-modal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <h3>Import a share code</h3>
+            <button class="modal-close" data-close="import-modal" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <p class="weapon-picker-hint army-share-hint">Paste a code from <strong>Share code</strong>. The list opens as a new army: save it to keep it.</p>
+        <textarea id="import-code" class="army-text army-share-code" rows="6" placeholder="40KCS1:…"></textarea>
+        <p class="army-share-error" id="import-error"></p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" data-close="import-modal">Cancel</button>
+            <button class="btn btn-primary" id="import-apply"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import</button>
         </div>
     </div>
 </div>

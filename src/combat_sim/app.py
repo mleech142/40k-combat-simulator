@@ -15,7 +15,7 @@ from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
-from . import armies, bsdata_download, effects, folder_dialog, wahapedia, wahapedia_download
+from . import armies, army_share, bsdata_download, effects, folder_dialog, wahapedia, wahapedia_download
 from .effects import RULE_PHASES
 from .play.routes import register_play_routes
 from .wargear import default_used
@@ -1856,6 +1856,25 @@ def register_routes(app):
         if error:
             return error
         return jsonify({'text': armies.army_text(army, armies.price_army(army))})
+
+    @app.route('/api/armies/share', methods=['POST'])
+    def api_army_share_code():
+        """An army as a share code another install can import (army_share.py); lists with custom units can't be shared."""
+        army, error = army_from_request()
+        if error:
+            return error
+        try:
+            return jsonify({'code': army_share.encode(army)})
+        except armies.ArmyError as err:
+            return jsonify({'error': str(err)}), 400
+
+    @app.route('/api/armies/import', methods=['POST'])
+    def api_army_import_code():
+        """{code} -> {army (in this install's IDs, not saved), notes (what wasn't found in this install's data)}."""
+        try:
+            return jsonify(army_share.decode((request.get_json(silent=True) or {}).get('code')))
+        except armies.ArmyError as err:
+            return jsonify({'error': str(err)}), 400
 
     @app.route('/api/armies', methods=['POST'])
     def api_create_army():

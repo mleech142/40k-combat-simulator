@@ -3580,6 +3580,24 @@ h4 .fa-solid,
     resize: vertical;
 }
 
+.army-share-code {
+    word-break: break-all;
+}
+
+.army-share-hint {
+    margin: 1rem 1rem 0;
+}
+
+.army-share-error {
+    margin: 0 1rem;
+    color: var(--error);
+    font-size: 0.85rem;
+}
+
+.army-share-error:empty {
+    display: none;
+}
+
 .army-copied {
     margin-right: auto;
     color: var(--success);
