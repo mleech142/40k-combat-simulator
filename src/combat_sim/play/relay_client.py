@@ -48,15 +48,22 @@ def create(base_url, game_file, seat, name=None):
     return _call(base_url, 'POST', '/v1/games', {'game': game_file, 'seat': seat, 'name': name})
 
 
-def join(base_url, code, name=None):
-    """Take the free seat in a game as `name`: {'code', 'token', 'seat', 'names' (each seat's player, or None),
-    'game' (its game file, every event so far)}."""
-    return _call(base_url, 'POST', f'/v1/games/{code}/join', {'name': name})
+def invite(base_url, code):
+    """What joining a game gives, before joining: {'seat' (the free one), 'needs_army' (the game waits for the
+    joiner's army), 'names', 'game' (its game file)}."""
+    return _call(base_url, 'GET', f'/v1/games/{code}/invite')
 
 
-def read(base_url, code, token, since):
-    """The events from the `since`-th on: {'count', 'events', 'app_version', 'joined', 'names'}."""
-    return _call(base_url, 'GET', f'/v1/games/{code}?since={int(since)}', token=token)
+def join(base_url, code, name=None, game=None):
+    """Take the free seat in a game as `name` (with `game`, the game file completed with your army, when it waits
+    for it): {'code', 'token', 'seat', 'names' (each seat's player, or None), 'game' (its game file, every event)}."""
+    return _call(base_url, 'POST', f'/v1/games/{code}/join', {'name': name, 'game': game})
+
+
+def read(base_url, code, token, since, file=False):
+    """The events from the `since`-th on: {'count', 'events', 'app_version', 'joined', 'names'} (and with `file`,
+    'game': the game file)."""
+    return _call(base_url, 'GET', f'/v1/games/{code}?since={int(since)}{"&file=1" if file else ""}', token=token)
 
 
 def append(base_url, code, token, base, events):

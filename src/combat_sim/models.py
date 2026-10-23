@@ -618,7 +618,7 @@ class SavedGame(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    armies = db.Column(JSON, nullable=False)  # [snapshot.freeze_army(...), ...], one per player
+    armies = db.Column(JSON, nullable=False)  # [snapshot.freeze_army(...), ...], one per player (None: waiting for it to join)
     events = db.Column(JSON, nullable=False, default=list)
     battlefield = db.Column(JSON, nullable=True)  # The game's own copy of its battlefield (None: the default map)
     setup = db.Column(db.Boolean, nullable=True)  # Starts with the mission sequence (None: saved before it existed)
@@ -631,6 +631,7 @@ class SavedGame(db.Model):
     relay_count = db.Column(db.Integer, nullable=True)  # Events the relay has (this copy has the same ones)
     relay_joined = db.Column(db.Boolean, nullable=True)  # Both players have joined
     relay_names = db.Column(JSON, nullable=True)  # Each seat's player, as they named themselves (or None)
+    pending = db.Column(JSON, nullable=True)  # Online, waiting for the other player's army: the choices that need it (game_file.check_invite)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

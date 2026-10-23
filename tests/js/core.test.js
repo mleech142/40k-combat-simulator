@@ -808,3 +808,19 @@ test('playPivot turns a formation about its centre, turning each base with it', 
     assert.deepEqual(turned, [{ id: 'a', x: 10, y: 9, angle: 90 }, { id: 'b', x: 10, y: 11, angle: 90 }]);
     assert.equal(Core.playPivot([{ id: 'a', x: 5, y: 5, angle: 350 }], 15)[0].angle, 5);  // Angles stay within 0-360
 });
+
+test('playWaitingNotice gives the invite code and the choices made when they join', () => {
+    const game = { seat: 0, players: ['Red', null], online: { code: 'ABCDEFGHJK' },
+                   options: { battlefield: "Their pairing's Event Companion layout", twist: 'Random' } };
+    assert.deepEqual(Core.playWaitingNotice(game), {
+        text: 'You play Red online · send the other player the invite code to join with their army: ABCDE-FGHJK',
+        detail: "Battlefield: Their pairing's Event Companion layout. Twist: Random." });
+    assert.equal(Core.playWaitingNotice({ ...game, options: null }).detail, '');
+});
+
+test('playInviteText says who invited you and what the game will be', () => {
+    const invite = { opponent: { army: 'Red', faction: 'Starfarers', disposition: 'Purge the Foe', player: 'Sam' },
+                     options: { battlefield: 'The default map', twist: null } };
+    assert.equal(Core.playInviteText(invite), 'Sam plays Red (Starfarers, Purge the Foe). Battlefield: The default map.');
+    assert.equal(Core.playInviteText({ opponent: { army: 'Red' } }), 'Red.');
+});

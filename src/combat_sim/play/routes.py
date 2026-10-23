@@ -24,14 +24,29 @@ from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army, rule_texts
 
 
+def waiting_for_army(saved):
+    """An online game whose other player hasn't joined with their army yet."""
+    return any(army is None for army in saved.armies)
+
+
+def online_response(saved):
+    return {'code': saved.relay_code, 'joined': bool(saved.relay_joined),
+            'names': saved.relay_names or [None, None]} if saved.relay_code else None
+
+
 def game_response(saved, state=None):
-    """A game with its state (`state`, else replayed), and what the page needs to draw it: the board and each part's outline."""
+    """A game with its state (`state`, else replayed), and what the page needs to draw it: the board and each part's outline.
+    A game still waiting for the other player's army has no state: it says so ('waiting_for_army')."""
+    if waiting_for_army(saved):
+        return jsonify({'id': saved.id, 'name': saved.name, 'events': [], 'state': None, 'waiting_for_army': True,
+                        'uid': saved.uid, 'seat': saved.seat, 'players': [a and a['name'] for a in saved.armies],
+                        'online': online_response(saved), 'app_version': saved.app_version, 'needs_update': needs_update(saved),
+                        'options': pending_summary(saved.pending)})
     if state is None:
         state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
                     'uid': saved.uid, 'seat': saved.seat, 'waiting_on': waiting_on(state),
-                    'online': {'code': saved.relay_code, 'joined': bool(saved.relay_joined),
-                               'names': saved.relay_names or [None, None]} if saved.relay_code else None,
+                    'online': online_response(saved),
                     'app_version': saved.app_version, 'needs_update': needs_update(saved),
                     'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH},
                     'zones': [deployment_zone(state, p) for p in (0, 1)],
@@ -66,7 +81,8 @@ def game_data(saved):
         saved.uid = uuid.uuid4().hex
         db.session.commit()
     return {'uid': saved.uid, 'name': saved.name, 'app_version': saved.app_version or __version__, 'armies': saved.armies,
-            'events': saved.events or [], 'battlefield': saved.battlefield, 'setup': bool(saved.setup), 'twist': saved.twist}
+            'events': saved.events or [], 'battlefield': saved.battlefield, 'setup': bool(saved.setup), 'twist': saved.twist,
+            'pending': saved.pending}
 
 
 MAX_IMPORT = 10 * 1024 * 1024  # Bytes: the largest game file opened
@@ -88,7 +104,10 @@ def pull(saved):
     Add the moves the relay has and this copy doesn't (an online game); the number added. They are checked first
     (game_file.check_more): moves this app can't read are refused (RelayError) and the game is left as it was.
     """
-    answer = relay_client.read(relay_url(), saved.relay_code, saved.relay_token, saved.relay_count or 0)
+    waiting = waiting_for_army(saved)
+    answer = relay_client.read(relay_url(), saved.relay_code, saved.relay_token, saved.relay_count or 0, file=waiting)
+    if waiting and answer.get('joined'):
+        take_completed(saved, answer.get('game'))
     saved.relay_joined = answer.get('joined')
     saved.relay_names = answer.get('names') or saved.relay_names
     if game_file.newer(answer.get('app_version'), saved.app_version) and game_file.plausible_version(answer['app_version'], __version__):
@@ -105,6 +124,22 @@ def pull(saved):
         saved.relay_count = answer['count']
     db.session.commit()
     return len(new)
+
+
+def take_completed(saved, file):
+    """The game the other player's app completed with their army (on joining), checked: everything as before but
+    their army and the choices that waited for it (RelayError if it isn't)."""
+    try:
+        game = dict(file or {}, events=[])
+        if not isinstance(game.get('armies'), list) or len(game['armies']) != 2 or game['armies'][saved.seat] != saved.armies[saved.seat] \
+                or game.get('uid') != saved.uid:
+            raise game_file.GameFileError('it isn\'t the game you started, with your army')
+        game['setup'] = bool(game.get('setup'))
+        game_file.check_game(game, __version__)
+    except game_file.GameFileError as error:
+        raise relay_client.RelayError(f"The other player's army can't be read here, so the game can't start: {error}", 422)
+    saved.armies, saved.battlefield, saved.twist, saved.setup = game['armies'], game['battlefield'], game['twist'], game['setup']
+    saved.name, saved.pending = game['name'], None
 
 
 def relay_failure(saved, error):
@@ -205,6 +240,45 @@ def mission_response(state):
             if (mission.get('choice') or {}).get('kind') == 'locate' else None}
 
 
+def finish_setup(frozen, options):
+    """
+    The choices that need both armies, from the new-game form's (or, for a game the other player joined online,
+    the creator's): {'battlefield' (a key, 'pairing:<A|B|C|random>' or a battlefield), 'twist', 'setup', 'name'}.
+    Answers ({'battlefield', 'twist', 'name'}, None) or (None, an error).
+    """
+    battlefield = options.get('battlefield')
+    if isinstance(battlefield, str) and battlefield.startswith('pairing:'):  # The two dispositions' Event Companion layout
+        layouts = pairing_layouts(frozen[0].get('disposition'), frozen[1].get('disposition'))
+        if not layouts:
+            return None, "Both armies need a force disposition to play their pairing's layouts."
+        letter = battlefield.split(':', 1)[1]
+        chosen = random.choice(layouts) if letter == 'random' else next((b for b in layouts if b['layout'] == letter), None)
+        if chosen is None:
+            return None, 'Choose layout A, B or C.'
+        battlefield = f'builtin:{chosen["id"]}'
+    if isinstance(battlefield, str) and battlefield:
+        battlefield = find_battlefield(battlefield)
+        if battlefield is None:
+            return None, 'That battlefield is no longer saved.'
+    twist, error = pick_twist(options.get('twist'), all(a.get('disposition') for a in frozen), options.get('setup', True) is not False)
+    if error:
+        return None, error
+    name = str(options.get('name') or '').strip()[:200] or f'{frozen[0]["name"]} vs {frozen[1]["name"]}'
+    return {'battlefield': battlefield or None, 'twist': twist, 'name': name}, None
+
+
+def pending_summary(pending):
+    """What a game waiting for the other player's army will be, for the page: {'battlefield', 'twist'} as names."""
+    if not pending:
+        return None
+    battlefield = pending.get('battlefield')
+    twist = pending.get('twist')
+    twist_key = twist.get('key') if isinstance(twist, dict) else twist
+    return {'battlefield': ('Their pairing\'s Event Companion layout' if isinstance(battlefield, str)
+                            else (battlefield or {}).get('name') or 'The default map'),
+            'twist': 'Random' if twist_key == 'random' else missions.TWISTS[twist_key][0] if twist_key in missions.TWISTS else None}
+
+
 def pick_twist(asked, missions_on, setup):
     """(the game's Twist {'key', 'primary'} or None, an error or None) from the new-game form's choice: a
     twist's key or 'random', with Mirrored World's primary (one of its five, or 'roll')."""
@@ -214,7 +288,8 @@ def pick_twist(asked, missions_on, setup):
     usable = [k for k, (_, _, needs) in missions.TWISTS.items() if missions_on or not needs]
     if key == 'random':
         key = random.choice(usable)
-        primary = 'roll' if key == 'mirrored-world' else None
+        # Mirrored World's primary is rolled during setup; with no setup it is picked now
+        primary = ('roll' if setup else random.choice(missions.MIRRORED_PRIMARIES)) if key == 'mirrored-world' else None
     if key not in missions.TWISTS:
         return None, 'Choose a twist, or none.'
     if key not in usable:
@@ -291,18 +366,33 @@ def register_play_routes(app):
     @app.route('/api/play/games')
     def api_list_games():
         games = SavedGame.query.order_by(SavedGame.updated_at.desc(), SavedGame.id.desc()).all()
-        return jsonify([{'id': g.id, 'name': g.name, 'players': [a['name'] for a in g.armies], 'seat': g.seat,
+        return jsonify([{'id': g.id, 'name': g.name, 'players': [a['name'] if a else 'joining online' for a in g.armies], 'seat': g.seat,
                          'online': bool(g.relay_code),
                          'updated_at': (g.updated_at or g.created_at).isoformat()} for g in games])
 
     @app.route('/api/play/games', methods=['POST'])
     def api_create_game():
+        """
+        A new game from two saved armies ({'armies': [id, id]}), or from yours alone with the other player joining
+        online with theirs ({'armies': [id, None]} or [None, id], playing the seat whose army is given): it goes
+        online at once, and the choices that need both armies wait for theirs (finish_setup).
+        """
         data = request.get_json(silent=True) or {}
         army_ids = data.get('armies')
-        if not isinstance(army_ids, list) or len(army_ids) != 2:
-            return jsonify({'error': 'Choose two saved armies.'}), 400
+        if not isinstance(army_ids, list) or len(army_ids) != 2 or army_ids.count(None) > 1:
+            return jsonify({'error': 'Choose two saved armies, or yours and "joins online".'}), 400
+        try:
+            seat = read_seat(data.get('seat'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Choose which player this app plays, or both.'}), 400
+        open_seat = army_ids.index(None) if None in army_ids else None
+        if open_seat is not None and seat != 1 - open_seat:
+            return jsonify({'error': 'When the other player joins online with their army, this PC plays the other side.'}), 400
         frozen = []
         for army_id in army_ids:
+            if army_id is None:
+                frozen.append(None)
+                continue
             try:
                 saved = db.session.get(SavedArmy, int(army_id))
             except (TypeError, ValueError):
@@ -313,31 +403,39 @@ def register_play_routes(app):
                 frozen.append(freeze_army(saved.to_dict()))
             except armies.ArmyError as error:
                 return jsonify({'error': str(error)}), 400
-        battlefield = None
-        if str(data.get('battlefield') or '').startswith('pairing:'):  # The two dispositions' Event Companion layout
-            layouts = pairing_layouts(frozen[0].get('disposition'), frozen[1].get('disposition'))
-            if not layouts:
-                return jsonify({'error': "Both armies need a force disposition to play their pairing's layouts."}), 400
-            letter = data['battlefield'].split(':', 1)[1]
-            chosen = random.choice(layouts) if letter == 'random' else next((b for b in layouts if b['layout'] == letter), None)
-            if chosen is None:
-                return jsonify({'error': 'Choose layout A, B or C.'}), 400
-            data = dict(data, battlefield=f'builtin:{chosen["id"]}')
-        if data.get('battlefield'):
-            battlefield = find_battlefield(data['battlefield'])
-            if battlefield is None:
-                return jsonify({'error': 'That battlefield is no longer saved.'}), 400
-        try:
-            seat = read_seat(data.get('seat'))
-        except (TypeError, ValueError):
-            return jsonify({'error': 'Choose which player this app plays, or both.'}), 400
-        twist, error = pick_twist(data.get('twist'), all(a.get('disposition') for a in frozen), data.get('setup', True) is not False)
+        setup = data.get('setup', True) is not False  # Skipped only when asked
+        options = {'battlefield': data.get('battlefield') or None, 'twist': data.get('twist'), 'setup': setup,
+                   'name': str(data.get('name') or '').strip()[:200] or None}
+        if open_seat is not None:
+            return open_game(frozen, options, seat)
+        chosen, error = finish_setup(frozen, options)
         if error:
             return jsonify({'error': error}), 400
-        name = str(data.get('name') or '').strip()[:200] or f'{frozen[0]["name"]} vs {frozen[1]["name"]}'
-        saved = SavedGame(name=name, armies=frozen, events=[], battlefield=battlefield, twist=twist,
-                          uid=uuid.uuid4().hex, seat=seat, app_version=__version__,
-                          setup=data.get('setup', True) is not False)  # Skipped only when asked
+        saved = SavedGame(name=chosen['name'], armies=frozen, events=[], battlefield=chosen['battlefield'], twist=chosen['twist'],
+                          uid=uuid.uuid4().hex, seat=seat, app_version=__version__, setup=setup)
+        db.session.add(saved)
+        db.session.commit()
+        return game_response(saved)
+
+    def open_game(frozen, options, seat):
+        """A game with your army alone, put online for the other player to join with theirs. Your own saved
+        battlefield goes with it now (their PC doesn't have it); a pairing layout waits for both dispositions."""
+        battlefield = options['battlefield']
+        if isinstance(battlefield, str) and not battlefield.startswith('pairing:'):
+            battlefield = find_battlefield(battlefield)
+            if battlefield is None:
+                return jsonify({'error': 'That battlefield is no longer saved.'}), 400
+        _, error = pick_twist(options['twist'], True, options['setup'])  # Checked again once both armies are known
+        if error:
+            return jsonify({'error': error}), 400
+        mine = frozen[seat]['name']
+        saved = SavedGame(name=options['name'] or f'{mine} vs (joining online)', armies=frozen, events=[], battlefield=None,
+                          twist=None, setup=options['setup'], uid=uuid.uuid4().hex, seat=seat, app_version=__version__,
+                          pending=dict(options, battlefield=battlefield))
+        try:
+            put_online(saved)
+        except relay_client.RelayError as error:
+            return jsonify({'error': f'{error} The game needs the relay: the other player joins it there.'}), 503 if error.status is None else 502
         db.session.add(saved)
         db.session.commit()
         return game_response(saved)
@@ -383,6 +481,8 @@ def register_play_routes(app):
             return jsonify({'error': 'Send the action as a JSON object.'}), 400
         if needs_update(saved):
             return jsonify({'error': update_message(saved)}), 409
+        if waiting_for_army(saved):
+            return jsonify({'error': 'The other player hasn\'t joined with their army yet.'}), 409
         state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
         try:
             check_seat(state, action, saved.seat)
@@ -414,7 +514,7 @@ def register_play_routes(app):
     def api_undo(game_id):
         """Take back the last action, if no dice were rolled for it."""
         saved = db.get_or_404(SavedGame, game_id)
-        events = saved.events or []
+        events = [] if waiting_for_army(saved) else saved.events or []
         if not events:
             return jsonify({'error': 'Nothing to undo.'}), 400
         if events[-1]['rolls']:
@@ -451,6 +551,8 @@ def register_play_routes(app):
     def api_game_file(game_id):
         """The game as a file to send to the other player (game_file.py)."""
         saved = db.get_or_404(SavedGame, game_id)
+        if waiting_for_army(saved):
+            return jsonify({'error': 'The other player joins this game online, with its invite code.'}), 409
         body = json.dumps(game_file.export_game(game_data(saved), saved.seat))
         filename = re.sub(r'[^\w\- ]+', '', saved.name).strip() or 'game'
         return Response(body, mimetype='application/json',
@@ -544,14 +646,32 @@ def register_play_routes(app):
 
     @app.route('/api/play/games/join', methods=['POST'])
     def api_join_game():
-        """Join an online game with its invite code ({'code'}), playing the side the other player doesn't."""
-        code = clean_code((request.get_json(silent=True) or {}).get('code'))
+        """
+        Join an online game with its invite code ({'code'}), playing the side the other player doesn't. A game that
+        waits for your army answers {'needs_army', 'opponent', 'options'} until it's sent too ({'code', 'army'}: a
+        saved army's ID): this app freezes it, makes the choices that waited for it, and joins with the whole game.
+        """
+        data = request.get_json(silent=True) or {}
+        code = clean_code(data.get('code'))
         if not code:
             return jsonify({'error': 'Enter the invite code the other player sent you.'}), 400
         if SavedGame.query.filter_by(relay_code=code).first():
             return jsonify({'error': 'That game is already on this PC.'}), 409
+        completed = None
         try:
-            answer = relay_client.join(relay_url(), code, player_name())
+            invited = relay_client.invite(relay_url(), code)
+            if invited.get('needs_army'):
+                seat = invited['seat']
+                game_file.check_invite(invited['game'], seat)
+                theirs = invited['game']['armies'][1 - seat]
+                if data.get('army') is None:
+                    return jsonify({'needs_army': True, 'code': code, 'options': pending_summary(invited['game']['pending']),
+                                    'opponent': {'army': theirs['name'], 'faction': theirs.get('faction'),
+                                                 'disposition': theirs.get('disposition'), 'player': invited['names'][1 - seat]}})
+                completed, error = complete_invite(invited['game'], seat, data['army'])
+                if error:
+                    return jsonify({'error': error}), 400
+            answer = relay_client.join(relay_url(), code, player_name(), completed)
             game = game_file.read_game(answer['game'], __version__)
         except relay_client.RelayError as error:
             return jsonify({'error': str(error)}), 503 if error.status is None else 400
@@ -579,6 +699,33 @@ def register_play_routes(app):
             return relay_failure(saved, error)
         return jsonify(dict(game_response(saved).get_json(), moved=moved))
 
+    def complete_invite(invited, seat, army_id):
+        """The invited game completed with your saved army in `seat`, and the choices that waited for it: (its game
+        file, None) or (None, an error)."""
+        try:
+            saved_army = db.session.get(SavedArmy, int(army_id))
+        except (TypeError, ValueError):
+            saved_army = None
+        if saved_army is None:
+            return None, 'Choose one of your saved armies.'
+        try:
+            mine = freeze_army(saved_army.to_dict())
+        except armies.ArmyError as error:
+            return None, str(error)
+        frozen = list(invited['armies'])
+        frozen[seat] = mine
+        chosen, error = finish_setup(frozen, invited['pending'])
+        if error:
+            return None, f'{error} (The other player chose this when they started the game: choose another army, or ask them.)'
+        version = __version__ if game_file.newer(__version__, invited.get('app_version')) else invited.get('app_version')
+        game = {'uid': invited['uid'], 'name': chosen['name'], 'app_version': version, 'armies': frozen, 'events': [],
+                'battlefield': chosen['battlefield'], 'setup': bool(invited['pending'].get('setup')), 'twist': chosen['twist']}
+        try:
+            game_file.check_game(game, __version__)
+        except game_file.GameFileError as error:
+            return None, str(error)
+        return game_file.export_game(game, seat), None
+
     OPTIONS = {'shooting': shooting_options, 'charge': charge_options, 'fight': fight_options,
                'mission-actions': lambda state, unit_id: {'actions': mission_state.action_options(state, unit_id)}}
 
@@ -586,6 +733,8 @@ def register_play_routes(app):
     def api_options(game_id, kind, unit_id):
         """What a unit can do now in the Shooting, Charge or Fight phase, and why not."""
         saved = db.get_or_404(SavedGame, game_id)
+        if waiting_for_army(saved):
+            return jsonify({'error': "The other player hasn't joined with their army yet."}), 409
         try:
             return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist), unit_id))
         except ActionError as error:

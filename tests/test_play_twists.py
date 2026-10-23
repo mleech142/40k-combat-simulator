@@ -5,12 +5,15 @@ change the rules.
 """
 
 import copy
+import random
 
 import pytest
 
+from combat_sim.play import missions
 from combat_sim.play.battlefields import BUILTIN
 from combat_sim.play.game import new_game
 from combat_sim.play.mission_state import action_options
+from combat_sim.play.routes import pick_twist
 from conftest import BSDATA_FIXTURES
 from test_play_api import APP_DATA
 from test_play_mission_game import CENTRE, FAR, armies
@@ -106,3 +109,13 @@ def test_a_game_is_started_with_a_twist(client):
     assert refused_game.status_code == 400 and 'force disposition' in refused_game.get_json()['error']
     night = client.post('/api/play/games', json={'armies': [red, plain], 'twist': 'night-fighting'}).get_json()
     assert night['twist']['key'] == 'night-fighting' and night['mission'] is None
+
+
+def test_a_random_twist_always_works_without_setup():
+    """Mirrored World drawn at random with no setup to roll in: its primary is picked at once."""
+    random.seed(1)
+    drawn = [pick_twist('random', True, False) for _ in range(200)]
+    assert all(error is None for _, error in drawn)
+    mirrored = [twist for twist, _ in drawn if twist['key'] == 'mirrored-world']
+    assert mirrored and all(t['primary'] in missions.MIRRORED_PRIMARIES for t in mirrored)
+    assert pick_twist('random', True, True)[1] is None

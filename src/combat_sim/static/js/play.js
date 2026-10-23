@@ -19,6 +19,7 @@
     const STEP_NAMES = { pile_in: 'Pile in', fight: 'Fight', consolidate: 'Consolidate' };
     const SHORT_MOVE = 3;  // Pile-in and consolidation moves, as the server sends them in errors
     const SKIES = 2;  // Inches off a move or charge when a Fly unit takes to the skies (game.SKIES)
+    const OPEN = 'open';  // New-game form: this army is the other player's, chosen when they join online
 
     const state = {
         game: null,  // /api/play/games/<id> answer
@@ -92,7 +93,9 @@
 
     async function loadArmies() {
         const armies = await fetch('/api/armies').then(r => r.json()).catch(() => []);
-        const options = armies.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+        state.armies = armies;
+        const options = armies.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')
+            + `<option value="${OPEN}">The other player joins online with theirs</option>`;
         $('new-red').innerHTML = options;
         $('new-blue').innerHTML = options;
         if (armies.length > 1) $('new-blue').selectedIndex = 1;
@@ -113,7 +116,7 @@
         if (!state.twists) return;
         const select = $('new-twist');
         const current = select.value;
-        const missions = !!(state.matchup && state.matchup.primaries);
+        const missions = !!(state.matchup && (state.matchup.primaries || state.matchup.open));  // Open: decided when they join
         select.innerHTML = '<option value="">None</option>' + state.twists.twists.map(t =>
             `<option value="${t.key}" ${t.needs_missions && !missions ? 'disabled' : ''}>${escapeHtml(t.name)}</option>`).join('')
             + '<option value="random">Random</option>';
@@ -126,6 +129,17 @@
     /** The two chosen armies' force dispositions and primary missions, and their pairing's layouts. */
     async function loadMatchup() {
         const red = $('new-red').value, blue = $('new-blue').value;
+        const open = [red, blue].indexOf(OPEN);
+        $('new-seat').disabled = open >= 0;
+        if (open >= 0) {  // This PC plays the army it has; the pairing's layout and twists wait for theirs
+            $('new-seat').value = String(1 - open);
+            state.matchup = { open: true, layouts: [] };
+            $('new-matchup').textContent = red === blue ? 'Choose your own army for one side.'
+                : 'The game goes online with an invite code: the other player joins with their army, and choices that need both armies are made then.';
+            fillBattlefields(state.battlefields || [], true);
+            renderTwistChoice();
+            return;
+        }
         state.matchup = red && blue
             ? await fetch(`/api/play/matchup?armies=${red}&armies=${blue}`).then(r => r.ok ? r.json() : null).catch(() => null) : null;
         const m = state.matchup;
@@ -143,12 +157,15 @@
         const select = $('new-battlefield');
         const current = select.value;
         const layouts = (state.matchup && state.matchup.layouts) || [];
-        const pairing = layouts.length ? `<optgroup label="This pairing (Event Companion)">
+        const pairing = state.matchup && state.matchup.open ? `<optgroup label="Their pairing (Event Companion, once they join)">
+            <option value="pairing:random">Random layout (A, B or C)</option>
+            ${['A', 'B', 'C'].map(letter => `<option value="pairing:${letter}">Layout ${letter}</option>`).join('')}</optgroup>`
+            : layouts.length ? `<optgroup label="This pairing (Event Companion)">
             <option value="pairing:random">Random layout (A, B or C)</option>
             ${layouts.map(b => `<option value="pairing:${b.layout}">${escapeHtml(b.name)}</option>`).join('')}</optgroup>` : '';
         select.innerHTML = pairing + Core.playBattlefieldGroups(list).map(g => `<optgroup label="${escapeHtml(g.label)}">${g.items.map(b =>
             `<option value="${b.key}">${escapeHtml(g.kind === 'layout' ? b.name : b.label)}${g.kind === 'saved' && b.terrain ? ` (${b.terrain} terrain)` : ''}</option>`).join('')}</optgroup>`).join('');
-        if (matchupChanged && layouts.length) select.value = 'pairing:random';
+        if (matchupChanged && (layouts.length || (state.matchup && state.matchup.open))) select.value = 'pairing:random';
         else if ([...select.options].some(o => o.value === current)) select.value = current;
     }
 
@@ -167,7 +184,7 @@
 
     async function newGame() {
         const twist = $('new-twist').value;
-        const body = { armies: [$('new-red').value, $('new-blue').value].map(Number), name: $('new-name').value,
+        const body = { armies: [$('new-red').value, $('new-blue').value].map(v => v === OPEN ? null : Number(v)), name: $('new-name').value,
                        battlefield: $('new-battlefield').value || null, seat: $('new-seat').value === '' ? null : Number($('new-seat').value),
                        twist: twist ? { key: twist, primary: twist === 'mirrored-world' ? $('new-mirrored').value : null } : null };
         const resp = await fetch('/api/play/games', {
@@ -243,19 +260,21 @@
     }
 
     /** Join an online game with the invite code the other player sent. */
-    async function joinGame() {
+    async function joinGame(army = null) {
         const code = $('join-code').value.trim();
         if (!code) return;
         $('join-btn').disabled = true;
         try {
             const resp = await fetch('/api/play/games/join', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }),
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(army == null ? { code } : { code, army }),
             });
             const data = await resp.json();
             if (!resp.ok) {
                 $('join-hint').textContent = data.error || 'Could not join that game.';
                 return;
             }
+            if (data.needs_army) return askJoinArmy(data);
             $('join-code').value = '';
             $('join-hint').textContent = '';
             closeModal('games-modal');
@@ -265,6 +284,19 @@
         } finally {
             $('join-btn').disabled = false;
         }
+    }
+
+    /** A game that waits for your army: whose it is and what it will be, and which of your saved armies to bring. */
+    function askJoinArmy(invite) {
+        if (!(state.armies || []).length) {
+            $('join-hint').textContent = 'Save an army on the Armies page first, then join.';
+            return;
+        }
+        $('join-hint').innerHTML = `${escapeHtml(Core.playInviteText(invite))} Choose your army:
+            <span class="play-join"><select class="filter-select" id="join-army">${state.armies.map(a =>
+                `<option value="${Number(a.id)}">${escapeHtml(a.name)}</option>`).join('')}</select>
+            <button class="btn-small" id="join-army-btn">Join with this army</button></span>`;
+        $('join-army-btn').addEventListener('click', () => joinGame(Number($('join-army').value)));
     }
 
     /** Put the open game on the relay: the seat bar then shows the invite code to send. */
@@ -281,10 +313,11 @@
     /** Move the open online game to a new invite code: whoever has the old one is cut off, and the other player
      * joins again with the new one. */
     async function newInviteCode() {
-        const other = state.game.state.players[1 - state.game.seat].name;
-        if (!confirm(`Make a new invite code? The old one stops working: ${other}'s player joins again with the new code.`)) return;
+        const game = state.game || state.waiting;
+        const other = game.state ? `${game.state.players[1 - game.seat].name}'s player` : 'The other player';
+        if (!confirm(`Make a new invite code? The old one stops working: ${other} joins with the new code.`)) return;
         await whileWorking(async () => {
-            const resp = await fetch(`/api/play/games/${state.game.id}/new-code`, { method: 'POST' });
+            const resp = await fetch(`/api/play/games/${game.id}/new-code`, { method: 'POST' });
             const data = await resp.json();
             if (!resp.ok) return message(data.error || 'Could not make a new code.', true);
             show(data);
@@ -300,26 +333,30 @@
 
     function scheduleSync() {
         clearTimeout(state.syncTimer);
-        const game = state.game;
-        if (!game || !game.online || !(game.waiting_on || []).length) return;
-        const mine = game.online.joined && game.waiting_on.includes(game.seat);
+        const game = state.game || state.waiting;
+        if (!game || !game.online || !(game.waiting_for_army || (game.waiting_on || []).length)) return;
+        const mine = !game.waiting_for_army && game.online.joined && game.waiting_on.includes(game.seat);
         state.syncTimer = setTimeout(syncGame, mine ? SYNC_MINE : SYNC_WAITING);
     }
 
     async function syncGame() {
-        const game = state.game;
+        const game = state.game || state.waiting;
         if (!game || !game.online) return;
         if (document.hidden || state.working || state.drag || state.placing) return scheduleSync();
         const resp = await fetch(`/api/play/games/${game.id}/sync`, { method: 'POST' }).catch(() => null);
         const data = resp && await resp.json().catch(() => null);
-        if (!state.game || state.game.id !== game.id) return;
+        const now = state.game || state.waiting;
+        if (!now || now.id !== game.id) return;
         if (!resp || !resp.ok) {
             message((data && data.error) || "Couldn't reach the app: is it still running?", true);
             if (resp && resp.status === 410) return;  // Moved to a new invite code: nothing more comes from this one
             return scheduleSync();
         }
         const joinedNow = data.online && data.online.joined && !game.online.joined;
-        if (data.moved || joinedNow) {
+        if (game.waiting_for_army && !data.waiting_for_army) {  // They joined with their army: the game begins
+            show(data);
+            message(`The other player joined with ${data.state.players[1 - data.seat].name}: the game begins.`);
+        } else if (data.moved || joinedNow) {
             show(data);
             const other = data.state.players[1 - data.seat].name;
             message(joinedNow && !data.moved ? `${other} has joined.` : `${other} moved.`);
@@ -358,6 +395,8 @@
     }
 
     function show(game) {
+        if (game.waiting_for_army) return showWaiting(game);
+        state.waiting = null;
         const first = !state.game || state.game.id !== game.id;
         state.game = game;
         state.placing = null;  // The server's game replaces anything placed provisionally
@@ -368,6 +407,28 @@
             history.replaceState(null, '', `/play?game=${game.id}`);
         }
         render();
+    }
+
+    /** A game that waits for the other player to join with their army: the invite code, and what they'll play. */
+    function showWaiting(game) {
+        state.game = null;
+        state.waiting = game;
+        state.selected = null;
+        history.replaceState(null, '', `/play?game=${game.id}`);
+        render();
+        $('game-title').textContent = game.name;
+        const notice = Core.playWaitingNotice(game);
+        $('seat-bar').hidden = false;
+        $('seat-bar').classList.remove('play-seat-mine');
+        $('seat-bar').innerHTML = `<strong>${escapeHtml(notice.text)}</strong>${notice.detail ? `<small>${escapeHtml(notice.detail)}</small>` : ''}
+            <span class="play-pending-actions">
+                <button class="btn-small" id="seat-copy"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy code</button>
+                <button class="btn-small" id="seat-new-code" title="If someone else may have used the code: the old one stops working">
+                    <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> New invite code</button></span>`;
+        $('seat-copy').addEventListener('click', () => navigator.clipboard.writeText(Core.playInviteCode(game.online.code))
+            .then(() => message('Invite code copied.'), () => message('Copy the code by hand.', true)));
+        $('seat-new-code').addEventListener('click', newInviteCode);
+        scheduleSync();
     }
 
     // --- Actions -----------------------------------------------------------------------

@@ -21,7 +21,9 @@ test('routes name the request and clean the code', () => {
     assert.deepEqual(route('POST', '/v1/games'), { action: 'create' });
     const code = newCode();
     assert.equal(code.length, CODE_LENGTH);
-    assert.deepEqual(route('GET', `/v1/games/${code.toLowerCase()}`, '?since=3'), { action: 'read', code, since: 3 });
+    assert.deepEqual(route('GET', `/v1/games/${code.toLowerCase()}`, '?since=3'), { action: 'read', code, since: 3, file: false });
+    assert.deepEqual(route('GET', `/v1/games/${code}`, '?file=1'), { action: 'read', code, since: 0, file: true });
+    assert.deepEqual(route('GET', `/v1/games/${code}/invite`), { action: 'invite', code });
     assert.deepEqual(route('POST', `/v1/games/${code}/events`), { action: 'append', code });
     assert.equal(route('POST', '/v1/games/NOPE/join'), null);
     assert.equal(route('DELETE', `/v1/games/${code}`), null);
@@ -105,4 +107,37 @@ test('a player can close a game: its code stops working', async () => {
     assert.deepEqual((await handle(store, { action: 'close', code, token: mine })).body, { closed: code });
     assert.equal((await handle(store, { action: 'read', code, token: mine })).status, 404);
     assert.equal((await handle(store, { action: 'join', code })).status, 404);
+});
+
+test('an open seat: the joiner brings their army, and nothing else in the game may change', async () => {
+    const store = new MemoryStore();
+    const code = newCode();
+    const open = { ...FILE, events: [], armies: [{ name: 'Red', units: [] }, null] };
+    const made = await handle(store, { action: 'create', code, body: { game: open, seat: 0, name: 'Sam' } });
+    assert.equal(made.status, 201);
+    const push = await handle(store, { action: 'append', code, token: made.body.token, body: { base: 0, events: [{}], app_version: '2.2.2' } });
+    assert.equal(push.status, 409);  // No moves until they've joined
+    const invite = await handle(store, { action: 'invite', code });
+    assert.equal(invite.body.needs_army, true);
+    assert.equal(invite.body.seat, 1);
+    assert.deepEqual(invite.body.game.armies, open.armies);
+    const join = game => handle(store, { action: 'join', code, body: { name: 'Alex', game } });
+    const blue = { name: 'Blue', units: [] };
+    assert.equal((await join(null)).status, 400);  // No army
+    assert.equal((await join({ ...open, armies: [{ name: 'Not red', units: [] }, blue] })).status, 400);  // Changed my army
+    assert.equal((await join({ ...open, uid: 'other', armies: [open.armies[0], blue] })).status, 400);
+    const joined = await join({ ...open, name: 'Red vs Blue', armies: [{ units: [], name: 'Red' }, blue] });  // Keys in another order: still the same army
+    assert.equal(joined.status, 200);
+    assert.deepEqual(joined.body.game.armies[1], blue);
+    const read = await handle(store, { action: 'read', code, token: made.body.token, file: true });
+    assert.equal(read.body.game.name, 'Red vs Blue');
+    assert.deepEqual(read.body.game.armies[1], blue);
+    assert.equal((await handle(store, { action: 'append', code, token: made.body.token, body: { base: 0, events: [{}], app_version: '2.2.2' } })).status, 200);
+});
+
+test('only a game with no moves can wait for an army, and never the creator army', async () => {
+    const store = new MemoryStore();
+    const bad = { ...FILE, armies: [{ name: 'Red' }, null] };  // FILE has an event
+    assert.equal((await handle(store, { action: 'create', code: newCode(), body: { game: bad, seat: 0 } })).status, 400);
+    assert.equal((await handle(store, { action: 'create', code: newCode(), body: { game: { ...FILE, armies: [null, { name: 'Blue' }] }, seat: 0 } })).status, 400);
 });

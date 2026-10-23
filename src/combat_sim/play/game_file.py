@@ -56,7 +56,7 @@ def strip_text(game):
     entry and in the events that used one."""
     game = copy.deepcopy(game)
     for army in game.get('armies') or []:
-        for entry in (army.get('stratagems') or []) + (army.get('rules') or []):
+        for entry in [] if army is None else (army.get('stratagems') or []) + (army.get('rules') or []):
             if isinstance(entry, dict):
                 entry.pop('text', None)
     for event in game.get('events') or []:
@@ -66,10 +66,11 @@ def strip_text(game):
 
 
 def export_game(game, sent_by):
-    """The file for a game ({'uid', 'name', 'app_version', 'armies', 'events', 'battlefield', 'setup', 'twist'}),
-    saying which seat sent it (None from a hot-seat game)."""
+    """The file for a game ({'uid', 'name', 'app_version', 'armies', 'events', 'battlefield', 'setup', 'twist'}, and
+    'pending' while an online game waits for the other player's army: see check_invite), saying which seat sent it
+    (None from a hot-seat game)."""
     game = strip_text(game)
-    return {'format': FORMAT, 'format_version': FORMAT_VERSION, 'sent_by': sent_by,
+    return {'format': FORMAT, 'format_version': FORMAT_VERSION, 'sent_by': sent_by, 'pending': game.get('pending'),
             **{k: game[k] for k in ('uid', 'name', 'app_version', 'armies', 'events', 'battlefield', 'setup', 'twist')}}
 
 
@@ -269,6 +270,32 @@ def check_game(game, version):
     GameFileError). `version` is this app's.
     """
     _guarded(_check_game, game, version)
+
+
+def check_invite(game, seat):
+    """
+    An online game that waits for the joiner's army (seat `seat` empty), as the relay hands it out: the creator's
+    army checked as check_game checks one, no moves, and `pending`, the choices that wait for both armies:
+    {'battlefield' (None, 'pairing:<A|B|C|random>' or a battlefield), 'twist' (as the new-game form sends it),
+    'setup', 'name' (None: "Red vs Blue")}.
+    """
+    _guarded(_check_invite, game, seat)
+
+
+def _check_invite(game, seat):
+    _plain(game)
+    if not isinstance(game.get('uid'), str) or not SAFE_ID.fullmatch(game['uid']):
+        raise _damaged('its ID')
+    armies = _list(game.get('armies'), 'armies')
+    if len(armies) != 2 or armies[seat] is not None or game.get('events'):
+        raise _damaged('not a game waiting for your army')
+    _check_army(armies[1 - seat])
+    pending = _dict(game.get('pending'), 'its setup')
+    battlefield = pending.get('battlefield')
+    if isinstance(battlefield, dict):
+        _check_battlefield(battlefield)
+    elif battlefield is not None and not (isinstance(battlefield, str) and battlefield.startswith('pairing:')):
+        raise _damaged('its battlefield')
 
 
 def check_more(game, events):

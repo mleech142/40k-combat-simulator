@@ -948,6 +948,29 @@
         return online ? notice(`waiting for ${other}`) : notice(`waiting for ${other}: send them the game file`, false, true);
     }
 
+    /**
+     * Play: what the seat bar says while an online game waits for the other player to join with their army
+     * (the server's `waiting_for_army` game): {text, detail} (detail: the choices made once they join).
+     */
+    function playWaitingNotice(game) {
+        const mine = game.players[game.seat];
+        const code = playInviteCode(game.online.code);
+        const options = game.options || {};
+        const detail = [options.battlefield && `Battlefield: ${options.battlefield}.`, options.twist && `Twist: ${options.twist}.`]
+            .filter(Boolean).join(' ');
+        return { text: `You play ${mine} online · send the other player the invite code to join with their army: ${code}`, detail };
+    }
+
+    /** Play: who invited you and what the game will be, for the join box (the server's `needs_army` answer). */
+    function playInviteText(invite) {
+        const them = invite.opponent;
+        const about = [them.faction, them.disposition].filter(Boolean).join(', ');
+        const options = invite.options || {};
+        return [`${them.player ? `${them.player} plays ` : ''}${them.army}${about ? ` (${about})` : ''}.`,
+                options.battlefield && `Battlefield: ${options.battlefield}.`, options.twist && `Twist: ${options.twist}.`]
+            .filter(Boolean).join(' ');
+    }
+
     /** Play: an invite code in two halves, easier to read out ('ABCDEFGHJK' -> 'ABCDE-FGHJK'). */
     function playInviteCode(code) {
         return code.length > 5 ? `${code.slice(0, 5)}-${code.slice(5)}` : code;
@@ -1049,7 +1072,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playInviteCode, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

@@ -3,6 +3,7 @@ Online play (play/relay_client.py and the routes): two installs play one game th
 relay/dev-server.mjs (the same rules as the Worker, in memory). Skipped when Node isn't installed.
 """
 
+import json
 import shutil
 import subprocess
 
@@ -11,7 +12,9 @@ import pytest
 from combat_sim.models import SavedGame, db
 from combat_sim.play import relay_client
 from conftest import ROOT
+from test_play_api import saved_army
 from test_play_game_files import new_game, place, two_pcs  # noqa: F401 (fixture)
+from test_play_missions_api import saved_army as missions_army
 
 NODE = shutil.which('node')
 pytestmark = pytest.mark.skipif(NODE is None, reason='Node.js not installed')
@@ -143,3 +146,80 @@ def test_the_relay_address_is_a_setting(relay, two_pcs):  # noqa: F811
     assert mine.post('/api/play/relay', json={'url': ''}).get_json()['url'] == relay  # Back to the default
     assert mine.post('/api/play/relay', json={'name': ' Sam <the> "Bold" '}).get_json()['name'] == 'Sam the Bold'
     assert mine.get('/api/play/relay').get_json()['url'] == relay  # A name alone leaves the address
+
+
+# --- An open seat: the other player joins with their own army ---------------------------------------------
+
+def open_game(client, army, **options):
+    """A game with my army as Red only, put online for the other player to join with theirs."""
+    response = client.post('/api/play/games', json={'armies': [army, None], 'seat': 0, 'setup': False, **options})
+    assert response.status_code == 200, response.get_json()
+    return response.get_json()
+
+
+def test_a_game_can_wait_for_the_other_players_army(relay, two_pcs):  # noqa: F811
+    mine, theirs = two_pcs
+    mine.post('/api/play/relay', json={'name': 'Sam'})
+    theirs.post('/api/play/relay', json={'name': 'Alex'})
+    red = saved_army(mine, 'Red', {'uid': 'w', 'unit': 'Void Warriors'})
+    game = open_game(mine, red)
+    assert game['waiting_for_army'] and game['state'] is None and game['players'] == ['Red', None]
+    assert game['online']['code'] and not game['online']['joined'] and game['name'] == 'Red vs (joining online)'
+    assert [g['players'] for g in mine.get('/api/play/games').get_json()] == [['Red', 'joining online']]
+    for refused in (mine.post(f'/api/play/games/{game["id"]}/actions', json={'type': 'next_phase'}),
+                    mine.get(f'/api/play/games/{game["id"]}/file')):
+        assert refused.status_code == 409
+    assert sync(mine, game)['waiting_for_army']  # Nobody yet
+
+    # Their app asks for their army first, showing whose game it is
+    code = game['online']['code']
+    asked = theirs.post('/api/play/games/join', json={'code': code}).get_json()
+    assert asked['needs_army'] and asked['opponent'] == {'army': 'Red', 'faction': 'Starfarers', 'disposition': None, 'player': 'Sam'}
+    assert theirs.get('/api/play/games').get_json() == []  # Nothing joined yet
+    blue = saved_army(theirs, 'Blue', {'uid': 'g', 'unit': 'Gun Crew'})
+    their_game = theirs.post('/api/play/games/join', json={'code': code, 'army': blue}).get_json()
+    assert their_game['seat'] == 1 and [p['name'] for p in their_game['state']['players']] == ['Red', 'Blue']
+    assert their_game['name'] == 'Red vs Blue' and their_game['online']['names'] == ['Sam', 'Alex']
+
+    # My app picks up the game they completed, and play goes on as in any online game
+    game = sync(mine, game)
+    assert not game.get('waiting_for_army') and game['state'] == their_game['state'] and game['name'] == 'Red vs Blue'
+    game = place(mine, game, 'p1-w', 10, 6).get_json()
+    assert sync(theirs, their_game)['state'] == game['state']
+
+
+def test_choices_that_need_both_armies_are_made_when_they_join(relay, two_pcs):  # noqa: F811
+    mine, theirs = two_pcs
+    red = missions_army(mine, 'Red', ['d-vanguard'])  # Purge the Foe
+    game = open_game(mine, red, battlefield='pairing:B', twist={'key': 'random'})
+    assert game['options'] == {'battlefield': "Their pairing's Event Companion layout", 'twist': 'Random'}
+    plain = missions_army(theirs, 'Plain', [])  # No force disposition: no pairing to play
+    refused = theirs.post('/api/play/games/join', json={'code': game['online']['code'], 'army': plain})
+    assert refused.status_code == 400 and 'force disposition' in refused.get_json()['error']
+    blue = missions_army(theirs, 'Blue', ['d-bastion'])  # Take and Hold
+    their_game = theirs.post('/api/play/games/join', json={'code': game['online']['code'], 'army': blue}).get_json()
+    assert their_game['state']['battlefield']['name'] == 'Take and Hold vs Purge the Foe: Layout B'
+    assert their_game['twist'] is not None
+    assert sync(mine, game)['state'] == their_game['state']
+
+
+def test_a_joiner_cant_change_the_creators_army(relay, two_pcs):  # noqa: F811
+    """The relay only takes the completed game if my army is as I sent it; my app checks again on fetching."""
+    mine, _ = two_pcs
+    game = open_game(mine, saved_army(mine, 'Red', {'uid': 'w', 'unit': 'Void Warriors'}))
+    code = game['online']['code']
+    invited = relay_client.invite(relay, code)['game']
+    changed = json.loads(json.dumps(invited))
+    changed['armies'][0]['name'] = 'Pushover'
+    changed['armies'][1] = dict(invited['armies'][0], name='Blue')
+    with pytest.raises(relay_client.RelayError) as error:
+        relay_client.join(relay, code, 'Mallory', changed)
+    assert error.value.status == 400
+    assert sync(mine, game)['waiting_for_army']
+
+
+def test_an_open_seat_must_be_the_other_players(relay, two_pcs):  # noqa: F811
+    mine, _ = two_pcs
+    red = saved_army(mine, 'Red', {'uid': 'w', 'unit': 'Void Warriors'})
+    for body in ({'armies': [red, None], 'seat': 1}, {'armies': [red, None], 'seat': None}, {'armies': [None, None], 'seat': 0}):
+        assert mine.post('/api/play/games', json=body).status_code == 400

@@ -13,7 +13,12 @@ Workers' free plan, in `relay/`.
   holds the game file (frozen armies, battlefield, twist), each event under its own key, and `meta`: each seat's
   token **hash**, each player's name as they gave it (Setup page; no markup characters, at most 40), the event
   count, and the newest app version that played.
-- `POST /v1/games` creates a game for one seat; `POST /v1/games/<code>/join` gives the other seat once;
+- `POST /v1/games` creates a game for one seat, with both armies or with the other seat's army left empty (an
+  **open seat**: no moves until it's filled); `GET /v1/games/<code>/invite` shows what joining gives (the game file,
+  and whether it needs the joiner's army); `POST /v1/games/<code>/join` gives the other seat once, and for an open
+  seat takes the game the joiner's app completed with their army, only if the creator's army and the game's ID are
+  exactly as they were (`canonical` JSON); `GET ...?file=1` also returns the game file (how the creator's app gets
+  the completed game);
   `GET /v1/games/<code>?since=n` returns the events from the n-th on; `POST .../events` appends only on top of
   the current count (409 otherwise: fetch the other player's moves first); `POST .../retract` takes back your
   own last event if no dice were rolled; `POST .../close` deletes the game (the app's "New invite code" moves a game
