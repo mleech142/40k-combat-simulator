@@ -1,8 +1,8 @@
 # Play mode design
 
-A planned expansion: friends play full games of 40k against each other on a top-down board inside the Combat Simulator. Games can be played live or asynchronously, chess-app style: you finish your move and the app tells your opponent it's their turn. Nothing here is built yet. This document records what has been decided and why, so later work can build on it without reopening settled questions.
+A planned expansion: friends play full games of 40k against each other on a top-down board inside the Combat Simulator. Games can be played live or asynchronously, chess-app style: you finish your move and the app tells your opponent it's their turn. This document records what has been decided and why, so later work can build on it without reopening settled questions.
 
-Status: agreed design, October 2026. No code yet.
+Status (October 2026): **in progress and released as experimental** (2.3.0 onward, shown only when "Show Play in the menu" is ticked on the Setup page). Built: hot-seat games, the 11th edition missions and terrain, battle mats, and online games through the relay. Being tested now; what's left is in [Roadmap](#roadmap) (**Next**), from the owner's testing list ([testing-list.md](testing-list.md)).
 
 ## Goals and limits
 
@@ -49,6 +49,7 @@ The app assists with the rules but doesn't automate everything. The split:
 
 - **No take-backs** by default. Movement and setup can be undone freely until a roll is made. Rolling locks in the action and adds it to the log.
 - The game creator can **turn take-backs on** when starting a game. A take-back then needs the opponent's approval.
+- **Undo with the opponent's OK** (testing list item 11, not built): in a game against someone else, Undo should ask the other player to accept it. Today undo takes back your own last action at once, until a roll is made. To decide: what happens while they haven't answered, and whether it can cover actions with dice (overlapping the take-back setting above, which isn't built either).
 - **"Correct the game" request**, always available whatever the take-back setting. A player proposes a fix (move a model, restore wounds, re-run one attack), and it only happens if the opponent accepts. It's logged as a correction. This is the safety net for engine bugs, since line of sight and dice have no override.
 
 ## Decisions during the opponent's turn
@@ -139,6 +140,7 @@ both players see the same one for the whole game with nothing stored, and it's s
 - **Desktop first:** the existing Windows and Linux builds.
 - **Phones later,** as an installable web app running the same Python engine in the browser through **Pyodide**. This keeps game rules in Python with no second JavaScript engine. It also means not hosting the engine and BSData-derived content on a server.
 - Board controls should be designed so they can work with touch later (large targets, unit-level dragging), without making phones a target for the first versions.
+- **To reconsider: a hosted version** (testing list item 12, October 2026). The owner asked to scope a version people use in a browser, and later on a phone, with nothing to install (a Docker image or a hosted site). This reopens "not hosting the engine and BSData-derived content on a server" above, so it needs its own plan before anything is built: data licences (BSData and Wahapedia are downloaded by each user and never redistributed), accounts and per-user storage (the app is one user per install), hosting costs, upkeep and security, phone-sized pages, and Docker self-hosting as a possible first step.
 
 ## Roadmap
 
@@ -153,6 +155,16 @@ both players see the same one for the whole game with nothing stored, and it's s
 2. **Relay:** invite codes, tokens, the version check, email notices, and game file export / import.
 3. **Terrain and layout editor:** the five footprint shapes, layout files, the creator picks and the opponent accepts. Then missions: deployment zones and scoring.
 4. **Later:** terrain elevation, accounts, the phone version with push notifications.
+
+Steps 1 to 3 are built (see [Version 1 build plan](#version-1-build-plan) and [Missions plan](#missions-plan-11th-edition)), apart from manual standing orders, take-backs and email notices.
+
+5. **Next** (from testing, October 2026; numbers are the [testing list](testing-list.md)'s, where each item is described):
+   - **Fixes:** model bases that fit through a gap are treated as crossing Dense terrain (5); phase changes and actions are slow, measure first (4).
+   - **Board and controls:** drag to pan the camera (9); a Measure tool between two points (10); turning models and moving single models in the Movement phase (2); a unit's datasheet on hover (7); marking which model is the attached leader (8).
+   - **Rules:** Strategic Reserves, Deep Strike, ingress and Rapid Ingress (1); standing orders for reactions in the other player's turn, with Fire Overwatch and Command Re-rolls (6); reading many more abilities, stratagems and rules into effects the game applies, so fewer manual effects (3).
+   - **Game flow:** Undo asks the other player to accept (11).
+   - **Fun:** notices such as how lucky or unlucky a roll was against the expected result (15).
+6. **Bigger plans, each needing its own design first:** games with more than two players, 2v2 and free-for-all (13); computer-controlled armies and neutral units (14); a hosted or Docker version for browsers and phones (12, see [Platforms](#platforms)).
 
 ## Version 1 build plan
 
@@ -321,3 +333,7 @@ These are for later stages and are not yet decided:
 - Which standing orders exist, and their defaults.
 - Terrain categories and how they're stored, once the 11th edition terrain rules are written down in detail.
 - How reserves, Deep Strike and other set-up rules appear on the board.
+- How Undo with the opponent's OK works with the take-back setting and "correct the game".
+- Multiplayer (2v2, 1v1v1v1): which rules to follow, turn order, seats on the relay, board sizes.
+- A computer player: how it decides (moves, targets, stratagems, reactions), how good it should be, and how neutral units fit in (a third side).
+- Whether to host the app at all (see [Platforms](#platforms)).
