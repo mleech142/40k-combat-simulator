@@ -623,6 +623,14 @@ class SavedGame(db.Model):
     battlefield = db.Column(JSON, nullable=True)  # The game's own copy of its battlefield (None: the default map)
     setup = db.Column(db.Boolean, nullable=True)  # Starts with the mission sequence (None: saved before it existed)
     twist = db.Column(JSON, nullable=True)  # The Twist card the players agreed on: {'key', 'primary'} (None: none)
+    uid = db.Column(db.String(64), nullable=True)  # The game's own ID, the same on both players' PCs (play/game_file.py)
+    seat = db.Column(db.Integer, nullable=True)  # The player this app plays (play/seats.py; None: both, hot-seat)
+    app_version = db.Column(db.String(20), nullable=True)  # The newest app version that has played the game
+    relay_code = db.Column(db.String(20), nullable=True)  # Online (play/relay_client.py): the game's invite code on the relay
+    relay_token = db.Column(db.String(100), nullable=True)  # This seat's secret for the relay (never sent to a page)
+    relay_count = db.Column(db.Integer, nullable=True)  # Events the relay has (this copy has the same ones)
+    relay_joined = db.Column(db.Boolean, nullable=True)  # Both players have joined
+    relay_names = db.Column(JSON, nullable=True)  # Each seat's player, as they named themselves (or None)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

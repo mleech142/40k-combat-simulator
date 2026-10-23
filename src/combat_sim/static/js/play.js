@@ -52,6 +52,10 @@
         $('new-twist').addEventListener('change', renderTwistChoice);
         loadTwists();
         $('new-blue').addEventListener('change', loadMatchup);
+        $('game-import').addEventListener('change', importGameFile);
+        $('join-btn').addEventListener('click', joinGame);
+        $('join-code').addEventListener('keydown', e => { if (e.key === 'Enter') joinGame(); });
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) syncGame(); });
         $('undo-btn').addEventListener('click', undo);
         $('fit-btn').addEventListener('click', () => { fitView(); drawBoard(); });
         $('phase-btn').addEventListener('click', nextPhase);
@@ -153,7 +157,7 @@
         $('game-list').innerHTML = games.length ? games.map(g => `
             <div class="play-game-row ${state.game && state.game.id === g.id ? 'active' : ''}">
                 <button class="play-game-open" data-id="${g.id}">${escapeHtml(g.name)}
-                    <small>${escapeHtml(g.players.join(' vs '))}</small></button>
+                    <small>${escapeHtml(g.players.join(' vs '))}${g.seat == null ? '' : ` · you play ${escapeHtml(g.players[g.seat])}`}</small></button>
                 <button class="btn-icon" data-delete="${g.id}" title="Delete game" aria-label="Delete ${escapeHtml(g.name)}">
                     <i class="fa-solid fa-trash" aria-hidden="true"></i></button>
             </div>`).join('') : '<p class="empty-message">No games yet</p>';
@@ -164,7 +168,7 @@
     async function newGame() {
         const twist = $('new-twist').value;
         const body = { armies: [$('new-red').value, $('new-blue').value].map(Number), name: $('new-name').value,
-                       battlefield: $('new-battlefield').value || null,
+                       battlefield: $('new-battlefield').value || null, seat: $('new-seat').value === '' ? null : Number($('new-seat').value),
                        twist: twist ? { key: twist, primary: twist === 'mirrored-world' ? $('new-mirrored').value : null } : null };
         const resp = await fetch('/api/play/games', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -178,6 +182,150 @@
         closeModal('games-modal');
         show(data);
         await loadGames();
+    }
+
+    /**
+     * Open a game file the other player sent: a new game, or this one brought up to date. A file from a
+     * hot-seat game asks which side this PC plays; copies that went different ways ask before replacing.
+     */
+    async function importGameFile(e) {
+        const input = e.target;
+        const chosen = input.files[0];
+        input.value = '';
+        if (!chosen) return;
+        const hint = $('game-import-hint');
+        let file;
+        try {
+            file = JSON.parse(await chosen.text());
+        } catch (error) {
+            hint.textContent = 'That is not a game file.';
+            return;
+        }
+        const post = async extra => {
+            const resp = await fetch('/api/play/games/import', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file, ...extra }),
+            });
+            return { resp, data: await resp.json() };
+        };
+        let { resp, data } = await post({});
+        if (resp.status === 409 && data.conflict) {
+            if (!confirm(`${data.error}\n\nReplace your copy with the file's? Your moves that aren't in it will be lost.`)) {
+                hint.textContent = 'Kept your copy.';
+                return;
+            }
+            ({ resp, data } = await post({ replace: true }));
+        }
+        if (!resp.ok && data.players) {  // A hot-seat game's file: choose a side
+            hint.innerHTML = `${escapeHtml(data.error)} ${data.players.map((name, i) =>
+                `<button class="btn-small" data-seat="${i}">Play ${escapeHtml(name)}</button>`).join(' ')}
+                <button class="btn-small" data-seat="">Both</button>`;
+            hint.querySelectorAll('[data-seat]').forEach(b => b.addEventListener('click', async () => {
+                const answer = await post({ seat: b.dataset.seat === '' ? null : Number(b.dataset.seat) });
+                if (answer.resp.ok) opened(answer.data);
+                else hint.textContent = answer.data.error;
+            }));
+            return;
+        }
+        if (!resp.ok) {
+            hint.textContent = data.error || 'The game file could not be opened.';
+            return;
+        }
+        opened(data);
+
+        async function opened(game) {
+            hint.textContent = '';
+            closeModal('games-modal');
+            show(game);
+            message({ new: 'Game opened.', newer: 'Game brought up to date.', same: 'You already had every move in that file.',
+                      older: 'Your copy is ahead of that file: nothing changed.', replaced: "Your copy now matches the file's." }[game.imported] || '');
+            await loadGames();
+        }
+    }
+
+    /** Join an online game with the invite code the other player sent. */
+    async function joinGame() {
+        const code = $('join-code').value.trim();
+        if (!code) return;
+        $('join-btn').disabled = true;
+        try {
+            const resp = await fetch('/api/play/games/join', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) {
+                $('join-hint').textContent = data.error || 'Could not join that game.';
+                return;
+            }
+            $('join-code').value = '';
+            $('join-hint').textContent = '';
+            closeModal('games-modal');
+            show(data);
+            message('Joined: the other player sees you have.');
+            await loadGames();
+        } finally {
+            $('join-btn').disabled = false;
+        }
+    }
+
+    /** Put the open game on the relay: the seat bar then shows the invite code to send. */
+    async function goOnline() {
+        await whileWorking(async () => {
+            const resp = await fetch(`/api/play/games/${state.game.id}/online`, { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) return message(data.error || 'The game could not go online.', true);
+            show(data);
+            message('Online: send the other player the invite code.');
+        });
+    }
+
+    /** Move the open online game to a new invite code: whoever has the old one is cut off, and the other player
+     * joins again with the new one. */
+    async function newInviteCode() {
+        const other = state.game.state.players[1 - state.game.seat].name;
+        if (!confirm(`Make a new invite code? The old one stops working: ${other}'s player joins again with the new code.`)) return;
+        await whileWorking(async () => {
+            const resp = await fetch(`/api/play/games/${state.game.id}/new-code`, { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) return message(data.error || 'Could not make a new code.', true);
+            show(data);
+            message('New invite code made: send it to the other player.');
+        });
+    }
+
+    /**
+     * An online game checks the relay for the other player's moves: every few seconds while it waits for
+     * them, less often on your move, never while the page is hidden or busy.
+     */
+    const SYNC_WAITING = 5000, SYNC_MINE = 20000;  // Milliseconds
+
+    function scheduleSync() {
+        clearTimeout(state.syncTimer);
+        const game = state.game;
+        if (!game || !game.online || !(game.waiting_on || []).length) return;
+        const mine = game.online.joined && game.waiting_on.includes(game.seat);
+        state.syncTimer = setTimeout(syncGame, mine ? SYNC_MINE : SYNC_WAITING);
+    }
+
+    async function syncGame() {
+        const game = state.game;
+        if (!game || !game.online) return;
+        if (document.hidden || state.working || state.drag || state.placing) return scheduleSync();
+        const resp = await fetch(`/api/play/games/${game.id}/sync`, { method: 'POST' }).catch(() => null);
+        const data = resp && await resp.json().catch(() => null);
+        if (!state.game || state.game.id !== game.id) return;
+        if (!resp || !resp.ok) {
+            message((data && data.error) || "Couldn't reach the app: is it still running?", true);
+            if (resp && resp.status === 410) return;  // Moved to a new invite code: nothing more comes from this one
+            return scheduleSync();
+        }
+        const joinedNow = data.online && data.online.joined && !game.online.joined;
+        if (data.moved || joinedNow) {
+            show(data);
+            const other = data.state.players[1 - data.seat].name;
+            message(joinedNow && !data.moved ? `${other} has joined.` : `${other} moved.`);
+        } else {
+            scheduleSync();
+        }
     }
 
     /** The Games and Battlefields pop-ups (the Battlefields one opens over the Games one). */
@@ -256,6 +404,7 @@
             });
             const data = await resp.json();
             if (!resp.ok) {
+                if (data.state) show(data);  // Online: the other player moved first, and the board now has their moves
                 message(data.error || 'That move was not allowed.', true);
                 return false;
             }
@@ -271,7 +420,10 @@
         await whileWorking(async () => {
             const resp = await fetch(`/api/play/games/${state.game.id}/undo`, { method: 'POST' });
             const data = await resp.json();
-            if (!resp.ok) return message(data.error, true);
+            if (!resp.ok) {
+                if (data.state) show(data);
+                return message(data.error, true);
+            }
             message('Undone.');
             show(data);
         });
@@ -514,6 +666,7 @@
         renderUnits();
         drawBoard();
         renderLog();
+        renderSeat();
         renderPending();
         renderSetup();
         renderPlacing();
@@ -546,11 +699,11 @@
                 <button class="btn-small" id="locate-btn">Place markers</button></div>` : '';
             const beacon = m.choice && m.choice.kind === 'beacon' && m.choice.player === i ? `<div class="play-mission-choice">
                 <strong>Beacon:</strong> choose your beacon unit.
-                <select class="filter-select" id="beacon-unit">${m.beacon_options.map(id => `<option value="${id}">${escapeHtml(name(id))}</option>`).join('')}</select>
+                <select class="filter-select" id="beacon-unit">${m.beacon_options.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(name(id))}</option>`).join('')}</select>
                 <button class="btn-small" id="beacon-btn">Choose</button></div>` : '';
             const tempting = m.choice && m.choice.kind === 'tempting' && m.choice.player === i ? `<div class="play-mission-choice">
                 <strong>A Tempting Target:</strong> choose ${escapeHtml(game.state.players[m.choice.for].name)}'s tempting target (an objective in No Man's Land).
-                <select class="filter-select" id="tempting-objective">${m.tempting_options.map(id => `<option value="${id}">${escapeHtml(id)}</option>`).join('')}</select>
+                <select class="filter-select" id="tempting-objective">${m.tempting_options.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('')}</select>
                 <button class="btn-small" id="tempting-btn">Choose</button></div>` : '';
             const condemned = m.condemned[String(i)] || [];
             const choosing = m.choice && m.choice.player === i && m.condemn_options;
@@ -640,12 +793,12 @@
                 : c.short === 'a-tempting-target' && chosen.tempting ? `<p class="play-hint">Tempting target: ${escapeHtml(chosen.tempting)}</p>`
                 : c.short === 'burden-of-trust' ? guardsControls(m, i, chosen) : '';
             const buttons = [
-                `<button class="btn-small ${c.hold ? 'active' : ''}" data-card-op="${c.hold ? 'unhold' : 'hold'}" data-card="${c.short}" data-player="${i}"
+                `<button class="btn-small ${c.hold ? 'active' : ''}" data-card-op="${c.hold ? 'unhold' : 'hold'}" data-card="${escapeHtml(c.short)}" data-player="${i}"
                     title="A held card isn't scored (or discarded) until you let it go">${c.hold ? 'Held' : 'Hold'}</button>`,
-                myTurn ? `<button class="btn-small ${c.discard ? 'active' : ''}" data-card-op="${c.discard ? 'keep' : 'discard'}" data-card="${c.short}" data-player="${i}"
+                myTurn ? `<button class="btn-small ${c.discard ? 'active' : ''}" data-card-op="${c.discard ? 'keep' : 'discard'}" data-card="${escapeHtml(c.short)}" data-player="${i}"
                     title="Discard it at the end of your turn, for 1CP">${c.discard ? 'Discarding (+1CP)' : 'Discard at end of turn'}</button>` : '',
-                command && c.redraw ? `<button class="btn-small" data-card-op="redraw" data-card="${c.short}" data-player="${i}" title="${escapeHtml(c.redraw)}">Redraw</button>` : '',
-                command && !chosen.redraw_used ? `<button class="btn-small" data-card-op="redraw_cp" data-card="${c.short}" data-player="${i}"
+                command && c.redraw ? `<button class="btn-small" data-card-op="redraw" data-card="${escapeHtml(c.short)}" data-player="${i}" title="${escapeHtml(c.redraw)}">Redraw</button>` : '',
+                command && !chosen.redraw_used ? `<button class="btn-small" data-card-op="redraw_cp" data-card="${escapeHtml(c.short)}" data-player="${i}"
                     title="Once per battle: discard it and draw a new card">Discard &amp; draw (1CP)</button>` : '',
             ].join('');
             return `<div class="play-secondary-card ${c.hold ? 'held' : ''}"><strong>${escapeHtml(c.name)}</strong>
@@ -662,8 +815,8 @@
         const game = state.game;
         const units = game.state.units.filter(u => u.player === i && u.models.some(x => x.alive && x.position));
         return `<div class="play-guards">${game.state.objectives.map(o => `<label>${escapeHtml(o.id)}
-            <select class="filter-select" data-guard="${o.id}" data-player="${i}"><option value="">nobody</option>${units.map(u =>
-                `<option value="${u.id}" ${chosen.guards[o.id] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}</select></label>`).join('')}</div>`;
+            <select class="filter-select" data-guard="${escapeHtml(o.id)}" data-player="${i}"><option value="">nobody</option>${units.map(u =>
+                `<option value="${escapeHtml(u.id)}" ${chosen.guards[o.id] === u.id ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}</select></label>`).join('')}</div>`;
     }
 
     /** The setup bar: the mission sequence's next step (central objective roll, roll-off, attacker or defender). */
@@ -818,7 +971,7 @@
                 const ready = game.ready.includes(u.id);
                 const acted = actedThisPhase(u, game.state.turn);
                 const tags = Core.playUnitTags(u, { ready, inRange: (game.unit_objectives || {})[u.id], objectives: game.state.objectives, players: game.state.players });
-                return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''} ${ready ? 'ready' : ''} ${acted ? 'acted' : ''} ${living.length ? '' : 'destroyed'}" data-unit="${u.id}">
+                return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''} ${ready ? 'ready' : ''} ${acted ? 'acted' : ''} ${living.length ? '' : 'destroyed'}" data-unit="${escapeHtml(u.id)}">
                     <span class="play-unit-name">${escapeHtml(u.name)}</span>${tags.length ? `<span class="play-tags">${tags.map(t =>
                         `<span class="play-tag ${t.kind}" title="${escapeHtml(t.title)}">${t.icon ? `<i class="${t.icon}" aria-hidden="true"></i> ` : ''}${escapeHtml(t.label)}</span>`).join('')}</span>` : ''}
                     <small>${living.length} model${living.length === 1 ? '' : 's'}${done ? ' · ' + escapeHtml(done) : ''}</small>
@@ -1036,9 +1189,9 @@
                         const targeted = selected && (selected.status || {}).stratagem_phase === phaseId(turn);  // One per unit per phase
                         const disabled = !selected || selected.player !== p || (e.kind === 'stratagem' && (e.cp > (pl.cp ?? 0) || targeted
                             || Object.values(used).length && used[e.key] === phaseId(turn)));
-                        return `<button class="play-stratagem ${e.kind}" data-use="${p}|${e.key}" ${disabled ? 'disabled' : ''}
-                            title="${escapeHtml(e.text || '')}"><span>${escapeHtml(e.name)}</span>
-                            <small>${e.kind === 'stratagem' ? e.cp + ' CP' : 'rule'}${e.modifier ? ' · ' + escapeHtml(e.modifier) : ' · apply by hand'}</small></button>`;
+                        return `<button class="play-stratagem ${e.kind === 'rule' ? 'rule' : 'stratagem'}" data-use="${p}|${escapeHtml(e.key)}" ${disabled ? 'disabled' : ''}
+                            title="${escapeHtml(ruleText(e.key))}"><span>${escapeHtml(e.name)}</span>
+                            <small>${e.kind === 'stratagem' ? Number(e.cp) + ' CP' : 'rule'}${e.modifier ? ' · ' + escapeHtml(e.modifier) : ' · apply by hand'}</small></button>`;
                     }).join('') || '<p class="empty-message">Nothing for this phase</p>'}
                 </div>`;
                 $(`army-strats-${p}`).querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => useEntry(b.dataset.use)));
@@ -1056,11 +1209,46 @@
         if (entry.kind === 'rule') action.until = $('rule-until').value;
         if (await send(action)) {
             message(entry.modifier ? `${entry.name}: ${entry.modifier} on ${unitById(action.unit).name}.`
-                : `${entry.name} used: apply it by hand (add an effect if it changes the dice). ${entry.text || ''}`.slice(0, 400));
+                : `${entry.name} used: apply it by hand (add an effect if it changes the dice). ${ruleText(key)}`.slice(0, 400));
         }
     }
 
+    /** A stratagem's or rule's text, from this PC's data (games carry no rule text: the server looks it up). */
+    function ruleText(key) {
+        return (state.game.texts || {})[key] || '';
+    }
+
     // --- Correcting the game -----------------------------------------------------------------------
+
+    /** The game file button, and in a game this PC plays one side of, whose move it is. */
+    function renderSeat() {
+        const game = state.game;
+        $('file-btn').hidden = !game;
+        if (game) $('file-btn').href = `/api/play/games/${game.id}/file`;
+        const notice = Core.playSeatNotice(game);
+        $('seat-bar').hidden = !notice;
+        document.title = `${notice && notice.mine && game.online ? '● Your move · ' : ''}Play - 40K Combat Simulator`;
+        scheduleSync();
+        if (!notice) return;
+        $('seat-bar').classList.toggle('play-seat-mine', notice.mine);
+        const buttons = [
+            notice.invite ? `<button class="btn-small" id="seat-copy"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy code</button>` : '',
+            notice.send ? `<a class="btn-small" href="/api/play/games/${game.id}/file">
+                <i class="fa-solid fa-file-export" aria-hidden="true"></i> Save game file</a>` : '',
+            !game.online && !game.needs_update ? `<button class="btn-small" id="seat-online" title="Moves go to the other player as you make them">
+                <i class="fa-solid fa-globe" aria-hidden="true"></i> Play online</button>` : '',
+            game.online ? `<button class="btn-small" id="seat-new-code" title="If someone else may have used the code: the old one stops working">
+                <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> New invite code</button>` : '',
+        ].filter(Boolean);
+        $('seat-bar').innerHTML = `<strong>${escapeHtml(notice.text)}</strong>${buttons.length
+            ? `<span class="play-pending-actions">${buttons.join('')}</span>` : ''}`;
+        if (notice.invite) {
+            $('seat-copy').addEventListener('click', () => navigator.clipboard.writeText(Core.playInviteCode(notice.invite))
+                .then(() => message('Invite code copied.'), () => message('Copy the code by hand.', true)));
+        }
+        if ($('seat-online')) $('seat-online').addEventListener('click', goOnline);
+        if ($('seat-new-code')) $('seat-new-code').addEventListener('click', newInviteCode);
+    }
 
     function renderPending() {
         const game = state.game;
@@ -1092,8 +1280,8 @@
         const rows = unit ? unit.models.map(m => {
             const part = unit.parts[m.part];
             return `<tr><td>${escapeHtml(part.name)} ${m.id.split('-').pop()}</td>
-                <td><input type="number" min="0" max="${part.stats.wounds}" value="${m.wounds_left}" data-fix-wounds="${m.id}" class="filter-input"></td>
-                <td><label><input type="checkbox" data-fix-alive="${m.id}" ${m.alive ? 'checked' : ''}> alive</label></td></tr>`;
+                <td><input type="number" min="0" max="${Number(part.stats.wounds)}" value="${Number(m.wounds_left)}" data-fix-wounds="${escapeHtml(m.id)}" class="filter-input"></td>
+                <td><label><input type="checkbox" data-fix-alive="${escapeHtml(m.id)}" ${m.alive ? 'checked' : ''}> alive</label></td></tr>`;
         }).join('') : '';
         panel.innerHTML = `<h3>Correct the game</h3>
             <p class="play-hint">Propose a fix; the other player must accept it before anything else happens.
@@ -1117,8 +1305,8 @@
         const models = {};
         if (unit) {
             for (const m of unit.models) {
-                const wounds = Number($('correction-panel').querySelector(`[data-fix-wounds="${m.id}"]`).value);
-                const alive = $('correction-panel').querySelector(`[data-fix-alive="${m.id}"]`).checked;
+                const wounds = Number($('correction-panel').querySelector(`[data-fix-wounds="${CSS.escape(m.id)}"]`).value);
+                const alive = $('correction-panel').querySelector(`[data-fix-alive="${CSS.escape(m.id)}"]`).checked;
                 if (wounds !== m.wounds_left || alive !== m.alive) models[m.id] = { wounds_left: alive && !wounds ? 1 : wounds, alive };
             }
         }
@@ -1180,11 +1368,11 @@
         const players = state.game.state.players;
         const rows = state.missionActions.actions.map(a => {
             if (a.reason) return `<p class="play-hint"><strong>${escapeHtml(a.name)}</strong>: ${escapeHtml(a.reason)}</p>`;
-            const markers = a.markers.length ? `<select class="filter-select" data-action-marker="${a.key}">${a.markers.map(m =>
-                `<option value="${m.id}">Remove ${escapeHtml(players[m.player].name)}'s ${escapeHtml(Core.playMarker(m.tag).label.toLowerCase())} (${m.id})</option>`).join('')}</select>` : '';
+            const markers = a.markers.length ? `<select class="filter-select" data-action-marker="${escapeHtml(a.key)}">${a.markers.map(m =>
+                `<option value="${escapeHtml(m.id)}">Remove ${escapeHtml(players[m.player].name)}'s ${escapeHtml(Core.playMarker(m.tag).label.toLowerCase())} (${escapeHtml(m.id)})</option>`).join('')}</select>` : '';
             return `<div class="play-action-row"><strong>${escapeHtml(a.name)}</strong>
-                <select class="filter-select" data-action-target="${a.key}">${a.targets.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.label)}</option>`).join('')}</select>
-                ${markers}<button class="btn-small" data-start-action="${a.key}">Start</button></div>`;
+                <select class="filter-select" data-action-target="${escapeHtml(a.key)}">${a.targets.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.label)}</option>`).join('')}</select>
+                ${markers}<button class="btn-small" data-start-action="${escapeHtml(a.key)}">Start</button></div>`;
         }).join('');
         return `<div class="play-mission-actions"><h4>Mission actions</h4>${rows}
             <p class="play-hint">A unit that starts an action can't shoot or charge this turn.</p></div>`;
@@ -1216,7 +1404,7 @@
             return `<p class="play-hint">Charge roll ${options.roll}: no enemy unit is within reach, so the charge fails.</p>`;
         }
         const chips = reachable.map(id => `<button class="btn-small ${state.chargeTargets.includes(id) ? 'active' : ''}"
-            data-charge-target="${id}">${escapeHtml(unitById(id).name)} <small>${options.targets[id].distance}"</small></button>`).join('');
+            data-charge-target="${escapeHtml(id)}">${escapeHtml(unitById(id).name)} <small>${options.targets[id].distance}"</small></button>`).join('');
         return `<p class="play-hint">Charge roll <strong>${options.roll}"</strong>. Pick the units to charge (or click them on
             the board), then drag the unit so it ends engaged with every one of them and no other: each model that can
             ends within 1" of a target (or, if it can't, engaged with one).
@@ -1255,14 +1443,14 @@
                 <div class="play-shooting"><button class="btn btn-primary" id="fight-btn">Pass</button></div>`;
         }
         const targetSelect = part => `<select class="filter-select" data-fight-target="${part}">
-            ${options.targets.map(id => `<option value="${id}" ${state.fightTarget[part] === id ? 'selected' : ''}>${escapeHtml(unitById(id).name)}</option>`).join('')}
+            ${options.targets.map(id => `<option value="${escapeHtml(id)}" ${state.fightTarget[part] === id ? 'selected' : ''}>${escapeHtml(unitById(id).name)}</option>`).join('')}
         </select>`;
         const rows = options.parts.map(part => {
             const plain = part.weapons.filter(w => !w.extra);
             const extra = part.weapons.filter(w => w.extra);
             return `<div class="play-weapon"><strong>${escapeHtml(part.name)}</strong>
                 ${plain.length ? `<select class="filter-select" data-fight-weapon="${part.part}">
-                    ${plain.map(w => `<option value="${w.weapon}" ${state.fightWeapon[part.part] === w.weapon ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
+                    ${plain.map(w => `<option value="${Number(w.weapon)}" ${state.fightWeapon[part.part] === w.weapon ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
                 </select>` : ''}
                 ${extra.length ? `<small>+ ${extra.map(w => escapeHtml(w.name)).join(', ')} (Extra Attacks)</small>` : ''}
                 ${targetSelect(part.part)}</div>`;
@@ -1312,16 +1500,16 @@
             const target = state.targets[key];
             const choice = target && w.targets[target];
             const checked = !!(choice && choice.ok && state.fire[key]);
-            const select = `<select class="filter-select" data-target="${key}">
+            const select = `<select class="filter-select" data-target="${escapeHtml(key)}">
                 <option value="">Choose a target</option>
                 ${enemies.map(e => {
                     const t = w.targets[e.id];
-                    return `<option value="${e.id}" ${target === e.id ? 'selected' : ''} ${t && t.ok ? '' : 'disabled'}
+                    return `<option value="${escapeHtml(e.id)}" ${target === e.id ? 'selected' : ''} ${t && t.ok ? '' : 'disabled'}
                         title="${escapeHtml(t && t.reason ? t.reason : '')}">${escapeHtml(e.name)}${t && t.ok ? ` (${t.models} firing)` : ' (no)'}</option>`;
                 }).join('')}</select>`;
             const why = choice && !choice.ok ? `<small class="play-why">${escapeHtml(choice.reason)}</small>` : '';
             return `<div class="play-weapon ${choice && !choice.ok ? 'blocked' : ''}">
-                <label><input type="checkbox" data-fire="${key}" ${checked ? 'checked' : ''} ${choice && choice.ok ? '' : 'disabled'}>
+                <label><input type="checkbox" data-fire="${escapeHtml(key)}" ${checked ? 'checked' : ''} ${choice && choice.ok ? '' : 'disabled'}>
                     ${escapeHtml(w.name)} <small>${w.range ? w.range + '"' : ''}</small></label>${select}${why}</div>`;
         }).join('');
         return `<div class="play-shooting">${rows}
@@ -1417,6 +1605,8 @@
 
     /** A die: pips for a d6 face (else the number), lit by how it went: critical, success, fail or value. */
     function dieHtml(face, kind, place, rerolledFrom) {
+        face = Number(face);  // Faces come from the log, which the other player's app may have written
+        rerolledFrom = rerolledFrom == null ? rerolledFrom : Number(rerolledFrom);
         const pips = Core.playDieFace(face);
         const what = { critical: 'critical', success: 'success', fail: 'fail' }[kind] || '';
         const inside = pips ? pips.map(p => `<i style="grid-area: p${p}"></i>`).join('') : `<span>${face}</span>`;
@@ -1462,7 +1652,7 @@
             case 'advance':
                 return `${escapeHtml(name(a.unit))} ${a.type === 'charge' ? 'charge' : 'Advance'} roll: ${dice(event.rolls[0])} = <strong>${event.rolls[0].total}"</strong>`;
             case 'stratagem':
-                return `<span class="play-effect stratagem">${player(event.player)} used ${escapeHtml(event.stratagem)} (${event.cp} CP)</span> on ${escapeHtml(name(event.unit))}`;
+                return `<span class="play-effect stratagem">${player(event.player)} used ${escapeHtml(event.stratagem)} (${Number(event.cp)} CP)</span> on ${escapeHtml(name(event.unit))}`;
             case 'rule':
                 return `<span class="play-effect rule">${player(event.player)}: ${escapeHtml(event.rule)}</span> on ${escapeHtml(name(event.unit))}`;
             case 'effect':
@@ -1501,7 +1691,7 @@
             case 'condemn':
                 return `<strong>${player(state.game.state.turn.player)}</strong> condemned ${escapeHtml(a.units.map(name).join(', '))} (Punishment)`;
             case 'choose_role':
-                return `<strong>${player(event.chose.player)}</strong> chose to be the ${event.chose.role}`;
+                return `<strong>${player(event.chose.player)}</strong> chose to be the ${escapeHtml(event.chose.role)}`;
             case 'correction':
                 return `${player(a.player)} proposed a correction: ${escapeHtml(a.note || '')}`;
             case 'accept':
@@ -1527,7 +1717,7 @@
                     lines.push(`<strong>${escapeHtml(state.game.state.players[event.drawn.player].name)}</strong> drew ${escapeHtml(event.drawn.cards.join(' and ') || 'nothing')}`);
                 }
                 for (const d of event.discards || []) {
-                    lines.push(`<strong>${escapeHtml(state.game.state.players[d.player].name)}</strong> discarded ${escapeHtml(d.cards.join(', '))} for ${d.cp}CP`);
+                    lines.push(`<strong>${escapeHtml(state.game.state.players[d.player].name)}</strong> discarded ${escapeHtml(d.cards.join(', '))} for ${Number(d.cp)}CP`);
                 }
                 for (const a of event.actions || []) {
                     lines.push(`${escapeHtml(name(a.unit))}: <strong>${escapeHtml(actionName(a.action))}</strong> ${escapeHtml(a.result)} (${escapeHtml(a.target)})`);

@@ -514,8 +514,8 @@ def _stratagem(state, action):
     """
     Use a stratagem on one of the player's units (either player, any phase): it costs its CP, each
     stratagem once per phase per player, one stratagem per unit per phase (core rules 15.01), and not on
-    a battle-shocked unit. Its effect, if the app reads one, lasts the phase; otherwise its text is
-    logged for the players to apply.
+    a battle-shocked unit. Its effect, if the app reads one, lasts the phase; otherwise the players apply it
+    (the event names its key, and the page shows its text from this PC's data: snapshot.rule_texts).
     """
     _in_battle(state)
     player, entry, unit = _player_entry(state, action, 'stratagem')
@@ -535,7 +535,7 @@ def _stratagem(state, action):
     status['stratagem_phase'] = _phase_id(state['turn'])
     if entry.get('modifier'):
         _add_effect(state, unit, entry['name'], entry.get('applies_to'), entry.get('phase'), entry['modifier'], 'phase', 'stratagem')
-    return {'stratagem': entry['name'], 'cp': entry['cp'], 'player': player, 'unit': unit['id'], 'text': entry.get('text', '')}
+    return {'stratagem': entry['name'], 'cp': entry['cp'], 'player': player, 'unit': unit['id'], 'key': entry['key']}
 
 
 def _rule(state, action):
@@ -544,7 +544,7 @@ def _rule(state, action):
     player, entry, unit = _player_entry(state, action, 'rule')
     _add_effect(state, unit, entry['name'], entry.get('applies_to'), entry.get('phase'), entry.get('modifier') or '',
                 action.get('until') or 'phase', 'rule')  # With no modifier it's a reminder on the unit
-    return {'rule': entry['name'], 'player': player, 'unit': unit['id'], 'text': entry.get('text', '')}
+    return {'rule': entry['name'], 'player': player, 'unit': unit['id'], 'key': entry['key']}
 
 
 def _manual_effect(state, action):

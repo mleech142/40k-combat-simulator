@@ -227,9 +227,10 @@ def test_stratagems_need_the_command_points_and_cant_target_battle_shocked_units
     assert 'own' in refused(state, {'type': 'stratagem', 'player': 0, 'key': 'stratagem:1', 'unit': 'p2-squad'})
 
 
-def test_a_stratagem_the_game_cant_read_is_logged_with_its_text():
+def test_a_stratagem_the_game_cant_read_is_logged_by_its_key_without_its_text():
+    """The page shows its text from this PC's data (snapshot.rule_texts): games carry no rule text."""
     state, event = act(shooting_game(), {'type': 'stratagem', 'player': 0, 'key': 'stratagem:2', 'unit': 'p1-gunner'})
-    assert state['players'][0]['cp'] == 0 and event['text'] == 'Something clever.'
+    assert state['players'][0]['cp'] == 0 and event['key'] == 'stratagem:2' and 'text' not in event
     assert unit_by_id(state, 'p1-gunner')['effects'] == []
 
 

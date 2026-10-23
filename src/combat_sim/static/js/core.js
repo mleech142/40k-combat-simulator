@@ -924,6 +924,35 @@
                 label: `${name} ${role === 'attacker' ? 'attacks' : 'defends'}`, icon: role === 'attacker' ? 'khanda' : 'shield-halved' })) };
     }
 
+    /**
+     * Play: what the seat bar says in a game this app plays one side of (null in a hot-seat game): whose
+     * move it is from the server's `waiting_on`, and online, the name the other player joined under; `send` when
+     * the other player needs the game file (not online), `invite` (the code to send) while an online game waits
+     * for them to join.
+     */
+    function playSeatNotice(game) {
+        if (!game || game.seat == null) return null;
+        const players = game.state.players;
+        const online = game.online || null;
+        const theirName = online && online.joined && (online.names || [])[1 - game.seat];  // As they named themselves
+        const other = players[1 - game.seat].name + (theirName ? ` (${theirName})` : '');
+        const you = `You play ${players[game.seat].name}${online ? ' online' : ''}`;
+        const notice = (text, mine = false, send = false) => ({ text: `${you} · ${text}`, mine, send, invite: null });
+        if (game.needs_update) return notice(`this game has been played on version ${game.app_version}: update the app to carry on`);
+        if (online && !online.joined) {
+            return { ...notice(`send ${other} the invite code to join: ${playInviteCode(online.code)}`), invite: online.code };
+        }
+        const waiting = game.waiting_on || [];
+        if (!waiting.length) return notice('the battle is over');
+        if (waiting.includes(game.seat)) return notice('your move', true);
+        return online ? notice(`waiting for ${other}`) : notice(`waiting for ${other}: send them the game file`, false, true);
+    }
+
+    /** Play: an invite code in two halves, easier to read out ('ABCDEFGHJK' -> 'ABCDE-FGHJK'). */
+    function playInviteCode(code) {
+        return code.length > 5 ? `${code.slice(0, 5)}-${code.slice(5)}` : code;
+    }
+
     /** Play: a roll-off for the log, re-rolled ties and all. */
     function playRollOff(result, players) {
         const rounds = result.rolls.map(([a, b]) => `${players[0].name} ${a}, ${players[1].name} ${b}${a === b ? ' (tie)' : ''}`);
@@ -1020,7 +1049,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playInviteCode, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

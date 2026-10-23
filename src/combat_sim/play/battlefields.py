@@ -15,6 +15,7 @@ home objective), 'x', 'y'}], 'terrain': [terrain pieces; see game.terrain_areas]
 """
 
 import math
+import re
 
 CENTRE = (30, 22)
 CENTRAL_SPREAD = 6  # On a central-objective roll of 6: two objectives, this far either side along the divider
@@ -143,6 +144,13 @@ def _point(value, what):
 BOARD = (60, 44)
 
 
+def _safe_id(value, default):
+    """A terrain piece's or objective's ID as letters, digits and - _ . : only (it is written into the page),
+    else `default`."""
+    cleaned = re.sub(r'[^A-Za-z0-9_.:-]', '', str(value or ''))[:40]
+    return cleaned or default
+
+
 def clean(data):
     """
     A battlefield from the editor, checked and tidied: {'name', 'zones', 'divider', 'objectives',
@@ -174,7 +182,7 @@ def clean(data):
             raise BattlefieldError(f'Unknown terrain footprint: {piece.get("footprint")} (one of {", ".join(FOOTPRINTS)}).')
         if piece.get('category') not in CATEGORIES:
             raise BattlefieldError(f'Terrain category must be one of {", ".join(CATEGORIES)}.')
-        id_ = str(piece.get('id') or f't{i + 1}')[:40]
+        id_ = _safe_id(piece.get('id'), f't{i + 1}')
         while id_ in ids:
             id_ += '+'
         ids.add(id_)
@@ -190,7 +198,7 @@ def clean(data):
         role = objective.get('role') if objective['kind'] == 'home' else None
         if objective['kind'] == 'home' and role not in ('attacker', 'defender'):
             raise BattlefieldError('A home objective belongs to the attacker or the defender.')
-        id_ = str(objective.get('id') or f'{objective["kind"]}-{i + 1}')[:40]
+        id_ = _safe_id(objective.get('id'), f'{objective["kind"]}-{i + 1}')
         while id_ in seen:
             id_ += '+'
         seen.add(id_)

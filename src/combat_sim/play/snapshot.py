@@ -45,14 +45,49 @@ def _offered(record, army):
 
 
 def _entry(record, kind):
-    """A stratagem or rule as the game uses it: its effect (side, phase, modifier text) if the app reads one."""
+    """
+    A stratagem or rule as the game uses it: its effect (side, phase, modifier text) if the app reads one, and
+    `ref`, which finds its text on any PC (rule_texts). The text itself is never frozen into a game, so games
+    passed between players and the relay carry no Wahapedia or rule text (docs/play-mode-design.md, Connection).
+    """
     try:
         cp = int(str(record.cp or 0).strip()) if kind == 'stratagem' else 0
     except ValueError:
         cp = 0
+    ref = {'wahapedia_id': record.wahapedia_id} if record.wahapedia_id else {'name': record.name}
     return {'key': f'{kind}:{record.id}', 'kind': kind, 'name': record.name, 'cp': cp,
             'applies_to': record.applies_to, 'phase': record.phase, 'modifier': record.modifier or '',
-            'detachment': record.detachment_name, 'text': plain_text(record.text or record.notes or '')}
+            'detachment': record.detachment_name, 'ref': ref}
+
+
+def rule_texts(frozen):
+    """
+    {key: text} for the stratagems and rules in a game's frozen armies, read from this PC's data by each entry's
+    `ref` (a Wahapedia ID, else its name in the army's faction or the core stratagems). Entries frozen before refs
+    keep the text they were frozen with; ones this PC has no text for are left out.
+    """
+    texts, wanted = {}, []
+    for army in frozen:
+        for entry in army.get('stratagems', []) + army.get('rules', []):
+            if entry.get('text'):
+                texts[entry['key']] = entry['text']
+            elif isinstance(entry.get('ref'), dict):
+                wanted.append((army, entry))
+    by_id = {kind: {} for kind in ('stratagem', 'rule')}
+    for kind, model in (('stratagem', Stratagem), ('rule', FactionRule)):
+        ids = {e['ref']['wahapedia_id'] for _, e in wanted if e['kind'] == kind and e['ref'].get('wahapedia_id')}
+        if ids:
+            by_id[kind] = {r.wahapedia_id: r for r in model.query.filter(model.wahapedia_id.in_(ids)) if not r.superseded}
+    factions = {a.get('faction'): {f.id for f in Faction.query.filter_by(name=a.get('faction'))} for a, _ in wanted}
+    for army, entry in wanted:
+        model = Stratagem if entry['kind'] == 'stratagem' else FactionRule
+        record = by_id[entry['kind']].get(entry['ref'].get('wahapedia_id'))
+        if record is None and entry['ref'].get('name'):
+            matches = [r for r in model.query.filter_by(name=entry['ref']['name']) if not r.superseded]
+            record = next((r for r in matches if r.faction_id is None or r.faction_id in factions[army.get('faction')]), None)
+        if record is not None and (record.text or record.notes):
+            texts[entry['key']] = plain_text(record.text or record.notes)
+    return texts
 
 
 def _stratagems(army):

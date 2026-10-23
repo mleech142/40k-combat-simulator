@@ -79,6 +79,18 @@
         <p>Full games against a friend on a top-down board. Still being built: turn it on to try what's there so far.</p>
         <label class="setup-row"><input type="checkbox" id="play-setting" {% if show_play %}checked{% endif %}
             onchange="setPlay(this.checked)"> Show Play in the menu</label>
+        {% if show_play %}
+        <p>Online games go through a relay that passes moves between the two players' apps. Leave the address
+            empty to use the app's own, or enter a relay you host yourself.</p>
+        <div class="setup-row">
+            <input type="text" id="player-name" class="filter-input" maxlength="40" placeholder="Your name" aria-label="Your name">
+            <input type="url" id="relay-url" class="filter-input" placeholder="https://..." aria-label="Relay address">
+            <button class="btn btn-secondary" onclick="saveRelay()">Save</button>
+        </div>
+        <p>Your name is shown to the other player when you start or join an online game, so each of you
+            can see the right person joined.</p>
+        <div class="setup-message" id="relay-message"></div>
+        {% endif %}
     </section>
 
     <section class="setup-card" id="report-card" style="display:none">
@@ -194,6 +206,27 @@ async function setPlay(enabled) {
                                       body: JSON.stringify({enabled})});
     location.reload();
 }
+
+/** The Play relay's address: the saved one, or empty for the app's own. */
+async function loadRelay() {
+    const field = document.getElementById('relay-url');
+    if (!field) return;
+    const relay = await fetch('/api/play/relay').then(r => r.json()).catch(() => null);
+    if (!relay) return;
+    field.value = relay.url && relay.url !== relay.default ? relay.url : '';
+    field.placeholder = relay.default || 'https://...';
+    document.getElementById('player-name').value = relay.name || '';
+}
+
+async function saveRelay() {
+    const resp = await fetch('/api/play/relay', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                 body: JSON.stringify({url: document.getElementById('relay-url').value,
+                                                                       name: document.getElementById('player-name').value})});
+    const data = await resp.json();
+    document.getElementById('relay-message').textContent = resp.ok
+        ? `Saved${data.name ? ` (you are ${data.name})` : ''}. Relay: ${data.url || 'none set'}` : data.error;
+}
+document.addEventListener('DOMContentLoaded', loadRelay);
 
 async function run(button, messageId, url, body, working, done = null) {
     const message = document.getElementById(messageId);

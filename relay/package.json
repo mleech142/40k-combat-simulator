@@ -1,0 +1,14 @@
+{
+  "name": "tabletop-relay",
+  "private": true,
+  "type": "module",
+  "description": "The Play relay: keeps each online game's event log in order (docs/relay.md).",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "local": "node dev-server.mjs",
+    "test": "node --test test/relay.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.20.0"
+  }
+}

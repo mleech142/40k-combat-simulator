@@ -21,3 +21,13 @@ def test_javascript_unit_tests():
     result = subprocess.run([NODE, '--test', *files], cwd=ROOT,
                             capture_output=True, text=True, encoding='utf-8', timeout=120)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+
+
+@pytest.mark.skipif(NODE is None, reason='Node.js not installed')
+def test_relay_unit_tests():
+    """The Play relay's rules (relay/src/relay.js), which run on Cloudflare (docs/relay.md)."""
+    files = sorted(str(p.relative_to(ROOT)) for p in (ROOT / 'relay' / 'test').glob('*.test.mjs'))
+    assert files, 'No relay tests found in relay/test'
+    result = subprocess.run([NODE, '--test', *files], cwd=ROOT,
+                            capture_output=True, text=True, encoding='utf-8', timeout=120)
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]

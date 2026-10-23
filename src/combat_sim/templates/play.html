@@ -42,12 +42,14 @@
                 <span class="play-turn" id="turn-banner"></span>
                 <span class="play-toolbar-actions">
                     <button class="play-icon-btn" id="correct-btn" hidden title="Correct the game" aria-label="Correct the game"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i></button>
+                    <a class="play-icon-btn" id="file-btn" hidden title="Save game file" aria-label="Save game file"><i class="fa-solid fa-file-export" aria-hidden="true"></i></a>
                     <button class="play-icon-btn" id="undo-btn" disabled title="Undo" aria-label="Undo"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
                     <button class="play-icon-btn" id="fit-btn" title="Fit board" aria-label="Fit board"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i></button>
                 </span>
             </div>
             <div class="play-message" id="play-message" role="status"></div>
         </div>
+        <div class="play-pending play-seat" id="seat-bar" hidden></div>
         <div class="play-pending" id="pending-bar" hidden></div>
         <div class="play-pending play-setup" id="setup-bar" hidden></div>
         <div class="play-pending play-place" id="place-bar" hidden></div>
@@ -81,6 +83,19 @@
             <section class="play-games">
                 <h4>Saved games</h4>
         <div id="game-list"><p class="empty-message">No games yet</p></div>
+        <div class="play-editor-row">
+            <label class="btn-small" for="game-import"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Open game file</label>
+            <input type="file" id="game-import" accept=".json,application/json" hidden>
+        </div>
+        <div class="play-hint" id="game-import-hint" role="status"></div>
+        <div class="form-group">
+            <label for="join-code">Join an online game</label>
+            <span class="play-join">
+                <input type="text" id="join-code" class="filter-input" maxlength="20" placeholder="Invite code" autocomplete="off">
+                <button class="btn-small" id="join-btn"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i> Join</button>
+            </span>
+            <p class="play-hint" id="join-hint" role="status"></p>
+        </div>
             </section>
             <section class="play-games">
         <h4>New game</h4>
@@ -102,6 +117,15 @@
         <div class="form-group">
             <label for="new-battlefield">Battlefield</label>
             <select id="new-battlefield" class="filter-select"></select>
+        </div>
+        <div class="form-group">
+            <label for="new-seat">This PC plays</label>
+            <select id="new-seat" class="filter-select">
+                <option value="">Both players (hot-seat)</option>
+                <option value="0">Player 1</option>
+                <option value="1">Player 2</option>
+            </select>
+            <p class="play-hint">Playing one side: send the other player the game file after your moves (Save game file, above the board).</p>
         </div>
         <div class="form-group">
             <label for="new-name">Name</label>

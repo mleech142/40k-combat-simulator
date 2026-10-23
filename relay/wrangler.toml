@@ -1,0 +1,14 @@
+# The Play relay on Cloudflare Workers (free plan). Deploy: docs/relay.md.
+# Its name and address must not use "Warhammer" or "40K" (docs/play-mode-design.md, Connection).
+name = "tabletop-relay"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+[[durable_objects.bindings]]
+name = "GAMES"
+class_name = "Game"
+
+# Durable Objects on the free plan must keep their data in SQLite
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Game"]

@@ -71,3 +71,7 @@ prototype/
 # Test coverage data
 .coverage
 htmlcov/
+
+# Play relay (relay/): its packages and wrangler's local state
+relay/node_modules/
+relay/.wrangler/

@@ -711,6 +711,22 @@ test('playSetupPrompt walks the mission sequence: central objective, roll-off, t
     assert.equal(Core.playSetupPrompt({ phase: 'deployment', player: 0 }, players), null);
 });
 
+test('playSeatNotice says whose move it is when this app plays one side', () => {
+    const game = (seat, waiting, extra = {}) => ({ seat, waiting_on: waiting, state: { players: [{ name: 'Red' }, { name: 'Blue' }] }, ...extra });
+    assert.equal(Core.playSeatNotice(game(null, [0])), null);  // Hot-seat
+    assert.deepEqual(Core.playSeatNotice(game(0, [0])), { text: 'You play Red · your move', mine: true, send: false, invite: null });
+    assert.deepEqual(Core.playSeatNotice(game(0, [1])), { text: 'You play Red · waiting for Blue: send them the game file', mine: false, send: true, invite: null });
+    const online = joined => ({ online: { code: 'ABCDEFGHJK', joined } });
+    assert.deepEqual(Core.playSeatNotice(game(0, [0], online(false))),
+        { text: 'You play Red online · send Blue the invite code to join: ABCDE-FGHJK', mine: false, send: false, invite: 'ABCDEFGHJK' });
+    assert.deepEqual(Core.playSeatNotice(game(0, [1], online(true))), { text: 'You play Red online · waiting for Blue', mine: false, send: false, invite: null });
+    const named = { online: { code: 'ABCDEFGHJK', joined: true, names: ['Sam', 'Alex'] } };
+    assert.equal(Core.playSeatNotice(game(0, [1], named)).text, 'You play Red online · waiting for Blue (Alex)');
+    assert.equal(Core.playSeatNotice(game(1, [0, 1])).mine, true);  // Both choosing secondaries
+    assert.match(Core.playSeatNotice(game(1, [])).text, /battle is over/);
+    assert.match(Core.playSeatNotice(game(1, [1], { needs_update: true, app_version: '9.0.0' })).text, /version 9\.0\.0: update the app/);
+});
+
 test('playRollOff writes a roll-off and its re-rolls as one line', () => {
     const players = [{ name: 'Red' }, { name: 'Blue' }];
     assert.equal(Core.playRollOff({ rolls: [[3, 3], [2, 5]], winner: 1 }, players), 'Red 3, Blue 3 (tie), then Red 2, Blue 5: Blue wins');

@@ -98,6 +98,12 @@
 .play-unit-group.provisional .play-model { opacity: 0.75; }
 .play-place .btn { padding: 0.25rem 0.8rem; }
 
+/* A game this PC plays one side of: whose move it is (the other player's: muted) */
+.play-seat { border-color: var(--border); background: none; }
+.play-seat.play-seat-mine { border-color: var(--success); }
+.play-join { display: flex; gap: 0.3rem; }
+.play-join .filter-input { flex: 1; text-transform: uppercase; }
+
 /* The game takes the page; games and battlefields are pop-ups */
 .play-layout.play-layout-game { grid-template-columns: 280px minmax(0, 1fr) 280px; }
 .page-header #games-btn { margin-left: auto; }

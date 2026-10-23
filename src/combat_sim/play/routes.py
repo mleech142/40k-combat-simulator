@@ -3,20 +3,25 @@ Play mode's page and API (/play, /api/play/...). A game is stored as its frozen 
 log (SavedGame); its state is always their replay, so a game reads the same however it was made.
 """
 
+import json
+import os
 import random
+import re
+import uuid
 
-from flask import current_app, jsonify, render_template, request
+from flask import Response, current_app, jsonify, render_template, request
 
-from .. import armies
+from .. import __version__, armies
 from ..models import SavedArmy, SavedBattlefield, SavedGame, db
-from . import battlefields, mission_state, missions, tactical
+from . import battlefields, game_file, mission_state, missions, relay_client, tactical
 from .dice import Dice
-from ..settings import update_settings
+from .seats import actor, check_seat, waiting_on
+from ..settings import load_settings, update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, apply_event, can_fly, charge_options,
                    deployment_zone, fight_options, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
                    score, shooting_options, terrain_areas)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
-from .snapshot import freeze_army
+from .snapshot import freeze_army, rule_texts
 
 
 def game_response(saved, state=None):
@@ -24,6 +29,10 @@ def game_response(saved, state=None):
     if state is None:
         state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
+                    'uid': saved.uid, 'seat': saved.seat, 'waiting_on': waiting_on(state),
+                    'online': {'code': saved.relay_code, 'joined': bool(saved.relay_joined),
+                               'names': saved.relay_names or [None, None]} if saved.relay_code else None,
+                    'app_version': saved.app_version, 'needs_update': needs_update(saved),
                     'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH},
                     'zones': [deployment_zone(state, p) for p in (0, 1)],
                     'terrain': [{**piece, 'points': [list(pt) for pt in shape.points]} for piece, shape in terrain_areas(state)],
@@ -37,7 +46,105 @@ def game_response(saved, state=None):
                     'unit_objectives': {u['id']: objectives_in_range(state, u) for u in state['units']},
                     'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},
                     'manual_effects': [{'key': k, 'name': n, 'side': side} for k, (n, side, _) in MANUAL_EFFECTS.items()],
-                    'mission': mission_response(state), 'twist': twist_response(state)})
+                    'mission': mission_response(state), 'twist': twist_response(state),
+                    'texts': rule_texts(saved.armies)})
+
+
+def needs_update(saved):
+    """Whether the game has been played on a newer version of the app than this one (then this one can't play it)."""
+    return game_file.newer(saved.app_version, __version__)
+
+
+def update_message(saved):
+    return (f'This game has been played on version {saved.app_version} of the app, and this is version {__version__}: '
+            'update the app to carry on playing it.')
+
+
+def game_data(saved):
+    """A saved game as game_file.export_game reads it (a game saved before uids gets one now)."""
+    if not saved.uid:
+        saved.uid = uuid.uuid4().hex
+        db.session.commit()
+    return {'uid': saved.uid, 'name': saved.name, 'app_version': saved.app_version or __version__, 'armies': saved.armies,
+            'events': saved.events or [], 'battlefield': saved.battlefield, 'setup': bool(saved.setup), 'twist': saved.twist}
+
+
+MAX_IMPORT = 10 * 1024 * 1024  # Bytes: the largest game file opened
+DEFAULT_RELAY_URL = 'https://tabletop-relay.tabletop-relay.workers.dev'  # The project's own relay (docs/relay.md)
+
+
+def relay_url():
+    """The relay's address: the Setup page's, else RELAY_URL, else the project's own."""
+    return load_settings(current_app.config['SETTINGS_JSON']).get('relay_url') or os.environ.get('RELAY_URL') or DEFAULT_RELAY_URL
+
+
+def clean_code(text):
+    """An invite code as typed (any case, spaces or dashes) as the relay writes it."""
+    return ''.join(c for c in str(text or '').upper() if c.isalnum())
+
+
+def pull(saved):
+    """
+    Add the moves the relay has and this copy doesn't (an online game); the number added. They are checked first
+    (game_file.check_more): moves this app can't read are refused (RelayError) and the game is left as it was.
+    """
+    answer = relay_client.read(relay_url(), saved.relay_code, saved.relay_token, saved.relay_count or 0)
+    saved.relay_joined = answer.get('joined')
+    saved.relay_names = answer.get('names') or saved.relay_names
+    if game_file.newer(answer.get('app_version'), saved.app_version) and game_file.plausible_version(answer['app_version'], __version__):
+        saved.app_version = answer['app_version']
+    new = answer.get('events') or []
+    if new:
+        mine = (saved.events or [])[:saved.relay_count or 0]
+        try:
+            game_file.check_more(dict(game_data(saved), events=mine), new)
+        except game_file.GameFileError as error:
+            db.session.commit()
+            raise relay_client.RelayError(f"The other player's latest moves can't be read here, so they weren't added: {error}", 422)
+        saved.events = mine + new
+        saved.relay_count = answer['count']
+    db.session.commit()
+    return len(new)
+
+
+def relay_failure(saved, error):
+    """An answer for a relay request that failed: the other player moved first (409, with the game brought up to
+    date), the game needs a newer app (409), or the relay couldn't be reached (503)."""
+    if error.status == 404:  # Closed: the other player moved the game to a new invite code
+        return jsonify({'error': 'This game has a new invite code: ask the other player for it, then join with it '
+                                 '(Games, Join an online game) to carry on.'}), 410
+    if error.status == 409 or error.status == 426:
+        try:
+            pull(saved)
+        except relay_client.RelayError:
+            pass
+        message = str(error) if error.status == 426 else 'The other player moved first: their moves are on the board now.'
+        return jsonify(dict(game_response(saved).get_json(), error=message)), 409
+    return jsonify({'error': str(error)}), 503 if error.status is None else 502
+
+
+def player_name():
+    """The name this player gives online (Setup page), or None."""
+    return load_settings(current_app.config['SETTINGS_JSON']).get('player_name')
+
+
+def put_online(saved):
+    """Put a game this app plays one side of on the relay under a new invite code (RelayError if it can't)."""
+    answer = relay_client.create(relay_url(), game_file.export_game(game_data(saved), saved.seat), saved.seat, player_name())
+    names = [None, None]
+    names[saved.seat] = player_name()
+    saved.relay_code, saved.relay_token = answer['code'], answer['token']
+    saved.relay_count, saved.relay_joined, saved.relay_names = len(saved.events or []), False, names
+
+
+def read_seat(value):
+    """A seat from a request: 0 or 1, or None (hot-seat); anything else is a ValueError."""
+    if value is None or value == '':
+        return None
+    seat = int(value)
+    if seat not in (0, 1):
+        raise ValueError(seat)
+    return seat
 
 
 def mission_response(state):
@@ -164,10 +271,28 @@ def register_play_routes(app):
         update_settings(current_app.config['SETTINGS_JSON'], show_play=True if enabled else None)
         return jsonify({'enabled': enabled})
 
+    @app.route('/api/play/relay', methods=['GET', 'POST'])
+    def api_play_relay():
+        """Online play's settings (Setup page): the relay's address ('url'; empty goes back to the project's own) and
+        the name you play under ('name', shown to the other player)."""
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            changes = {}
+            if 'url' in data:
+                url = str(data.get('url') or '').strip().rstrip('/')
+                if url and not url.startswith(('https://', 'http://127.0.0.1', 'http://localhost')):
+                    return jsonify({'error': 'The relay\'s address starts with https://'}), 400
+                changes['relay_url'] = url or None
+            if 'name' in data:
+                changes['player_name'] = ''.join(c for c in str(data.get('name') or '') if c not in '<>"\'`' and ord(c) >= 32).strip()[:40] or None
+            update_settings(current_app.config['SETTINGS_JSON'], **changes)
+        return jsonify({'url': relay_url(), 'default': DEFAULT_RELAY_URL, 'name': player_name()})
+
     @app.route('/api/play/games')
     def api_list_games():
         games = SavedGame.query.order_by(SavedGame.updated_at.desc(), SavedGame.id.desc()).all()
-        return jsonify([{'id': g.id, 'name': g.name, 'players': [a['name'] for a in g.armies],
+        return jsonify([{'id': g.id, 'name': g.name, 'players': [a['name'] for a in g.armies], 'seat': g.seat,
+                         'online': bool(g.relay_code),
                          'updated_at': (g.updated_at or g.created_at).isoformat()} for g in games])
 
     @app.route('/api/play/games', methods=['POST'])
@@ -202,11 +327,16 @@ def register_play_routes(app):
             battlefield = find_battlefield(data['battlefield'])
             if battlefield is None:
                 return jsonify({'error': 'That battlefield is no longer saved.'}), 400
+        try:
+            seat = read_seat(data.get('seat'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Choose which player this app plays, or both.'}), 400
         twist, error = pick_twist(data.get('twist'), all(a.get('disposition') for a in frozen), data.get('setup', True) is not False)
         if error:
             return jsonify({'error': error}), 400
         name = str(data.get('name') or '').strip()[:200] or f'{frozen[0]["name"]} vs {frozen[1]["name"]}'
         saved = SavedGame(name=name, armies=frozen, events=[], battlefield=battlefield, twist=twist,
+                          uid=uuid.uuid4().hex, seat=seat, app_version=__version__,
                           setup=data.get('setup', True) is not False)  # Skipped only when asked
         db.session.add(saved)
         db.session.commit()
@@ -251,12 +381,32 @@ def register_play_routes(app):
         action = request.get_json(silent=True)
         if not isinstance(action, dict):
             return jsonify({'error': 'Send the action as a JSON object.'}), 400
+        if needs_update(saved):
+            return jsonify({'error': update_message(saved)}), 409
         state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
+        try:
+            check_seat(state, action, saved.seat)
+        except ActionError as error:
+            return jsonify({'error': str(error)}), 403
+        if saved.relay_code:  # Online: the other player's moves first, so the action is made on the latest board
+            try:
+                if pull(saved):
+                    return jsonify(dict(game_response(saved).get_json(),
+                                        error='The other player has moved: their moves are on the board now.')), 409
+            except relay_client.RelayError as error:
+                return relay_failure(saved, error)
         try:
             event = resolve_action(state, action, Dice())
         except ActionError as error:
             return jsonify({'error': str(error)}), 400
+        event['by'] = actor(state, action)  # Whose app sent it (undo, and the other player's notice)
+        if saved.relay_code:
+            try:
+                saved.relay_count = relay_client.append(relay_url(), saved.relay_code, saved.relay_token, saved.relay_count or 0, [event])['count']
+            except relay_client.RelayError as error:
+                return relay_failure(saved, error)
         saved.events = (saved.events or []) + [event]
+        saved.app_version = __version__
         db.session.commit()
         return game_response(saved, apply_event(state, event))
 
@@ -269,9 +419,165 @@ def register_play_routes(app):
             return jsonify({'error': 'Nothing to undo.'}), 400
         if events[-1]['rolls']:
             return jsonify({'error': "Dice were rolled for the last action: it can't be undone."}), 400
+        if needs_update(saved):
+            return jsonify({'error': update_message(saved)}), 409
+        by = events[-1].get('by')
+        if saved.seat is not None and by is not None and by != saved.seat:
+            name = saved.armies[by]['name']
+            return jsonify({'error': f"The last action was {name}'s: only they can take it back."}), 403
+        if saved.relay_code:
+            try:
+                saved.relay_count = relay_client.retract(relay_url(), saved.relay_code, saved.relay_token, saved.relay_count or 0)['count']
+            except relay_client.RelayError as error:
+                return relay_failure(saved, error)
         saved.events = events[:-1]
         db.session.commit()
         return game_response(saved)
+
+    @app.route('/api/play/games/<int:game_id>/seat', methods=['PUT'])
+    def api_game_seat(game_id):
+        """Which player this app plays in the game: 0, 1 or None (both, hot-seat)."""
+        saved = db.get_or_404(SavedGame, game_id)
+        if saved.relay_code:
+            return jsonify({'error': 'This game is played online: its seats are the relay\'s.'}), 409
+        try:
+            saved.seat = read_seat((request.get_json(silent=True) or {}).get('seat'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Choose player 1, player 2 or both.'}), 400
+        db.session.commit()
+        return game_response(saved)
+
+    @app.route('/api/play/games/<int:game_id>/file')
+    def api_game_file(game_id):
+        """The game as a file to send to the other player (game_file.py)."""
+        saved = db.get_or_404(SavedGame, game_id)
+        body = json.dumps(game_file.export_game(game_data(saved), saved.seat))
+        filename = re.sub(r'[^\w\- ]+', '', saved.name).strip() or 'game'
+        return Response(body, mimetype='application/json',
+                        headers={'Content-Disposition': f'attachment; filename="{filename}.json"'})
+
+    @app.route('/api/play/games/import', methods=['POST'])
+    def api_import_game():
+        """
+        Open a game file ({'file', 'seat', 'replace'}). A game this app hasn't seen is added, playing the seat
+        the sender doesn't (else 'seat'); one it has is brought up to date when the file carries on from it.
+        Answers the game with 'imported': 'new', 'newer', 'same', 'older' or 'replaced'; copies that went
+        different ways are refused (409, 'conflict') unless 'replace' says to take the file's.
+        """
+        if (request.content_length or 0) > MAX_IMPORT:
+            return jsonify({'error': 'That file is too big to be a game.'}), 400
+        data = request.get_json(silent=True) or {}
+        try:
+            game = game_file.read_game(data.get('file'), __version__)
+        except game_file.GameFileError as error:
+            return jsonify({'error': str(error)}), 400
+        saved = SavedGame.query.filter_by(uid=game['uid']).first()
+        if saved is None:
+            try:
+                seat = read_seat(data['seat']) if 'seat' in data else (None if game['sent_by'] is None else 1 - game['sent_by'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Choose player 1, player 2 or both.'}), 400
+            if 'seat' not in data and seat is None:
+                return jsonify({'error': 'Choose which seat this app plays: the file comes from a game played on one PC.',
+                                'players': [a['name'] for a in game['armies']]}), 400
+            saved = SavedGame(name=game['name'], armies=game['armies'], events=game['events'], battlefield=game['battlefield'],
+                              setup=game['setup'], twist=game['twist'], uid=game['uid'], seat=seat,
+                              app_version=game['app_version'] or __version__)
+            db.session.add(saved)
+            how = 'new'
+        elif saved.relay_code:
+            return jsonify({'error': 'This game is played online: its moves come from the relay, not from files.'}), 409
+        else:
+            how = game_file.compare(saved.events or [], game['events'])
+            if how == 'conflict' and not data.get('replace'):
+                return jsonify({'error': 'Your copy of this game and the file went different ways: each has moves the other '
+                                         "doesn't. Keep yours, or replace it with the file's.", 'conflict': True}), 409
+            if how in ('newer', 'conflict'):
+                saved.events = game['events']
+                how = 'replaced' if how == 'conflict' else how
+            if game_file.newer(game['app_version'], saved.app_version):
+                saved.app_version = game['app_version']
+        db.session.commit()
+        return jsonify(dict(game_response(saved).get_json(), imported=how))
+
+    @app.route('/api/play/games/<int:game_id>/online', methods=['POST'])
+    def api_game_online(game_id):
+        """Put a game this app plays one side of on the relay: answers the game, whose 'online' has the invite code."""
+        saved = db.get_or_404(SavedGame, game_id)
+        if saved.relay_code:
+            return game_response(saved)
+        if saved.seat is None:
+            return jsonify({'error': 'Choose which player this PC plays first: online, each PC plays one side.'}), 400
+        try:
+            put_online(saved)
+        except relay_client.RelayError as error:
+            return jsonify({'error': str(error)}), 503 if error.status is None else 502
+        db.session.commit()
+        return game_response(saved)
+
+    @app.route('/api/play/games/<int:game_id>/new-code', methods=['POST'])
+    def api_game_new_code(game_id):
+        """
+        Move an online game to a new invite code: the relay's copy under the old one is deleted, so whoever holds
+        it (someone who took the code before the other player could) can't carry on. The other player joins again
+        with the new code. The other player's moves are fetched first, so none is lost.
+        """
+        saved = db.get_or_404(SavedGame, game_id)
+        if not saved.relay_code:
+            return jsonify({'error': 'This game isn\'t online.'}), 400
+        old_code, old_token = saved.relay_code, saved.relay_token
+        try:
+            pull(saved)
+        except relay_client.RelayError as error:
+            if error.status != 404:  # Already closed: nothing more to fetch
+                return relay_failure(saved, error)
+        try:
+            put_online(saved)
+        except relay_client.RelayError as error:
+            return jsonify({'error': str(error)}), 503 if error.status is None else 502
+        db.session.commit()
+        try:
+            relay_client.close(relay_url(), old_code, old_token)
+        except relay_client.RelayError:
+            pass  # It expires on its own; the new code works either way
+        return game_response(saved)
+
+    @app.route('/api/play/games/join', methods=['POST'])
+    def api_join_game():
+        """Join an online game with its invite code ({'code'}), playing the side the other player doesn't."""
+        code = clean_code((request.get_json(silent=True) or {}).get('code'))
+        if not code:
+            return jsonify({'error': 'Enter the invite code the other player sent you.'}), 400
+        if SavedGame.query.filter_by(relay_code=code).first():
+            return jsonify({'error': 'That game is already on this PC.'}), 409
+        try:
+            answer = relay_client.join(relay_url(), code, player_name())
+            game = game_file.read_game(answer['game'], __version__)
+        except relay_client.RelayError as error:
+            return jsonify({'error': str(error)}), 503 if error.status is None else 400
+        except game_file.GameFileError as error:
+            return jsonify({'error': str(error)}), 400
+        saved = SavedGame.query.filter_by(uid=game['uid']).first() or SavedGame(uid=game['uid'])
+        saved.name, saved.armies, saved.events, saved.battlefield = game['name'], game['armies'], game['events'], game['battlefield']
+        saved.setup, saved.twist, saved.seat = game['setup'], game['twist'], answer['seat']
+        saved.app_version = game['app_version'] or __version__
+        saved.relay_code, saved.relay_token, saved.relay_count, saved.relay_joined = code, answer['token'], len(game['events']), True
+        saved.relay_names = answer.get('names') or [None, None]
+        db.session.add(saved)
+        db.session.commit()
+        return game_response(saved)
+
+    @app.route('/api/play/games/<int:game_id>/sync', methods=['POST'])
+    def api_sync_game(game_id):
+        """An online game brought up to date from the relay ('moved': how many of the other player's moves came)."""
+        saved = db.get_or_404(SavedGame, game_id)
+        if not saved.relay_code:
+            return jsonify(dict(game_response(saved).get_json(), moved=0))
+        try:
+            moved = pull(saved)
+        except relay_client.RelayError as error:
+            return relay_failure(saved, error)
+        return jsonify(dict(game_response(saved).get_json(), moved=moved))
 
     OPTIONS = {'shooting': shooting_options, 'charge': charge_options, 'fight': fight_options,
                'mission-actions': lambda state, unit_id: {'actions': mission_state.action_options(state, unit_id)}}

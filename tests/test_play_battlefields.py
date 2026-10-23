@@ -7,7 +7,7 @@ import math
 
 import pytest
 
-from combat_sim.play.battlefields import BUILTIN, MAPS, central_points, inside, wholly_inside
+from combat_sim.play.battlefields import BUILTIN, MAPS, central_points, clean, inside, wholly_inside
 from combat_sim.play.geometry import base_shape
 
 NAMES = ['Dawn of War', 'Tipping Point', 'Sweeping Engagement', 'Search and Destroy', 'Hammer and Anvil',
@@ -77,3 +77,14 @@ def test_wholly_inside_a_zone_means_the_whole_base():
     base = {'length_mm': 32, 'width_mm': 32}
     assert wholly_inside(base_shape(base, 10, 11), zone)  # Edge at 11.63
     assert not wholly_inside(base_shape(base, 10, 11.5), zone)  # Edge at 12.13
+
+
+def test_ids_keep_only_safe_characters():
+    """IDs are written into the page: an imported battlefield can't smuggle markup in through them."""
+    dawn = MAPS['dawn-of-war']
+    battlefield = clean({'name': 'Odd', 'zones': dawn['zones'], 'divider': dawn['divider'],
+                         'objectives': [{'id': 'x" onclick="alert(1)', 'kind': 'central', 'x': 30, 'y': 22},
+                                        {'id': '<<>>', 'kind': 'expansion', 'x': 10, 'y': 25}],
+                         'terrain': [{'id': 't"1', 'footprint': 'medium', 'category': 'light', 'x': 40, 'y': 10}]})
+    assert [o['id'] for o in battlefield['objectives']] == ['xonclickalert1', 'expansion-2']
+    assert battlefield['terrain'][0]['id'] == 't1'
