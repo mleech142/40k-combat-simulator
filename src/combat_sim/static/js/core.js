@@ -971,6 +971,23 @@
             .filter(Boolean).join(' ');
     }
 
+    /**
+     * Play: the battle mats drawn under the board (static/img/mats, 15:11 pictures; how they're made and the
+     * plan to add more: docs/play-mode-design.md, Battle mats). Each shows at PLAY_MAT_STRENGTH, so the grid,
+     * zones, terrain and models stay readable on top.
+     */
+    const PLAY_MATS = [
+        { key: 'hive-sector', name: 'Hive Sector', file: 'hive-sector.jpg' },
+    ];
+    const PLAY_MAT_STRENGTH = 0.35;
+
+    /** Play: a game's battle mat, chosen from its ID: the same for both players and for the whole game. */
+    function playMat(uid, mats = PLAY_MATS) {
+        let hash = 2166136261;  // FNV-1a
+        for (const c of String(uid || '')) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619);
+        return mats[(hash >>> 0) % mats.length];
+    }
+
     /** Play: an invite code in two halves, easier to read out ('ABCDEFGHJK' -> 'ABCDE-FGHJK'). */
     function playInviteCode(code) {
         return code.length > 5 ? `${code.slice(0, 5)}-${code.slice(5)}` : code;
@@ -1072,7 +1089,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

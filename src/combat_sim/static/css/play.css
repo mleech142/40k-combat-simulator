@@ -326,3 +326,7 @@
 .play-log-text > div + div { margin-top: 0.2rem; }
 .play-log-entry.play-log-attack { margin: 0 0 0.45rem; }
 .play-die.fail { opacity: 0.6; color: #a8a8ae; }
+
+/* The battle mat under the board, dimmed to Core.PLAY_MAT_STRENGTH in the field's colour */
+.play-mat, .play-mat-dim { pointer-events: none; }
+.play-mat-dim { fill: var(--play-field); }

@@ -824,3 +824,16 @@ test('playInviteText says who invited you and what the game will be', () => {
     assert.equal(Core.playInviteText(invite), 'Sam plays Red (Starfarers, Purge the Foe). Battlefield: The default map.');
     assert.equal(Core.playInviteText({ opponent: { army: 'Red' } }), 'Red.');
 });
+
+test('playMat picks a game its battle mat from its ID, the same every time, and every mat is bundled', () => {
+    const fs = require('node:fs');
+    const mats = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+    assert.equal(Core.playMat('abc', mats), Core.playMat('abc', mats));  // Both players, every redraw
+    const picked = new Set(Array.from({ length: 60 }, (_, i) => Core.playMat(`game-${i}`, mats).key));
+    assert.deepEqual([...picked].sort(), ['a', 'b', 'c']);  // Spread across them
+    assert.ok(Core.playMat(undefined));  // No game open yet
+    assert.ok(Core.PLAY_MAT_STRENGTH > 0 && Core.PLAY_MAT_STRENGTH < 1);
+    for (const mat of Core.PLAY_MATS) {
+        assert.ok(fs.existsSync(path.join(__dirname, '..', '..', 'src', 'combat_sim', 'static', 'img', 'mats', mat.file)), mat.file);
+    }
+});

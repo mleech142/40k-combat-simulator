@@ -111,6 +111,28 @@ The Wahapedia export only covers datasheets, abilities and stratagems. It has no
 - *Done (October 2026):* **the relay** (`relay/`, a Cloudflare Worker with a Durable Object per game; how it works and how to deploy it: [relay.md](relay.md)). A game this PC plays one side of goes online with "Play online" (`POST /api/play/games/<id>/online`), which gives an invite code; the other player joins with it (`POST /api/play/games/join`) and gets the other seat. An action in an online game first fetches the other player's moves (if there are any, it's refused and the board brought up to date: 409), then is resolved, then appended on the relay, and only then saved here; undo takes it back on the relay too. Without the relay an online game can't be played (503). The open page fetches the other player's moves (`POST /api/play/games/<id>/sync`) every 5 seconds while it waits for them and every 20 on your move, and marks the tab "Your move". The relay's address is a setting (Setup page, else `RELAY_URL`, else `routes.DEFAULT_RELAY_URL`). Storage limits (an open question): 2 MB per request, 20,000 events per game, deleted 90 days after the last move. Online games take no game files. Not yet: email notices. *Security pass (October 2026):* games carry no rule text (stratagems and rules by `ref`, text from each PC's own data), everything coming from the other app is checked before it's saved, versions must be plausible, players' names show who joined, and "New invite code" moves a game to a fresh code and closes the old one ([relay.md](relay.md)). *Open seat (October 2026):* a game can start with your army alone ("The other player joins online with theirs" on the new-game form): it goes online at once, waiting for their army (`SavedGame.pending` holds the choices that need both armies; your own saved battlefield is copied into it). Joining asks for one of the joiner's saved armies; their app freezes it, makes the waiting choices (`routes.finish_setup`: the pairing's layout, the twist, the name), checks the whole game and joins with it, and the creator's app takes it on its next sync after checking its own army is unchanged (`take_completed`). Game files still need both armies.
 - Peer-to-peer connections were rejected: they need both players online at once, which breaks async play. So was one player hosting the game: their PC would have to stay on.
 
+## Battle mats
+
+The board is drawn on a battle mat, like a tabletop game's (agreed October 2026). Each mat is a picture in
+`static/img/mats`, listed in `Core.PLAY_MATS` (`core.js`). A game's mat is picked from its ID (`Core.playMat`), so
+both players see the same one for the whole game with nothing stored, and it's shown at `Core.PLAY_MAT_STRENGTH`
+(35%: dimmed in the field's colour) so the grid, zones, terrain, objectives and models stay readable on top.
+
+- **Only Hive Sector so far; the plan is to add more.** Twelve were designed as a prototype (branch
+  `prototype/battle-mats`: Hive Sector, Lava Fields, Green Fields, Red Planet, Fallen Colony, Ruined Highway,
+  Frozen Wastes, Ash Wastes, Death World Jungle, Dune Sea, Forge Yard, Tomb World, drawn procedurally with a review
+  bar and a strength slider). The project owner refines them in another tool, one at a time, and each is added
+  here when it's ready. Hive Sector ships as the prototype's own drawing until the refined one is cleaned up.
+- **Format:** 15:11 (60" by 44"), at least 2400 by 1760 pixels (40 per inch); a JPG at about 85% quality (about
+  0.5 to 1 MB) so builds stay small. Full strength: the app dims it. No grid, zones, objectives or text.
+- **No Games Workshop art,** as everywhere in the app ([Goals and limits](#goals-and-limits)): no emblems (the
+  aquila, faction symbols), logos or artwork, and nothing copied from commercial mats. The first refined Hive Sector
+  had aquila emblems, so it waits until they're removed.
+- **Readable on top:** avoid features that look like board information (circles the size of an objective's range,
+  long straight lines like the divider, rectangles like terrain) and colours close to the players' (orange, blue).
+- **Adding one:** put the picture in `static/img/mats` and its entry in `Core.PLAY_MATS`; the JavaScript tests
+  check each listed file is there.
+
 ## Platforms
 
 - **Desktop first:** the existing Windows and Linux builds.

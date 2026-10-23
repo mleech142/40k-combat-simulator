@@ -1818,6 +1818,10 @@
         const board = game ? game.board : { width: 60, depth: 44 };
         const W = board.width, D = board.depth;
         svgEl('rect', { x: 0, y: 0, width: W, height: D, class: 'play-field' }, svg);
+        // The game's battle mat, dimmed so everything drawn on it stays readable
+        const mat = Core.playMat(game && game.uid);
+        svgEl('image', { href: `/static/img/mats/${mat.file}`, x: 0, y: 0, width: W, height: D, preserveAspectRatio: 'none', class: 'play-mat' }, svg);
+        svgEl('rect', { x: 0, y: 0, width: W, height: D, class: 'play-mat-dim', opacity: 1 - Core.PLAY_MAT_STRENGTH }, svg);
         // Each player's deployment zone, as the battlefield draws it (SVG y runs down)
         (game ? game.zones : []).forEach((zone, p) => svgEl('polygon', {
             points: zone.map(([x, y]) => `${x},${D - y}`).join(' '), class: `play-zone ${PLAYER_CLASSES[p]}` }, svg));
