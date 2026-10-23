@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}{{ army_name }} - Match view - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="match-view" id="match-view" data-army-id="{{ army_id }}">
+    <div class="page-header match-header">
+        <div class="match-title">
+            <a href="/armies" class="match-back" title="Back to the army builder"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Armies</a>
+            <h2 id="match-name">{{ army_name }}</h2>
+            <div class="match-meta" id="match-meta"></div>
+        </div>
+        <div class="header-actions match-actions">
+            <select id="match-army" class="filter-select" title="Show another saved army" aria-label="Saved army"></select>
+            <button class="btn btn-secondary" id="match-print" title="Print every datasheet, rule and stratagem"><i class="fa-solid fa-print" aria-hidden="true"></i> Print</button>
+        </div>
+    </div>
+
+    <ul class="army-problems match-problems" id="match-problems" hidden></ul>
+
+    <div class="match-toolbar">
+        <div class="match-tabs" role="tablist">
+            <button class="match-tab active" role="tab" data-tab="units"><i class="fa-solid fa-users" aria-hidden="true"></i> Units <span class="match-count" id="count-units"></span></button>
+            <button class="match-tab" role="tab" data-tab="rules"><i class="fa-solid fa-book" aria-hidden="true"></i> Rules <span class="match-count" id="count-rules"></span></button>
+            <button class="match-tab" role="tab" data-tab="stratagems"><i class="fa-solid fa-bolt" aria-hidden="true"></i> Stratagems <span class="match-count" id="count-stratagems"></span></button>
+        </div>
+        <input type="search" id="match-search" class="filter-input match-search" placeholder="Find a unit, weapon, rule or stratagem">
+    </div>
+
+    <section class="match-pane" id="pane-units" data-pane="units">
+        <div class="match-units-layout">
+            <nav class="match-roster" id="match-roster" aria-label="Units in this army"></nav>
+            <div>
+                <div class="match-pane-actions">
+                    <button class="btn-small" id="match-expand">Expand all</button>
+                    <button class="btn-small" id="match-collapse">Collapse all</button>
+                </div>
+                <div id="match-units"><p class="empty-message">Loading…</p></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="match-pane" id="pane-rules" data-pane="rules" hidden>
+        <div id="match-rules"></div>
+    </section>
+
+    <section class="match-pane" id="pane-stratagems" data-pane="stratagems" hidden>
+        <div class="match-filters">
+            <div class="match-chips" id="match-phase-filter" role="group" aria-label="Phase"></div>
+            <div class="match-chips" id="match-turn-filter" role="group" aria-label="Turn"></div>
+        </div>
+        <p class="data-note match-wahapedia-note" id="match-wahapedia-note" hidden>Only the stratagems written in this app are listed.
+            Download Wahapedia's rules and stratagems on the <a href="/setup">Setup</a> page for every stratagem, word for word.</p>
+        <div class="match-stratagems" id="match-stratagems"></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/match.js') }}"></script>
+{% endblock %}

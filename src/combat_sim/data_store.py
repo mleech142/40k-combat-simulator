@@ -469,7 +469,7 @@ def export_data(source=None, unmatched=None):
 
 
 # Rule and stratagem columns only Wahapedia records use (or set on load), left out of the data JSON
-WAHAPEDIA_COLUMNS = ('source', 'wahapedia_id', 'text', 'parse', 'edited', 'superseded')
+WAHAPEDIA_COLUMNS = ('source', 'wahapedia_id', 'text', 'parse', 'edited', 'superseded', 'category', 'turn', 'timing')
 
 # Unit columns only BSData units use, left out of custom units in the data JSON
 BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'added_modifiers', 'leader_buffs_override',

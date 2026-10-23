@@ -1,6 +1,6 @@
 /**
- * Armies page: build an army list, save it, share it as text or a share code (and import one), and send
- * it to Analytics.
+ * Armies page: build an army list, save it, share it as text or a share code (and import one), send
+ * it to Analytics and open its Match view (match.js).
  *
  * The list being built lives here (`state.army`); every change is sent to /api/armies/price,
  * which prices and checks it (the rules are in armies.py) and whose answer is what is drawn.
@@ -55,6 +55,7 @@
         $('save-army-btn').addEventListener('click', () => saveArmy());
         $('attackers-btn').addEventListener('click', () => analyse('attacker'));
         $('defenders-btn').addEventListener('click', () => analyse('defender'));
+        $('match-btn').addEventListener('click', openMatchView);
         $('text-btn').addEventListener('click', showText);
         $('copy-text-btn').addEventListener('click', () => copyFrom('army-text', 'army-copied'));
         $('share-btn').addEventListener('click', showShareCode);
@@ -567,6 +568,16 @@
         }
         const id = state.dirty || !state.army.id ? await saveArmy() : state.army.id;
         if (id) window.location.href = `/analytics?army=${id}&side=${side}`;
+    }
+
+    /** Save, then show the army's Match view: its datasheets, rules and stratagems for the table. */
+    async function openMatchView() {
+        if (!state.army.units.length) {
+            alert('Add some units first.');
+            return;
+        }
+        const id = state.dirty || !state.army.id ? await saveArmy() : state.army.id;
+        if (id) window.location.href = `/armies/${id}/match`;
     }
 
     async function showText() {

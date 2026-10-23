@@ -111,6 +111,12 @@ def title_case(name):
     return ' '.join(w.lower() if i and w.lower() in small else w[:1].upper() + w[1:] for i, w in enumerate(words))
 
 
+def stratagem_category(kind):
+    """'Void Vanguard – Battle Tactic Stratagem' -> 'Battle Tactic' (None if it names none)."""
+    m = re.search(r'(Battle Tactic|Strategic Ploy|Epic Deed|Wargear)', kind or '', re.I)
+    return m.group(1).title() if m else None
+
+
 def effect_part(text):
     """The EFFECT of a stratagem's text (the whole text if it isn't laid out as WHEN/TARGET/EFFECT)."""
     m = re.search(r'\*\*EFFECT:\*\*\s*(.*?)(?=\n+\*\*(?:RESTRICTIONS?|NOTE|COST):\*\*|\Z)', text, re.S | re.I)
@@ -159,6 +165,7 @@ def import_folder(folder):
 
     factions: [{'id', 'name'}]; detachments: [{'id', 'faction_id', 'name'}];
     stratagems: [{'wahapedia_id', 'faction_id' (None = core), 'detachment_id', 'detachment', 'name', 'cp',
+                  'category', 'turn', 'timing' (the card's own: 'Battle Tactic', "Your turn", 'Shooting phase'),
                   'text', 'applies_to', 'phase', 'modifier', 'parse'}];
     rules: [{'wahapedia_id', 'faction_id', 'detachment_id' (None = army rule), 'detachment', 'name', 'text', ...}].
     """
@@ -201,7 +208,9 @@ def import_folder(folder):
         stratagems.append(dict(
             wahapedia_id=r['id'], faction_id=r['faction_id'] or None, detachment_id=r['detachment_id'] or None,
             detachment=tidy_text(r['detachment']) or None, name=title_case(tidy_text(r['name'])),
-            cp=(r['cp_cost'] or '').strip() or None, text=text, **interpret(effect_part(text), phase, side)))
+            cp=(r['cp_cost'] or '').strip() or None, text=text, category=stratagem_category(kind),
+            turn=tidy_text(r['turn']) or None, timing=tidy_text(r['phase']) or None,
+            **interpret(effect_part(text), phase, side)))
     kept = {r['id'] for r in core.values()}
     stratagems = [s for s in stratagems if s['faction_id'] or s['wahapedia_id'] in kept]  # An older core of the same name
 
@@ -299,7 +308,7 @@ def link(data, bsdata_factions, bsdata_detachments):
         for record in data[section]:
             columns = {k: record[k] for k in ('name', 'text', 'applies_to', 'phase', 'modifier', 'parse')}
             if kind == 'stratagem':
-                columns['cp'] = record['cp']
+                columns.update({k: record.get(k) for k in ('cp', 'category', 'turn', 'timing')})
             base = dict(columns, source='wahapedia', wahapedia_id=record['wahapedia_id'])
             if kind == 'stratagem' and not record['faction_id']:
                 rows.append((table, f'wahapedia:{kind}:{record["wahapedia_id"]}', dict(base, faction_id=None)))

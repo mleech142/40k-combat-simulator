@@ -405,6 +405,10 @@ class Stratagem(db.Model):
     notes = db.Column(db.Text, nullable=True)
     detachment_key = db.Column(db.String(40), nullable=True)  # As for FactionRule
     detachment_name = db.Column(db.String(100), nullable=True)
+    # Wahapedia: when it is used, as its cards say: 'Battle Tactic', "Your turn", 'Shooting phase'
+    category = db.Column(db.String(40), nullable=True)
+    turn = db.Column(db.String(40), nullable=True)
+    timing = db.Column(db.String(60), nullable=True)
     source = db.Column(db.String(10), nullable=False, default='app')  # As for FactionRule, and the columns below
     wahapedia_id = db.Column(db.String(20), nullable=True)
     text = db.Column(db.Text, nullable=True)
@@ -431,6 +435,9 @@ class Stratagem(db.Model):
             'notes': self.notes,
             'detachment_key': self.detachment_key,
             'detachment_name': self.detachment_name,
+            'category': self.category,
+            'turn': self.turn,
+            'timing': self.timing,
             'source': self.source,
             'text': self.text,
             'parse': self.parse,

@@ -1094,6 +1094,52 @@
         return { x: px - (px - view.x) * scale, y: py - (py - view.y) * scale, w, h: view.h * scale };
     }
 
+    // -------------------------------------------------------------------------
+    // Match view (Armies page): datasheets and stratagems as the table needs them
+    // -------------------------------------------------------------------------
+
+    const plus = v => (v == null ? '-' : `${v}+`);
+
+    /** A unit's characteristics as datasheet boxes: [{label, value}] (M, T, SV, W, LD, OC). */
+    function matchStatLine(stats) {
+        const s = stats || {};
+        const move = s.move == null || s.move === '' ? '-' : (/\d\+?$/.test(String(s.move)) ? `${s.move}"` : String(s.move));
+        return [
+            { label: 'M', value: move }, { label: 'T', value: s.toughness ?? '-' }, { label: 'SV', value: plus(s.save) },
+            { label: 'W', value: s.wounds ?? '-' }, { label: 'LD', value: plus(s.leadership) }, { label: 'OC', value: s.oc ?? '-' },
+        ].map(x => ({ label: x.label, value: String(x.value) }));
+    }
+
+    /** A weapon's profile as table cells: range ("Melee" for melee), A, BS/WS ("N/A" with no roll), S, AP ("-2", "0"), D. */
+    function matchWeaponCells(w, type) {
+        return {
+            range: type === 'melee' ? 'Melee' : (w.range == null ? '-' : `${w.range}"`),
+            attacks: String(w.attacks ?? '-'),
+            skill: w.skill == null ? 'N/A' : `${w.skill}+`,
+            strength: String(w.strength ?? '-'),
+            ap: w.ap ? `-${w.ap}` : '0',
+            damage: String(w.damage ?? '-'),
+        };
+    }
+
+    /**
+     * Is a Match view stratagem shown for the chosen filters? phase: 'all', a phase name such as
+     * 'Shooting phase' (a stratagem for any phase, or with none given, is shown for every phase),
+     * or 'other' (only those); turn: 'all', 'yours' or 'theirs' (either player's turn counts for both).
+     */
+    function matchStratagemShown(s, { phase = 'all', turn = 'all', search = '' } = {}) {
+        const phases = s.phases || [];
+        if (phase === 'other' && phases.length) return false;
+        if (phase !== 'all' && phase !== 'other' && phases.length && !phases.includes(phase)) return false;
+        const t = String(s.turn || '').toLowerCase();
+        const either = !t || t.includes('either');
+        if (turn === 'yours' && !either && !t.startsWith('your')) return false;
+        if (turn === 'theirs' && !either && !t.startsWith('opponent')) return false;
+        const words = String(search || '').trim().toLowerCase();
+        if (!words) return true;
+        return [s.name, s.text, s.category, s.detachment, s.timing].some(x => String(x || '').toLowerCase().includes(words));
+    }
+
     return {
         playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
@@ -1103,6 +1149,6 @@
         leaderBuffSummary, withLeaderWeapons, withLeaderEntries, withLoadout, attackerEntry, defenderEntry, activeEnhancements, enhancementRefs, armyPoints, armyDetachmentPoints,
         usedWeapons, weaponPayload, rulesForFilter, ruleRowTitle, rulesSelection, woundsMarker, buildMatrixRequest,
         statTile, renderAnalysisSummary, renderGaps, renderRoleScores, renderCoverage, renderReverse,
-        createPageState,
+        createPageState, matchStatLine, matchWeaponCells, matchStratagemShown,
     };
 });

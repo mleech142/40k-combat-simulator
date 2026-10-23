@@ -15,7 +15,7 @@ from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
-from . import armies, army_share, bsdata_download, effects, folder_dialog, wahapedia, wahapedia_download
+from . import armies, army_share, bsdata_download, effects, folder_dialog, match_view, wahapedia, wahapedia_download
 from .effects import RULE_PHASES
 from .play.routes import register_play_routes
 from .wargear import default_used
@@ -1889,6 +1889,16 @@ def register_routes(app):
     @app.route('/api/armies/<int:army_id>')
     def api_get_army(army_id):
         return saved_army_response(db.get_or_404(SavedArmy, army_id))
+
+    @app.route('/armies/<int:army_id>/match')
+    def army_match_page(army_id):
+        saved = db.get_or_404(SavedArmy, army_id)
+        return render_template('match.html', army_id=saved.id, army_name=saved.name)
+
+    @app.route('/api/armies/<int:army_id>/match')
+    def api_army_match(army_id):
+        """A saved army's Match view: its units' datasheets, rules, enhancements and stratagems (match_view.py)."""
+        return jsonify(match_view.match_view(db.get_or_404(SavedArmy, army_id).to_dict()))
 
     @app.route('/api/armies/<int:army_id>', methods=['PUT'])
     def api_update_army(army_id):

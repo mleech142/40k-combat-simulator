@@ -837,3 +837,38 @@ test('playMat picks a game its battle mat from its ID, the same every time, and 
         assert.ok(fs.existsSync(path.join(__dirname, '..', '..', 'src', 'combat_sim', 'static', 'img', 'mats', mat.file)), mat.file);
     }
 });
+
+// ---------------------------------------------------------------------------
+// Match view
+// ---------------------------------------------------------------------------
+
+test('matchStatLine writes a datasheet\'s characteristics as the cards do', () => {
+    const line = Core.matchStatLine({ move: '5', toughness: 7, save: 2, wounds: 4, leadership: 6, oc: 1 });
+    assert.deepEqual(line.map(x => `${x.label} ${x.value}`), ['M 5"', 'T 7', 'SV 2+', 'W 4', 'LD 6+', 'OC 1']);
+    assert.equal(Core.matchStatLine({ move: '20+' })[0].value, '20+"');
+    assert.deepEqual(Core.matchStatLine({}).map(x => x.value), ['-', '-', '-', '-', '-', '-']);
+});
+
+test('matchWeaponCells writes range, skill and AP as datasheets do', () => {
+    assert.deepEqual(Core.matchWeaponCells({ range: 24, attacks: 'D6', skill: 3, strength: 4, ap: 1, damage: '1' }, 'ranged'),
+        { range: '24"', attacks: 'D6', skill: '3+', strength: '4', ap: '-1', damage: '1' });
+    const torrent = Core.matchWeaponCells({ range: 12, attacks: 'D6', skill: null, strength: 3, ap: 0, damage: '1' }, 'ranged');
+    assert.equal(torrent.skill, 'N/A');
+    assert.equal(torrent.ap, '0');
+    assert.equal(Core.matchWeaponCells({ attacks: 4, skill: 2, strength: 8, ap: 2, damage: '2' }, 'melee').range, 'Melee');
+});
+
+test('matchStratagemShown filters stratagems by phase, turn and words', () => {
+    const shoot = { name: 'Void Strike', phases: ['Shooting phase'], turn: 'Your turn', text: 'Lethal Hits' };
+    const either = { name: 'Command Re-roll', phases: [], turn: 'Either player’s turn', text: '' };
+    const theirs = { name: 'Smokescreen', phases: ['Shooting phase'], turn: 'Opponent’s turn', text: 'Stealth' };
+    assert.ok(Core.matchStratagemShown(shoot));
+    assert.ok(Core.matchStratagemShown(shoot, { phase: 'Shooting phase', turn: 'yours' }));
+    assert.ok(!Core.matchStratagemShown(shoot, { phase: 'Fight phase' }));
+    assert.ok(!Core.matchStratagemShown(shoot, { phase: 'other' }));
+    assert.ok(Core.matchStratagemShown(either, { phase: 'Fight phase', turn: 'theirs' }));
+    assert.ok(Core.matchStratagemShown(either, { phase: 'other' }));
+    assert.ok(!Core.matchStratagemShown(theirs, { turn: 'yours' }));
+    assert.ok(Core.matchStratagemShown(theirs, { turn: 'theirs', search: 'stealth' }));
+    assert.ok(!Core.matchStratagemShown(theirs, { search: 'lethal' }));
+});
