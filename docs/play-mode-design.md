@@ -118,11 +118,12 @@ The board is drawn on a battle mat, like a tabletop game's (agreed October 2026)
 both players see the same one for the whole game with nothing stored, and it's shown at `Core.PLAY_MAT_STRENGTH`
 (35%: dimmed in the field's colour) so the grid, zones, terrain, objectives and models stay readable on top.
 
-- **Only Hive Sector so far; the plan is to add more.** Twelve were designed as a prototype (branch
-  `prototype/battle-mats`: Hive Sector, Lava Fields, Green Fields, Red Planet, Fallen Colony, Ruined Highway,
-  Frozen Wastes, Ash Wastes, Death World Jungle, Dune Sea, Forge Yard, Tomb World, drawn procedurally with a review
-  bar and a strength slider). The project owner refines them in another tool, one at a time, and each is added
-  here when it's ready. Hive Sector ships as the prototype's own drawing until the refined one is cleaned up.
+- **Seven mats, to be replaced by improved versions later.** Twelve were designed as a procedural prototype
+  (October 2026; the throwaway branch is deleted). The project owner kept seven: Hive Sector, Red Planet, Ruined
+  Highway, Ash Wastes, Death World Jungle, Forge Yard and Tomb World, each shipped as the prototype's own drawing.
+  Lava Fields, Green Fields, Fallen Colony, Frozen Wastes and Dune Sea were dropped. The owner refines the mats in
+  another tool and swaps each picture in when it's ready (same file name, so nothing else changes); new mats may
+  follow. The first refined Hive Sector waits until its aquila emblems are removed.
 - **Format:** 15:11 (60" by 44"), at least 2400 by 1760 pixels (40 per inch); a JPG at about 85% quality (about
   0.5 to 1 MB) so builds stay small. Full strength: the app dims it. No grid, zones, objectives or text.
 - **No Games Workshop art,** as everywhere in the app ([Goals and limits](#goals-and-limits)): no emblems (the

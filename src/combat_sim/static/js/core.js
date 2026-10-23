@@ -978,6 +978,12 @@
      */
     const PLAY_MATS = [
         { key: 'hive-sector', name: 'Hive Sector', file: 'hive-sector.jpg' },
+        { key: 'red-planet', name: 'Red Planet', file: 'red-planet.jpg' },
+        { key: 'ruined-highway', name: 'Ruined Highway', file: 'ruined-highway.jpg' },
+        { key: 'ash-wastes', name: 'Ash Wastes', file: 'ash-wastes.jpg' },
+        { key: 'death-world-jungle', name: 'Death World Jungle', file: 'death-world-jungle.jpg' },
+        { key: 'forge-yard', name: 'Forge Yard', file: 'forge-yard.jpg' },
+        { key: 'tomb-world', name: 'Tomb World', file: 'tomb-world.jpg' },
     ];
     const PLAY_MAT_STRENGTH = 0.35;
 
