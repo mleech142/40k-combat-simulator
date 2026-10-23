@@ -16,6 +16,8 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from . import web
+
 REPO = 'BSData/wh40k-11e'
 API = f'https://api.github.com/repos/{REPO}'
 TIMEOUT = 60  # seconds per request
@@ -30,7 +32,7 @@ class DownloadError(Exception):
 def _get(url):
     request = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'application/vnd.github+json'})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with web.urlopen(request, TIMEOUT) as response:
             data = response.read(MAX_ZIP_BYTES + 1)
     except OSError as err:  # URLError, HTTPError, timeouts
         raise DownloadError(f'Could not reach GitHub: {err}') from err

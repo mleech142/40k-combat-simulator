@@ -3,5 +3,6 @@ flask>=3.0.0
 flask-sqlalchemy>=3.1.0
 sqlalchemy>=2.0.0
 numpy>=1.26.0
+certifi>=2024.7.4  # HTTPS certificates for downloads and the relay (web.py)
 waitress>=3.0.0  # production server used by run.py and the packaged exe
 openpyxl>=3.1.0  # scripts/migrate_excel.py (reading the workbook)

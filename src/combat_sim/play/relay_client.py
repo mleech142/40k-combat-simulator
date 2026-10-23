@@ -4,10 +4,11 @@ two players' apps. Only the app's server talks to it, so a game's secret token n
 """
 
 import json
+import ssl
 import urllib.error
 import urllib.request
 
-from .. import __version__
+from .. import __version__, web
 
 TIMEOUT = 10  # Seconds
 USER_AGENT = f'combat-sim/{__version__}'
@@ -31,7 +32,7 @@ def _call(base_url, method, path, body=None, token=None):
     data = json.dumps(body).encode('utf-8') if body is not None else None
     request = urllib.request.Request(base_url.rstrip('/') + path, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with web.urlopen(request, TIMEOUT) as response:
             return json.loads(response.read().decode('utf-8'))
     except urllib.error.HTTPError as error:
         try:
@@ -39,7 +40,11 @@ def _call(base_url, method, path, body=None, token=None):
         except ValueError:
             answer = {}
         raise RelayError(answer.get('error') or f'The relay answered {error.code}.', error.code, answer)
-    except (urllib.error.URLError, OSError, ValueError):
+    except urllib.error.URLError as error:
+        if isinstance(error.reason, ssl.SSLError):  # Reached it, but its certificate didn't check out
+            raise RelayError(f"Couldn't connect to the relay securely: {error.reason}.")
+        raise RelayError("Couldn't reach the relay: check your internet connection.")
+    except (OSError, ValueError):
         raise RelayError("Couldn't reach the relay: check your internet connection.")
 
 

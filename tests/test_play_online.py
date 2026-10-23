@@ -223,3 +223,25 @@ def test_an_open_seat_must_be_the_other_players(relay, two_pcs):  # noqa: F811
     red = saved_army(mine, 'Red', {'uid': 'w', 'unit': 'Void Warriors'})
     for body in ({'armies': [red, None], 'seat': 1}, {'armies': [red, None], 'seat': None}, {'armies': [None, None], 'seat': 0}):
         assert mine.post('/api/play/games', json=body).status_code == 400
+
+
+def test_relay_requests_use_certifi_and_say_when_the_certificate_fails(monkeypatch):
+    """Windows' certificate store can hold expired copies that fail valid HTTPS sites; every web request checks
+    against certifi's list instead (web.py), and a certificate failure isn't blamed on the internet connection."""
+    import ssl
+    import urllib.error
+
+    import certifi
+
+    from combat_sim import web
+    seen = {}
+
+    def expired(request, timeout, context):
+        seen['context'] = context
+        raise urllib.error.URLError(ssl.SSLCertVerificationError(1, 'certificate has expired'))
+    monkeypatch.setattr(web.urllib.request, 'urlopen', expired)
+    with pytest.raises(relay_client.RelayError, match="Couldn't connect to the relay securely: .*expired"):
+        relay_client.invite('https://relay.example', 'ABCDEFGHJK')
+    assert seen['context'] is web.ssl_context()
+    assert seen['context'].cert_store_stats()['x509_ca'] > 0
+    assert certifi.where()

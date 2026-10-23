@@ -13,6 +13,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+from . import web
 from .wahapedia import FILES, WahapediaError, import_folder
 
 BASE_URL = 'https://wahapedia.ru/wh40k11ed/'
@@ -29,7 +30,7 @@ def fetch(name):
     """One export file's bytes."""
     request = urllib.request.Request(BASE_URL + name, headers={'User-Agent': USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with web.urlopen(request, TIMEOUT) as response:
             data = response.read(MAX_FILE_BYTES + 1)
     except OSError as err:  # URLError, HTTPError, timeouts
         raise DownloadError(f'Could not reach Wahapedia: {err}') from err
