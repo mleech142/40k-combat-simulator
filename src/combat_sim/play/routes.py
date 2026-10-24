@@ -159,6 +159,25 @@ def relay_failure(saved, error):
     return jsonify({'error': str(error)}), 503 if error.status is None else 502
 
 
+ACTION_NAMES = {'shoot': 'shooting', 'move': 'move', 'advance': 'Advance roll', 'charge': 'charge roll',
+                'charge_move': 'charge move', 'fight': 'fight', 'pile_in': 'pile in', 'consolidate': 'consolidation',
+                'next_phase': 'next phase', 'end_deployment': 'end of deployment', 'place': 'placing a unit',
+                'stratagem': 'stratagem', 'rule': 'rule', 'effect': 'effect', 'stationary': 'Remain stationary',
+                'reset_move': 'resetting a move', 'tactical': 'tactical card', 'start_action': 'action'}
+
+
+def undo_rewind(saved, state, action):
+    """For accepting an Undo request: the game replayed to just before the action being taken back, else None."""
+    pending = state.get('pending') or {}
+    if action.get('type') != 'accept' or not pending.get('undo'):
+        return None
+    target = pending['undo']['event']
+    events = saved.events or []
+    if not 0 <= target < len(events):
+        return None
+    return replay(saved.armies, events[:target], saved.battlefield, bool(saved.setup), saved.twist)
+
+
 def player_name():
     """The name this player gives online (Setup page), or None."""
     return load_settings(current_app.config['SETTINGS_JSON']).get('player_name')
@@ -480,6 +499,10 @@ def register_play_routes(app):
         action = request.get_json(silent=True)
         if not isinstance(action, dict):
             return jsonify({'error': 'Send the action as a JSON object.'}), 400
+        return perform_action(saved, action)
+
+    def perform_action(saved, action, from_undo=False):
+        """Resolve an action on a saved game and log it: the action route's work, and Undo's request online."""
         if needs_update(saved):
             return jsonify({'error': update_message(saved)}), 409
         if waiting_for_army(saved):
@@ -489,6 +512,8 @@ def register_play_routes(app):
             check_seat(state, action, saved.seat)
         except ActionError as error:
             return jsonify({'error': str(error)}), 403
+        if action.get('type') == 'correction' and 'undo' in action and not from_undo:
+            return jsonify({'error': 'Press Undo to ask to take back your last action.'}), 400
         if saved.relay_code:  # Online: the other player's moves first, so the action is made on the latest board
             try:
                 if pull(saved):
@@ -497,7 +522,7 @@ def register_play_routes(app):
             except relay_client.RelayError as error:
                 return relay_failure(saved, error)
         try:
-            event = resolve_action(state, action, Dice())
+            event = resolve_action(state, action, Dice(), rewind=undo_rewind(saved, state, action))
         except ActionError as error:
             return jsonify({'error': str(error)}), 400
         event['by'] = actor(state, action)  # Whose app sent it (undo, and the other player's notice)
@@ -513,13 +538,14 @@ def register_play_routes(app):
 
     @app.route('/api/play/games/<int:game_id>/undo', methods=['POST'])
     def api_undo(game_id):
-        """Take back the last action, if no dice were rolled for it."""
+        """
+        Take back the last action. Hot-seat: at once, if no dice were rolled for it. Against someone on another PC:
+        ask them (a Correction they accept or decline), dice or not ('requested' in the answer).
+        """
         saved = db.get_or_404(SavedGame, game_id)
         events = [] if waiting_for_army(saved) else saved.events or []
         if not events:
             return jsonify({'error': 'Nothing to undo.'}), 400
-        if events[-1]['rolls']:
-            return jsonify({'error': "Dice were rolled for the last action: it can't be undone."}), 400
         if needs_update(saved):
             return jsonify({'error': update_message(saved)}), 409
         by = events[-1].get('by')
@@ -527,10 +553,23 @@ def register_play_routes(app):
             name = saved.armies[by]['name']
             return jsonify({'error': f"The last action was {name}'s: only they can take it back."}), 403
         if saved.relay_code:
-            try:
-                saved.relay_count = relay_client.retract(relay_url(), saved.relay_code, saved.relay_token, saved.relay_count or 0)['count']
+            try:  # The other player's moves first: the last action may not be ours any more
+                if pull(saved):
+                    return jsonify(dict(game_response(saved).get_json(),
+                                        error='The other player has moved: their moves are on the board now.')), 409
             except relay_client.RelayError as error:
                 return relay_failure(saved, error)
+            last = events[-1]['action'].get('type')
+            if last in ('correction', 'accept', 'decline'):
+                return jsonify({'error': "A correction can't be undone: propose another with Correct the game."}), 400
+            player = saved.seat if saved.seat is not None else by
+            rolled = len(events[-1]['rolls'])
+            note = f'Undo: take back the last action ({ACTION_NAMES.get(last, last)}' + (
+                f', with its {rolled} roll{"s" if rolled != 1 else ""})' if rolled else ')')
+            return perform_action(saved, {'type': 'correction', 'player': player, 'undo': {'event': len(events) - 1, 'note': note}},
+                                  from_undo=True)
+        if events[-1]['rolls']:
+            return jsonify({'error': "Dice were rolled for the last action: it can't be undone."}), 400
         saved.events = events[:-1]
         db.session.commit()
         return game_response(saved)

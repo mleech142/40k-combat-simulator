@@ -496,6 +496,14 @@
         return !!done;
     }
 
+    /** Hot-seat: the last action, unless dice were rolled. Online: your own last action, dice or not, with their OK. */
+    function canUndo(game) {
+        const last = game && game.events.length && game.events[game.events.length - 1];
+        if (!last || (game.state && game.state.pending)) return false;
+        if (!game.online) return last.rolls.length === 0;
+        return !['correction', 'accept', 'decline'].includes(last.action.type) && (last.by == null || last.by === game.seat);
+    }
+
     async function undo() {
         await whileWorking(async () => {
             const resp = await fetch(`/api/play/games/${state.game.id}/undo`, { method: 'POST' });
@@ -504,8 +512,9 @@
                 if (data.state) show(data);
                 return message(data.error, true);
             }
-            message('Undone.');
             show(data);
+            const other = data.state && data.state.pending ? data.state.players[1 - data.state.pending.player].name : null;
+            message(other ? `Asked ${other} to accept taking it back.` : 'Undone.');
         });
     }
 
@@ -705,7 +714,8 @@
             $('twist-chip').textContent = `Twist: ${game.twist.name}`;
             $('twist-chip').title = game.twist.text;
         }
-        $('undo-btn').disabled = !game || !game.events.length || game.events[game.events.length - 1].rolls.length > 0;
+        $('undo-btn').disabled = !canUndo(game);
+        $('undo-btn').title = game && game.online ? 'Undo: ask the other player to take back your last action' : 'Undo';
         const turn = game && game.state.turn;
         const allPlaced = game && game.state.units.every(u => u.models.every(m => !m.alive || m.position));
         let banner = '';
@@ -1346,14 +1356,15 @@
         const models = Object.keys(pending.models).length;
         const cp = [...Object.entries(pending.cp).map(([p, v]) => `${game.state.players[p].name} ${v} CP`),
                     ...Object.entries(pending.vp || {}).map(([p, v]) => `${game.state.players[p].name} ${v > 0 ? '+' : ''}${v} VP`)].join(', ');
-        $('pending-bar').innerHTML = `<strong>${escapeHtml(by)} proposes a correction:</strong> ${escapeHtml(pending.note || '(no note)')}
+        const asks = pending.undo ? `${escapeHtml(by)} asks to take back their last action:` : `${escapeHtml(by)} proposes a correction:`;
+        $('pending-bar').innerHTML = `<strong>${asks}</strong> ${escapeHtml(pending.note || '(no note)')}
             <small>${models ? `${models} model${models === 1 ? '' : 's'} changed` : ''}${models && cp ? '; ' : ''}${escapeHtml(cp)}</small>
             <span class="play-pending-actions">${escapeHtml(other)}:
                 <button class="btn-small" data-answer="accept">Accept</button>
                 <button class="btn-small" data-answer="decline">Decline</button></span>`;
         $('pending-bar').querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
             if (await send({ type: b.dataset.answer, player: 1 - pending.player })) {
-                message(b.dataset.answer === 'accept' ? 'Correction made.' : 'Correction declined.');
+                message(b.dataset.answer === 'accept' ? (pending.undo ? 'Taken back.' : 'Correction made.') : 'Correction declined.');
             }
         }));
     }

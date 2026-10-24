@@ -168,10 +168,11 @@ def _snapshot(state):
             'layout': [{k: v for k, v in o.items() if k != 'controller'} for o in state.get('objectives', [])]}
 
 
-def resolve_action(state, action, dice):
+def resolve_action(state, action, dice, rewind=None):
     """
     Roll an action and return its event: {'action', 'rolls', 'models' (changed models), 'units'
-    (changed units' activity), 'turn' (when it changed), ...}. `state` is not changed.
+    (changed units' activity), 'turn' (when it changed), ...}. `state` is not changed. Accepting an Undo request
+    needs `rewind`: the game as it was before the action being taken back.
     """
     handlers = {'shoot': lambda s: _shoot(s, action, dice), 'place': lambda s: _place(s, action),
                 'end_deployment': lambda s: _end_deployment(s, dice), 'next_phase': lambda s: _next_phase(s, dice),
@@ -184,7 +185,7 @@ def resolve_action(state, action, dice):
                 'orders': lambda s: _orders(s, action), 'stratagem': lambda s: _stratagem(s, action),
                 'rule': lambda s: _rule(s, action), 'effect': lambda s: _manual_effect(s, action),
                 'remove_effect': lambda s: _remove_effect(s, action), 'correction': lambda s: _correction(s, action),
-                'accept': lambda s: _answer(s, action, True), 'decline': lambda s: _answer(s, action, False),
+                'accept': lambda s: _answer(s, action, True, rewind), 'decline': lambda s: _answer(s, action, False),
                 'roll_objectives': lambda s: _roll_objectives(s, dice), 'roll_off': lambda s: _roll_off_roles(s, dice),
                 'choose_role': lambda s: _choose_role(s, action), 'condemn': lambda s: mission_state.condemn(s, action),
                 'choose_secondaries': lambda s: mission_state.choose_secondaries(s, action, dice),
@@ -1986,12 +1987,22 @@ def _correction(state, action):
     Propose a correction (either player, any time): models' wounds, whether they're alive and where
     they are, players' CP, and VP to add to or take from a player's score. Nothing else can happen until
     the other player accepts or declines it.
+
+    Or, with 'undo' ({'event': its index, 'note'}), ask to take back an action (Undo in a game against someone on
+    another PC); the routes make this one, for the player's own last action.
     """
     try:
         player = int(action.get('player'))
         state['players'][player]
     except (TypeError, ValueError, IndexError):
         raise ActionError('Say who proposes the correction.')
+    undo = action.get('undo')
+    if undo is not None:
+        if not isinstance(undo, dict) or not isinstance(undo.get('event'), int) or isinstance(undo['event'], bool) or undo['event'] < 0:
+            raise ActionError('Say which action to take back.')
+        state['pending'] = {'player': player, 'note': str(undo.get('note') or 'Take back the last action')[:300],
+                            'models': {}, 'cp': {}, 'undo': {'event': undo['event']}}
+        return {}
     models = {m['id']: (u, m) for u in state['units'] for m in u['models']}
     changes = {}
     for model_id, change in (action.get('models') or {}).items():
@@ -2033,8 +2044,12 @@ def _correction(state, action):
                         **({'vp': vp} if vp else {})}
 
 
-def _answer(state, action, accept):
-    """The other player accepts (it's applied) or declines (it's dropped) the pending correction."""
+def _answer(state, action, accept, rewind=None):
+    """
+    The other player accepts (it's applied) or declines (it's dropped) the pending correction. Accepting an Undo
+    request puts the game back as it was before that action (`rewind`, which the routes replay); the event
+    records the difference, so the log keeps the action and shows it taken back.
+    """
     pending = state.get('pending')
     if not pending:
         raise ActionError('There is no correction to answer.')
@@ -2043,6 +2058,13 @@ def _answer(state, action, accept):
     state['pending'] = None
     if not accept:
         return {'declined': pending['note']}
+    if pending.get('undo'):
+        if rewind is None:
+            raise ActionError('The game before that action is needed to take it back.')
+        state.clear()
+        state.update(copy.deepcopy(rewind))
+        state['pending'] = None
+        return {'corrected': pending['note'], 'undone': pending['undo']['event']}
     for unit in state['units']:
         for model in unit['models']:
             change = pending['models'].get(model['id'])

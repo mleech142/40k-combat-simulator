@@ -83,11 +83,50 @@ def test_a_move_made_on_an_old_board_is_refused_and_the_board_brought_up_to_date
     assert theirs.post(f'/api/play/games/{their_game["id"]}/actions', json={'type': 'orders', 'player': 1, 'casualties': 'closest'}).status_code == 200
 
 
-def test_undo_takes_the_move_back_on_the_relay_too(online):
+def placed(game, unit):
+    return [m['position'] for u in game['state']['units'] if u['id'] == unit for m in u['models']]
+
+
+def test_undo_online_asks_the_other_player_first(online):
+    """Testing list item 11: Undo becomes a Correction the other player accepts; the log keeps the action."""
     mine, theirs, game, their_game = online
     place(mine, game, 'p1-w', 10, 6)
-    assert mine.post(f'/api/play/games/{game["id"]}/undo').status_code == 200
-    assert sync(theirs, their_game)['events'] == []
+    asked = mine.post(f'/api/play/games/{game["id"]}/undo').get_json()
+    pending = asked['state']['pending']
+    assert pending['player'] == 0 and pending['undo'] == {'event': 0} and 'placing a unit' in pending['note']
+    assert all(placed(asked, 'p1-w'))  # Not yet
+    assert 'waiting' in mine.post(f'/api/play/games/{game["id"]}/actions', json={'type': 'orders', 'player': 0, 'casualties': 'closest'}).get_json()['error']
+    their_game = sync(theirs, their_game)
+    assert their_game['state']['pending']['undo'] == {'event': 0}
+    answer = theirs.post(f'/api/play/games/{their_game["id"]}/actions', json={'type': 'accept', 'player': 1})
+    assert answer.status_code == 200, answer.get_json()
+    after = answer.get_json()
+    assert not any(placed(after, 'p1-w')) and after['state']['pending'] is None
+    assert [e['action']['type'] for e in after['events']] == ['place', 'correction', 'accept'] and after['events'][-1]['undone'] == 0
+    assert sync(mine, game)['state'] == after['state']
+
+
+def test_a_declined_undo_leaves_the_action(online):
+    mine, theirs, game, their_game = online
+    place(mine, game, 'p1-w', 10, 6)
+    mine.post(f'/api/play/games/{game["id"]}/undo')
+    their_game = sync(theirs, their_game)
+    after = theirs.post(f'/api/play/games/{their_game["id"]}/actions', json={'type': 'decline', 'player': 1}).get_json()
+    assert all(placed(after, 'p1-w')) and after['state']['pending'] is None
+
+
+def test_only_your_own_last_action_and_only_by_undo(online):
+    mine, theirs, game, their_game = online
+    place(mine, game, 'p1-w', 10, 6)
+    their_game = sync(theirs, their_game)
+    assert "only they can take it back" in theirs.post(f'/api/play/games/{their_game["id"]}/undo').get_json()['error']
+    mine.post(f'/api/play/games/{game["id"]}/undo')
+    their_game = sync(theirs, their_game)
+    theirs.post(f'/api/play/games/{their_game["id"]}/actions', json={'type': 'decline', 'player': 1})
+    sync(mine, game)
+    assert 'only they can take it back' in mine.post(f'/api/play/games/{game["id"]}/undo').get_json()['error']  # Their decline is last
+    made_up = {'type': 'correction', 'player': 0, 'undo': {'event': 0}}
+    assert 'Press Undo' in mine.post(f'/api/play/games/{game["id"]}/actions', json=made_up).get_json()['error']
 
 
 def test_without_the_relay_an_online_move_is_refused(online, monkeypatch):

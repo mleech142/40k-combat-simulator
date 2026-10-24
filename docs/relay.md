@@ -21,7 +21,7 @@ Workers' free plan, in `relay/`.
   the completed game);
   `GET /v1/games/<code>?since=n` returns the events from the n-th on; `POST .../events` appends only on top of
   the current count (409 otherwise: fetch the other player's moves first); `POST .../retract` takes back your
-  own last event if no dice were rolled; `POST .../close` deletes the game (the app's "New invite code" moves a game
+  own last event if no dice were rolled (the app stopped using it in 2.5: online, Undo is a Correction the other player accepts); `POST .../close` deletes the game (the app's "New invite code" moves a game
   to a new code and closes the old one, cutting off anyone who took the code first). Every request but create and
   join needs `Authorization: Bearer <token>`. App versions must be X.Y.Z and at most one major version ahead.
 - Limits: 2 MB per request, 20,000 events per game, and a game is deleted 90 days after its last change

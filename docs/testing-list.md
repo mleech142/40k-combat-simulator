@@ -67,6 +67,9 @@ written scope for 12. Items 13 and 14 are parked.
     were rolled since (`play-mode-design.md`: "Movement and setup can be undone freely until a roll is made"; online,
     the relay's `retract`). Decide what happens while they haven't answered, and whether a request can also cover
     actions with dice.
+    *Done (2.5):* online, Undo asks the other player (a Correction with `undo`); nothing else happens until they
+    answer; dice actions included. Accepting replays the game to before that action and logs the difference, so the
+    log keeps the action. Hot-seat Undo is unchanged.
 12. **Plan: a hosted version (Docker / web), later phones.** Scope whether players could use the app in a browser,
     and eventually on a phone, with nothing to install. Needs much more planning before any building. Questions to
     answer:
