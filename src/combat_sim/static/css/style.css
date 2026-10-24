@@ -3696,6 +3696,12 @@ h4 .fa-solid,
     cursor: grab;
 }
 .play-board.panning, .play-board.panning .play-model { cursor: grabbing; }
+.play-board.measuring, .play-board.measuring .play-model { cursor: crosshair; }
+.play-measure { pointer-events: none; }
+.play-measure line { stroke: var(--text-primary); stroke-width: 0.1; stroke-dasharray: 0.4 0.2; }
+.play-measure circle { fill: var(--text-primary); }
+.play-measure text { fill: var(--text-primary); font-size: 0.9px; font-weight: 700; text-anchor: middle;
+                     paint-order: stroke; stroke: var(--bg-tertiary); stroke-width: 0.2px; }
 .play-field { fill: var(--play-field); stroke: var(--border); stroke-width: 0.08; }
 .play-zone { opacity: 0.12; }
 .play-zone.play-p1 { fill: var(--play-p1); }

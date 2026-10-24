@@ -28,6 +28,7 @@
         view: null,  // The board's viewBox, in SVG units (inches, y down)
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
         pan: null,  // {x, y, view, click, point, moved} while panning the camera
+        measure: null,  // The Measure tool while it's on: {from, to (ends: a point, or a model's base), distance, fixed}
         moveMode: 'normal',  // How the selected unit will move (Movement phase)
         skies: false,  // The selected Fly unit takes to the skies for its move or charge (2" less, over terrain and models)
         waypoint: false,  // Its next move carries on from where it stands (Movement phase)
@@ -60,6 +61,7 @@
         document.addEventListener('visibilitychange', () => { if (!document.hidden) syncGame(); });
         $('undo-btn').addEventListener('click', undo);
         $('fit-btn').addEventListener('click', () => { fitView(); drawBoard(); });
+        $('measure-btn').addEventListener('click', () => toggleMeasure());
         $('phase-btn').addEventListener('click', nextPhase);
         $('correct-btn').addEventListener('click', () => { state.correcting = !state.correcting; renderCorrection(); });
         const board = $('play-board');
@@ -74,6 +76,10 @@
             const open = [...document.querySelectorAll('.modal.show')];
             if (e.key === 'Escape' && open.length) {  // Escape closes the pop-up on top
                 closeModal((open.find(m => m.id === 'battlefields-modal') || open[0]).id);
+                return;
+            }
+            if (e.key === 'Escape' && state.measure && !open.length) {
+                toggleMeasure(false);
                 return;
             }
             if (open.length || !state.placing || state.working || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
@@ -1891,6 +1897,84 @@
         const badges = svgEl('g', { class: 'play-badges' }, svg);
         svg.querySelectorAll('.play-wounds').forEach(b => badges.appendChild(b));
         drawMarkers(svg, D);  // Operation markers above the models, so a unit standing on one doesn't hide it
+        drawMeasure();
+    }
+
+    // --- The Measure tool: two clicks, the distance between them (from a model's base edge if one is clicked) ---
+
+    function toggleMeasure(on = !state.measure) {
+        state.measure = on ? { from: null, to: null, distance: null, fixed: false } : null;
+        $('measure-btn').classList.toggle('active', on);
+        $('play-board').classList.toggle('measuring', on);
+        if (on) message('Measure: click a point or a model, then another. Esc or the ruler button to stop.');
+        else message('');
+        drawMeasure();
+    }
+
+    /** What's under the pointer, as a Measure end: a model's base (by its outline) or a point on the board. */
+    function measureEnd(event) {
+        const target = event.target.closest('[data-model]');
+        if (target) {
+            const unit = unitById(target.dataset.unit), model = unit.models.find(m => m.id === target.dataset.model);
+            if (model && model.position) {
+                return { x: model.position.x, y: model.position.y, angle: model.position.angle || 0,
+                         outline: state.game.outlines[unit.id][model.part], name: unit.name };
+            }
+        }
+        const p = boardPoint(event);
+        return { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 };
+    }
+
+    function measureClick(event) {
+        const end = measureEnd(event), m = state.measure;
+        if (!m.from || m.fixed) {
+            Object.assign(m, { from: end, to: null, distance: null, fixed: false });
+            drawMeasure();
+        } else {
+            m.fixed = true;
+            measureTo(end);
+        }
+    }
+
+    /** Measure to `end` and show it; only the latest answer is kept, and one request at a time goes to the server. */
+    async function measureTo(end) {
+        const m = state.measure;
+        m.to = end;
+        drawMeasure();
+        if (m.asking) { m.again = true; return; }
+        m.asking = true;
+        try {
+            do {
+                m.again = false;
+                const ends = [m.from, m.to].map(e => ({ x: e.x, y: e.y, angle: e.angle, outline: e.outline }));
+                const resp = await fetch('/api/play/measure', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ends }) });
+                if (state.measure !== m) return;
+                const data = await resp.json();
+                if (!m.again) m.distance = resp.ok ? data.distance : null;
+            } while (m.again);
+        } finally {
+            m.asking = false;
+        }
+        drawMeasure();
+    }
+
+    function drawMeasure() {
+        const svg = $('play-board');
+        const old = svg.querySelector('.play-measure');
+        if (old) old.remove();
+        const m = state.measure;
+        if (!m || !m.from || !state.game) return;
+        const D = state.game.board.depth;
+        const g = svgEl('g', { class: 'play-measure' }, svg);
+        svgEl('circle', { cx: m.from.x, cy: D - m.from.y, r: 0.15 }, g);
+        if (!m.to) return;
+        svgEl('line', { x1: m.from.x, y1: D - m.from.y, x2: m.to.x, y2: D - m.to.y }, g);
+        svgEl('circle', { cx: m.to.x, cy: D - m.to.y, r: 0.15 }, g);
+        if (m.distance == null) return;
+        const bases = m.from.outline && m.to.outline ? ' base to base' : m.from.outline || m.to.outline ? ' from the base' : '';
+        const text = svgEl('text', { x: (m.from.x + m.to.x) / 2, y: D - (m.from.y + m.to.y) / 2 - 0.4 }, g);
+        text.textContent = `${m.distance.toFixed(1)}"${bases}`;
     }
 
     /** Terrain areas: each footprint shaded by category (Exposed, Light, Dense), its height on hover. */
@@ -2042,6 +2126,7 @@
     function pointerDown(event) {
         if (!state.game) return;
         const target = event.target.closest('[data-model]');
+        if (state.measure && event.button === 0) return measureClick(event);
         if (event.button === 1 || event.button === 2 || (event.button === 0 && !target)) {
             // Pan: left-drag on empty board, or middle- or right-drag anywhere. A left click without dragging still places.
             if (!state.view) fitView();
@@ -2071,6 +2156,7 @@
 
     function pointerMove(event) {
         if (state.pan) return panTo(event);
+        if (state.measure && !state.measure.fixed && state.measure.from) return measureTo(measureEnd(event));
         if (!state.drag) return;
         const p = boardPoint(event);
         state.drag.dx = p.x - state.drag.start.x;

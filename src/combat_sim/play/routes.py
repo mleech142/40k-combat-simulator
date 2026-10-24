@@ -18,7 +18,7 @@ from .dice import Dice
 from .seats import actor, check_seat, waiting_on
 from ..settings import load_settings, update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, apply_event, can_fly, charge_options,
-                   deployment_zone, fight_options, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
+                   deployment_zone, fight_options, measure, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
                    score, shooting_options, terrain_areas)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army, rule_texts
@@ -739,6 +739,15 @@ def register_play_routes(app):
             return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist), unit_id))
         except ActionError as error:
             return jsonify({'error': str(error)}), 404
+
+    @app.route('/api/play/measure', methods=['POST'])
+    def api_measure():
+        """The Measure tool's distance between two ends (game.measure): {'distance'} in inches."""
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify({'distance': round(measure(body.get('ends') or []), 2)})
+        except ActionError as error:
+            return jsonify({'error': str(error)}), 400
 
     @app.route('/api/play/footprints')
     def api_footprints():

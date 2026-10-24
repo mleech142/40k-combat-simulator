@@ -21,7 +21,7 @@ from . import battlefields, mission_state, tactical
 from .missions import MIRRORED_PRIMARIES, NIGHT_VISIBILITY
 from .geometry import clear_line
 from .geometry import footprint as footprint_shape
-from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, between, bounds, can_see, farther_than, hull_shape,
+from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, Shape, base_distance, base_shape, between, bounds, can_see, farther_than, hull_shape,
                        overlaps)
 
 STATE_VERSION = 1
@@ -1079,7 +1079,31 @@ def outline(part):
 
 def model_shape(part, position):
     """A model's base (or hull) at its position, for measuring."""
-    drawn = outline(part)
+    return _outline_shape(outline(part), position)
+
+
+def measure(ends):
+    """
+    The Measure tool: the distance in inches between two ends, each a point {'x', 'y'} or a model's base (a point
+    with the page's 'outline' and 'angle'), measured from the base's edge, so model to model is base to base.
+    """
+    try:
+        shapes = []
+        for end in ends:
+            position = {'x': float(end['x']), 'y': float(end['y']), 'angle': float(end.get('angle') or 0)}
+            drawn = end.get('outline')
+            if drawn:
+                drawn = {'shape': str(drawn['shape']), 'length': float(drawn['length']), 'width': float(drawn['width'])}
+                if drawn['shape'] not in ('round', 'oval', 'rect') or not (0 < drawn['width'] < 100 and 0 < drawn['length'] < 100):
+                    raise ValueError
+            shapes.append(_outline_shape(drawn, position) if drawn else Shape([(position['x'], position['y'])]))
+        a, b = shapes
+    except (KeyError, TypeError, ValueError):
+        raise ActionError("Measure between two points, each an x and y (and a model's outline and angle).")
+    return base_distance(a, b)
+
+
+def _outline_shape(drawn, position):
     x, y, angle = position['x'], position['y'], position.get('angle') or 0
     if drawn['shape'] == 'rect':
         return hull_shape(drawn['length'], drawn['width'], x, y, angle)

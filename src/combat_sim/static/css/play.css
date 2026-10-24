@@ -154,6 +154,7 @@
     padding: 0.35rem 0.55rem; cursor: pointer; font-size: 0.85rem; }
 .play-icon-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--accent); }
 .play-icon-btn:disabled { opacity: 0.4; cursor: default; }
+.play-icon-btn.active { border-color: var(--accent); background: var(--accent-tint); color: var(--text-primary); }
 .play-hud .play-message { margin: 0.4rem auto 0; width: fit-content; max-width: 90%; text-align: center; background: var(--bg-tertiary);
     border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.8rem; }
 .play-hud .play-message:empty { display: none; }
