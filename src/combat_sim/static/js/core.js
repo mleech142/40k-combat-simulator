@@ -833,6 +833,36 @@
         return groups.map(({ purpose, ...group }) => group);
     }
 
+    /**
+     * Play: a luck notice for an attack's dice (groups from playDiceGroups), or null. For each roll with a target
+     * number (three dice or more, none re-rolled), the chance of doing at least as well, or as badly, at that number
+     * (binomial); the most extreme, if 1 in 20 or rarer: {lucky, odds (N for "1 in N"), text}. Saves and Feel No
+     * Pain are the defender's dice, so "hot" there is good for the defender.
+     */
+    function playLuck(groups, rarest = 1 / 20) {
+        const choose = (n, k) => { let c = 1; for (let i = 1; i <= k; i++) c = c * (n - k + i) / i; return c; };
+        const chance = (n, k, p) => choose(n, k) * p ** k * (1 - p) ** (n - k);
+        let best = null;
+        for (const g of groups) {
+            if (!g.need || g.dice.length < 3 || g.dice.some(d => d.rerolled_from != null)) continue;
+            const need = parseInt(g.need, 10), n = g.dice.length;
+            const p = Math.min(5, Math.max(1, 7 - need)) / 6;  // A 1 always fails and a 6 always succeeds
+            const k = g.dice.filter(d => d.kind === 'success' || d.kind === 'critical').length;
+            let low = 0, high = 0;
+            for (let i = 0; i <= n; i++) {
+                if (i <= k) low += chance(n, i, p);
+                if (i >= k) high += chance(n, i, p);
+            }
+            const tail = Math.min(low, high);
+            if (tail <= rarest && (!best || tail < best.tail)) best = { tail, lucky: high < low, g, k, n };
+        }
+        if (!best) return null;
+        const odds = Math.round(1 / best.tail);
+        const label = best.g.label.toLowerCase();
+        return { lucky: best.lucky, odds,
+                 text: `${best.lucky ? 'Hot dice' : 'Cold dice'}: ${best.k} of ${best.n} ${label} rolls on ${best.g.need}, a 1-in-${odds.toLocaleString('en-GB')} result` };
+    }
+
     /** One line saying what an attack did ('Bolter (2 models): 4 attacks, 3 hits, 2 wounds, 1 model killed'). */
     function playAttackSummary(attack) {
         const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -1225,7 +1255,7 @@
     }
 
     return {
-        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

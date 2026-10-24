@@ -94,3 +94,7 @@ written scope for 12. Items 13 and 14 are parked.
     were, statistically: "That was a 1-in-50 result" after an attack, or a luck summary at the end of a turn or
     game. The app's analytical engine already works out expected results, so an attack's actual outcome can be
     compared with them. Collect more ideas along these lines.
+    *Done (2.5), first notice:* each attack's rarest roll with a target number (three dice or more, none re-rolled),
+    if 1 in 20 or rarer, gets a note in the battle log ("Hot dice: 10 of 10 hit rolls on 4+, a 1-in-1,024 result";
+    `Core.playLuck`, worked out from the rolls, not the Simulator's engines). Still to collect: a luck summary per
+    turn or game, and other touches.

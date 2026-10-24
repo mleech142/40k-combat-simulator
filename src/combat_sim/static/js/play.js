@@ -1680,13 +1680,17 @@
                 a.cover ? 'target in cover' : '', a.name !== 'Hazardous' && targets.length > 1 ? `at ${name(a.target)}` : ''].filter(Boolean).join(' · ');
             const funnel = stages.map(([value, label], s) => `${s ? '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i>' : ''}
                 <span class="play-stage ${label === 'Killed' ? 'killed' : ''} ${value ? '' : 'zero'}"><b>${value}</b><small>${label}</small></span>`).join('');
-            const dice = Core.playDiceGroups(event.rolls, a.rolls).map(g => `<div class="play-dice-row">
+            const groups = Core.playDiceGroups(event.rolls, a.rolls);
+            const luck = Core.playLuck(groups);
+            const notice = luck ? `<div class="play-luck ${luck.lucky ? 'hot' : 'cold'}"><i class="fa-solid fa-${luck.lucky ? 'fire' : 'snowflake'}" aria-hidden="true"></i>
+                ${escapeHtml(luck.text)}</div>` : '';
+            const dice = groups.map(g => `<div class="play-dice-row">
                 <span class="play-dice-label">${escapeHtml(g.label)}${g.need ? `<em>${g.need}</em>` : ''}</span>
                 <span class="play-dice">${g.dice.map(d => dieHtml(d.face, d.kind, k++, d.rerolled_from)).join('')}</span>
                 ${g.note ? `<small class="play-dice-note">${escapeHtml(g.note)}</small>` : ''}</div>`).join('');
             return `<div class="play-log-weapon ${a.name === 'Hazardous' ? 'hazardous' : ''}" title="${escapeHtml(Core.playAttackSummary(a))}">
                 <div class="play-log-weapon-name"><strong>${escapeHtml(a.name)}</strong>${who ? `<small>${escapeHtml(who)}</small>` : ''}</div>
-                <div class="play-funnel">${funnel}</div>${dice}</div>`;
+                <div class="play-funnel">${funnel}</div>${dice}${notice}</div>`;
         }).join('');
         const shooter = owner(event.action.unit);
         return `<details class="play-log-entry play-log-attack ${PLAYER_CLASSES[shooter] || ''} ${fresh ? 'fresh' : ''}" ${open ? 'open' : ''}>

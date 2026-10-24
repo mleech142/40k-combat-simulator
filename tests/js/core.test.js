@@ -781,6 +781,26 @@ test('playTurn pivots the formation along arcs and spins single models for free'
     assert.deepEqual(spin.routes, { a: [], b: [] });
 });
 
+test('playLuck notices rolls that were 1 in 20 or rarer', () => {
+    const dice = (kinds) => kinds.split('').map(k => ({ face: 3, kind: { s: 'success', c: 'critical', f: 'fail' }[k], rerolled_from: null }));
+    // 10 hits from 10 dice on 4+: (1/2)^10, a 1-in-1,024 result
+    const hot = Core.playLuck([{ label: 'Hit', need: '4+', dice: dice('ssssssssss') }]);
+    assert.deepEqual(hot, { lucky: true, odds: 1024, text: 'Hot dice: 10 of 10 hit rolls on 4+, a 1-in-1,024 result' });
+    // 0 saves from 6 on 3+: (1/3)^6, 1 in 729
+    const cold = Core.playLuck([{ label: 'Save', need: '3+', dice: dice('ffffff') }]);
+    assert.equal(cold.lucky, false);
+    assert.equal(cold.odds, 729);
+    assert.equal(Core.playLuck([{ label: 'Hit', need: '4+', dice: dice('sssfff') }]), null);  // Ordinary
+    assert.equal(Core.playLuck([{ label: 'Hit', need: '4+', dice: dice('ss') }]), null);  // Too few dice
+    const rerolled = dice('ssssssssss');
+    rerolled[0].rerolled_from = 1;
+    assert.equal(Core.playLuck([{ label: 'Hit', need: '4+', dice: rerolled }]), null);
+    assert.equal(Core.playLuck([{ label: 'Damage', need: null, dice: dice('sss') }]), null);  // Values, not successes
+    // The rarer of two groups wins
+    const both = Core.playLuck([{ label: 'Hit', need: '4+', dice: dice('ssssssssss') }, { label: 'Wound', need: '2+', dice: dice('cfffff') }]);
+    assert.match(both.text, /Cold dice: 1 of 6 wound rolls on 2\+/);
+});
+
 test('playPan moves the view but keeps its centre over the board', () => {
     const board = { width: 60, depth: 44 }, view = { x: 10, y: 10, w: 20, h: 15 };
     assert.deepEqual(Core.playPan(view, 5, -3, board), { x: 15, y: 7, w: 20, h: 15 });

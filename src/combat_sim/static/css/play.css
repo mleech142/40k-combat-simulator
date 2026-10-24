@@ -362,3 +362,9 @@
 .play-card-note { color: var(--text-secondary); font-style: italic; margin: 0.25rem 0 0; }
 
 .play-turn-label { align-self: center; color: var(--text-secondary); font-size: 0.8rem; margin-right: 0.15rem; }
+
+/* Luck notices: an attack's rarest roll, 1 in 20 or rarer */
+.play-luck { margin-top: 0.3rem; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.78rem; font-weight: 600;
+             display: flex; gap: 0.4rem; align-items: center; }
+.play-luck.hot { background: rgba(240, 140, 40, 0.16); color: #f4a24c; }
+.play-luck.cold { background: rgba(80, 160, 230, 0.16); color: #7cbcf0; }
