@@ -178,7 +178,7 @@ def resolve_action(state, action, dice, rewind=None):
                 'end_deployment': lambda s: _end_deployment(s, dice), 'next_phase': lambda s: _next_phase(s, dice),
                 'move': lambda s: _move(s, action), 'advance': lambda s: _advance(s, action, dice),
                 'stationary': lambda s: _stationary(s, action), 'reset_move': lambda s: _reset_move(s, action),
-                'charge': lambda s: _charge(s, action, dice), 'charge_move': lambda s: _charge_move(s, action),
+                'charge': lambda s: _charge(s, action, dice), 'charge_move': lambda s: _charge_move(s, action, dice),
                 'pile_in': lambda s: _pile_in(s, action), 'fight': lambda s: _fight(s, action, dice),
                 'overrun': lambda s: _overrun(s, action),
                 'consolidate': lambda s: _consolidate(s, action),
@@ -196,6 +196,7 @@ def resolve_action(state, action, dice, rewind=None):
                 'roll_mirrored': lambda s: _roll_mirrored(s, dice),
                 'start_action': lambda s: mission_state.start_action(s, action),
                 'pass': lambda s: _pass(s, action, dice), 'overwatch': lambda s: _overwatch(s, action, dice),
+                'heroic': lambda s: _heroic(s, action, dice),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
@@ -925,7 +926,11 @@ def _shoot(state, action, dice, snap=False):
 # --- Reactions: the other player's decisions in your turn (11th edition core stratagems) ------------------------
 
 REACTIONS = {'overwatch': 'Fire Overwatch', 'heroic': 'Heroic Intervention', 'reroll': 'Command Re-roll'}
-WINDOW_ACTIONS = {'overwatch': ('pass', 'overwatch'), 'heroic': ('pass', 'heroic'), 'reroll': ('pass', 'command_reroll')}
+WINDOW_ACTIONS = {'overwatch': ('pass', 'overwatch'), 'heroic': ('pass', 'heroic', 'charge_move'), 'reroll': ('pass', 'command_reroll')}
+HEROIC_MODES = {'leap': 'Leap to Defend', 'fray': 'Into the Fray'}  # Into the Fray costs 1 CP more
+HEROIC_REACH = 12  # Units within this of an enemy unit can intervene
+FRAY_REACH = 6  # Into the Fray: any enemy unit within this can be charged
+FRAY_ROLL = 6  # Into the Fray: the charge roll is at most this
 REACTION_ORDERS = {'overwatch': ('ask', 'never', 'unit'), 'heroic': ('ask', 'never'), 'reroll': ('ask', 'never', 'deaths')}
 OVERWATCH_RANGE = 24  # Snap shooting targets one visible enemy unit within this
 REACTION_TIMING = {'overwatch': "at the end of the opponent's Movement phase",
@@ -992,13 +997,14 @@ def _end_of_phase_window(state, dice):
     (then the phase changes once it closes); None if there is nothing to wait for.
     """
     turn = state['turn']
-    kind = {'movement': 'overwatch'}.get(turn['phase'])
+    kind = {'movement': 'overwatch', 'charge': 'heroic'}.get(turn['phase'])
     if kind is None or (turn.get('reacted') or {}).get(kind) == _phase_id(turn):
         return None
     player = 1 - turn['player']
     turn.setdefault('reacted', {})[kind] = _phase_id(turn)  # Asked once a phase
     order = reaction_order(state, player, kind)
-    if order['mode'] == 'never' or _reaction_ready(state, player, kind) or not overwatch_units(state, player):
+    eligible = overwatch_units(state, player) if kind == 'overwatch' else         [u for u in heroic_units(state, player) if any(heroic_modes(state, player, unit_by_id(state, u)).values())]
+    if order['mode'] == 'never' or _reaction_ready(state, player, kind) or not eligible:
         return None
     if order['mode'] == 'unit':  # The standing order answers: that unit at the closest target it can shoot
         unit = next((u for u in state['units'] if u['id'] == order['unit']), None)
@@ -1020,7 +1026,11 @@ def window_options(state):
     units = {}
     if window['kind'] == 'overwatch':
         units = {u: [t['id'] for t in overwatch_targets(state, unit_by_id(state, u))] for u in overwatch_units(state, window['player'])}
-    return {'kind': window['kind'], 'player': window['player'], 'name': entry['name'], 'cp': entry['cp'], 'units': units}
+    if window['kind'] == 'heroic' and not window.get('unit'):
+        units = {u: heroic_modes(state, window['player'], unit_by_id(state, u)) for u in heroic_units(state, window['player'])}
+        units = {u: modes for u, modes in units.items() if any(modes.values())}
+    return {'kind': window['kind'], 'player': window['player'], 'name': entry['name'], 'cp': entry['cp'], 'units': units,
+            **{k: window[k] for k in ('unit', 'mode', 'roll') if k in window}}
 
 
 def _close_window(state, dice):
@@ -1087,6 +1097,84 @@ def _overwatch_target(state, unit):
     """The closest enemy unit `unit` could snap shoot, or None."""
     targets = overwatch_targets(state, unit)
     return min(targets, key=lambda t: _unit_distance(_placed_shapes(unit), _placed_shapes(t))) if targets else None
+
+
+def heroic_units(state, player):
+    """The ids of a player's units that could make a Heroic Intervention: on the board, unengaged, within 12" of an enemy
+    unit, not a Vehicle unless a Character or Walker, not battle-shocked or already targeted by a stratagem this phase."""
+    phase = _phase_id(state['turn'])
+
+    def vehicle_ok(unit):
+        return all(not _keyword(p, ('Vehicle',)) or _keyword(p, ('Character', 'Walker')) for p in unit['parts'])
+    enemies = [u for u in state['units'] if u['player'] != player and _placed_models(u)]
+    return [u['id'] for u in state['units'] if u['player'] == player and _placed_models(u) and not _is_engaged(state, u)
+            and vehicle_ok(u) and not (u.get('status') or {}).get('shocked') and (u.get('status') or {}).get('stratagem_phase') != phase
+            and any(_unit_distance(_placed_shapes(u), _placed_shapes(e)) <= HEROIC_REACH + 1e-9 for e in enemies)]
+
+
+def heroic_modes(state, player, unit):
+    """{mode: whether it's possible}: affordable, with an enemy unit it could reach (Leap to Defend: one that charged
+    this phase within 12"; Into the Fray: any within 6")."""
+    mine = _placed_shapes(unit)
+    enemies = [(u, _unit_distance(mine, _placed_shapes(u))) for u in state['units'] if u['player'] != player and _placed_models(u)]
+    reach = {'leap': any(u['activity'].get('charged') and d <= CHARGE_REACH + 1e-9 for u, d in enemies),
+             'fray': any(d <= FRAY_REACH + 1e-9 for _, d in enemies)}
+    return {mode: reach[mode] and _reaction_ready(state, player, 'heroic', extra) is None for mode, extra in (('leap', 0), ('fray', 1))}
+
+
+def heroic_targets(state, unit, mode, roll):
+    """The enemy units a Heroic Intervention can charge: within the roll (and 12"), and for Leap to Defend only those
+    that made a charge move this phase, for Into the Fray any within 6" of the unit."""
+    start = _start_shapes(unit, 'charge_start')
+    targets = []
+    for other in state['units']:
+        if other['player'] == unit['player'] or not _placed_shapes(other):
+            continue
+        gap = _unit_distance(start, _placed_shapes(other))
+        if gap > min(CHARGE_REACH, roll) + 1e-9:
+            continue
+        if mode == 'leap' and not other['activity'].get('charged'):
+            continue
+        if mode == 'fray' and gap > FRAY_REACH + 1e-9:
+            continue
+        targets.append(other)
+    return targets
+
+
+def _heroic(state, action, dice):
+    """
+    Heroic Intervention (end of the opponent's Charge phase): one of the reacting player's units declares a charge in a
+    mode chosen before the roll: Leap to Defend (1 CP) or Into the Fray (2 CP, the roll at most 6). With no enemy unit
+    the mode allows within reach the charge fails; otherwise the player makes the charge move (charge_move).
+    """
+    window = _window_for(state, action, 'heroic')
+    if window.get('unit'):
+        raise ActionError('The Heroic Intervention is declared: make its charge move, or pass.')
+    player = window['player']
+    unit = _unit_or_error(state, action.get('unit'))
+    if unit['player'] != player or unit['id'] not in heroic_units(state, player):
+        raise ActionError(f'{unit["name"]} can\'t make a Heroic Intervention: it must be unengaged and within '
+                          f'{HEROIC_REACH}" of an enemy unit (a Vehicle only if it\'s a Character or Walker).')
+    mode = action.get('mode')
+    if mode not in HEROIC_MODES:
+        raise ActionError('Choose Leap to Defend or Into the Fray.')
+    if not heroic_modes(state, player, unit)[mode] and _reaction_ready(state, player, 'heroic', 1 if mode == 'fray' else 0) is None:
+        raise ActionError(f'{HEROIC_MODES[mode]} has nothing to charge: ' + ('no enemy unit that charged this phase is within 12".'
+                          if mode == 'leap' else f'no enemy unit is within {FRAY_REACH}".'))
+    entry = _spend_reaction(state, player, 'heroic', unit, extra_cp=1 if mode == 'fray' else 0)
+    roll = dice.roll_value('2D6', 'charge')
+    if mode == 'fray':
+        roll = min(roll, FRAY_ROLL)
+    activity = unit['activity']
+    activity['charge_start'] = {m['id']: m['position'] for m in unit['models'] if m['alive']}
+    activity['charge_roll'] = roll
+    activity['heroic'] = mode
+    detail = {'stratagem': entry['name'], 'cp': entry['cp'] + (1 if mode == 'fray' else 0), 'player': player, 'unit': unit['id'],
+              'heroic': mode, 'roll': roll}
+    if not heroic_targets(state, unit, mode, roll):  # The charge fails: on to the Fight phase
+        return dict(detail, failed=True, **_close_window(state, dice))
+    window.update({'unit': unit['id'], 'mode': mode, 'roll': roll})
+    return detail
 
 
 def _overwatch(state, action, dice, standing=False):
@@ -1604,35 +1692,48 @@ def charge_options(state, unit_id):
             _charge_checks(state, unit)
         except ActionError as error:
             reason = str(error)
-    targets = {}
+    targets, allowed = {}, None
     if roll is not None:
         start = _start_shapes(unit, 'charge_start')
+        allowed = [t['id'] for t in heroic_targets(state, unit, unit['activity']['heroic'], roll)] if unit['activity'].get('heroic') else None
         for other in state['units']:
-            if other['player'] != unit['player'] and _placed_shapes(other):
+            if other['player'] != unit['player'] and _placed_shapes(other) and (allowed is None or other['id'] in allowed):
                 gap = _unit_distance(start, _placed_shapes(other))
                 if gap <= min(CHARGE_REACH, roll) + 1e-9:
                     targets[other['id']] = {'ok': True, 'distance': round(gap, 2)}
-    return {'reason': reason, 'roll': roll, 'targets': targets}
+    return {'reason': None if allowed is not None else reason, 'roll': roll, 'targets': targets}
 
 
-def _charge_move(state, action):
+def _charge_move(state, action, dice=None):
     """
     A charge move after the roll, at `targets`: enemy units within 12" and within the roll. Each model
     moves in a straight line up to the roll, not through enemy models, and each one that moves ends
     closer to a target; the unit ends engaged with every target and with no other enemy unit, wholly
-    on the board, overlapping no model and in coherency. It can be redone until the phase ends.
+    on the board, overlapping no model and in coherency. It can be redone until the phase ends; a Heroic
+    Intervention's move can't (it ends the reaction window, and the phase moves on).
     """
     unit = _unit_or_error(state, action.get('unit'))
-    activity = _ready_to_move(state, unit, 'charge')
+    window = state['turn'].get('window')
+    heroic = bool(window and window['kind'] == 'heroic')
+    if heroic:
+        if unit['id'] != window.get('unit'):
+            raise ActionError(f'Waiting for {state["players"][window["player"]]["name"]}: Heroic Intervention or pass.')
+        activity = unit['activity']
+    else:
+        activity = _ready_to_move(state, unit, 'charge')
     roll = activity.get('charge_roll')
     if roll is None:
         raise ActionError('Roll to charge first.')
     start_shapes = _start_shapes(unit, 'charge_start')
+    allowed = [t['id'] for t in heroic_targets(state, unit, window['mode'], roll)] if heroic else None
     targets = []
     for target_id in action.get('targets') or []:
         target = _unit_or_error(state, target_id)
         if target['player'] == unit['player'] or not _placed_shapes(target):
             raise ActionError('Charge targets must be enemy units on the battlefield.')
+        if allowed is not None and target['id'] not in allowed:
+            raise ActionError(f'{HEROIC_MODES[window["mode"]]} can\'t charge {target["name"]}: '
+                              + ('only units that charged this phase.' if window['mode'] == 'leap' else f'only units within {FRAY_REACH}".'))
         gap = _unit_distance(start_shapes, _placed_shapes(target))
         if gap > min(CHARGE_REACH, roll) + 1e-9:
             raise ActionError(f'{target["name"]} is {gap:.1f}" away: charge targets must be within {CHARGE_REACH}" '
@@ -1686,6 +1787,8 @@ def _charge_move(state, action):
         living[mid]['position'] = spot
     activity['charged'] = True
     activity['charge_targets'] = [t['id'] for t in targets]
+    if heroic:  # The Heroic Intervention is made: on to the Fight phase
+        return dict(_close_window(state, dice), heroic_move=unit['id'])
 
 
 def _could_end_near(part, start, target_shapes, need, allowance, obstacles, blocking, angle):

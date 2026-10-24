@@ -17,6 +17,15 @@ def act(state, action, *faces):
     return apply_event(state, event), event
 
 
+def next_phase(state, *faces):
+    """Next phase; if that opens a reaction window, the other player passes (the pass makes the phase change)."""
+    state, event = act(state, {'type': 'next_phase'}, *faces)
+    window = state['turn'].get('window')
+    if window:
+        state, event = act(state, {'type': 'pass', 'player': window['player']}, *faces)
+    return state, event
+
+
 def refused(state, action, *faces):
     with pytest.raises(ActionError) as error:
         resolve_action(state, action, Dice(FixedRolls(*faces)))

@@ -572,7 +572,7 @@
             const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
             return state.game.moves[unit.id][model.part] + roll - skies;
         }
-        if (turn.phase === 'charge' && unit.player === turn.player) return unit.activity.charge_roll == null ? null : unit.activity.charge_roll - skies;
+        if (charging(unit)) return unit.activity.charge_roll == null ? null : unit.activity.charge_roll - skies;
         if (turn.phase === 'fight' && ['pile_in', 'fight', 'consolidate'].includes(turn.step)) return SHORT_MOVE;  // Fight: an overrun pile-in
         return null;
     }
@@ -1172,7 +1172,7 @@
         if (turn.phase === 'shooting' && state.missionActions && state.missionActions.unit === unit.id) {
             controls = missionActionControls() + controls;
         }
-        if (turn.phase === 'charge' && unit.player === turn.player && state.charge && state.charge.unit === unit.id) {
+        if (charging(unit) && state.charge && state.charge.unit === unit.id) {
             controls = chargeControls(unit);
         }
         if (turn.phase === 'fight' && turn.step === 'fight' && state.fight && state.fight.unit === unit.id) {
@@ -1356,6 +1356,19 @@
 
     /** The open reaction window: the reacting player picks (a unit and target for Fire Overwatch) or passes. */
     const REACTION_NAMES = { overwatch: 'Fire Overwatch', heroic: 'Heroic Intervention', reroll: 'Command Re-roll' };
+    const HEROIC_MODES = { leap: 'Leap to Defend', fray: 'Into the Fray' };
+
+    /** The unit making a Heroic Intervention's charge move now, if any (it charges in the other player's turn). */
+    function heroicUnit() {
+        const r = state.game && state.game.reaction;
+        return r && r.kind === 'heroic' ? r.unit || null : null;
+    }
+
+    /** Whether `unit` charges now: the active player's in their Charge phase, or the Heroic Intervention's unit. */
+    function charging(unit) {
+        const turn = state.game.state.turn;
+        return turn.phase === 'charge' && (unit.player === turn.player || heroicUnit() === unit.id);
+    }
 
     function renderWindow() {
         const game = state.game;
@@ -1389,6 +1402,37 @@
                     message(`Overwatch: ${killed} model${killed === 1 ? '' : 's'} killed.`);
                 }
             });
+        } else if (r.kind === 'heroic' && r.unit) {
+            bar.innerHTML = `<span><strong>${escapeHtml(unitById(r.unit).name)}: ${escapeHtml(HEROIC_MODES[r.mode])}, charge roll ${Number(r.roll)}".</strong>
+                    Pick its targets, then drag it so it ends engaged with them (this move can't be redone).</span>
+                <span class="play-pending-actions"><button class="btn-small" id="react-pass">Don't move</button></span>`;
+        } else if (r.kind === 'heroic') {
+            const ids = Object.keys(r.units);
+            const unit = state.reactUnit && r.units[state.reactUnit] ? state.reactUnit : ids[0];
+            const modes = r.units[unit] || {};
+            bar.innerHTML = `<span><strong>${escapeHtml(who)}: ${escapeHtml(r.name)}?</strong>
+                    One unit within 12" of the enemy charges. Leap to Defend: only units that charged this phase.
+                    Into the Fray: any enemy within 6", the roll at most 6.</span>
+                <span class="play-pending-actions">
+                    <select class="filter-select" id="react-unit">${ids.map(id =>
+                        `<option value="${escapeHtml(id)}" ${id === unit ? 'selected' : ''}>${escapeHtml(unitById(id).name)}</option>`).join('')}</select>
+                    <button class="btn btn-primary" data-heroic="leap" ${modes.leap ? '' : 'disabled'}>Leap to Defend (${Number(r.cp)} CP)</button>
+                    <button class="btn btn-primary" data-heroic="fray" ${modes.fray ? '' : 'disabled'}>Into the Fray (${Number(r.cp) + 1} CP)</button>
+                    <button class="btn-small" id="react-pass">Pass</button></span>`;
+            $('react-unit').addEventListener('change', e => { state.reactUnit = e.target.value; renderWindow(); });
+            bar.querySelectorAll('[data-heroic]').forEach(b => b.addEventListener('click', async () => {
+                const id = $('react-unit').value;
+                if (await send({ type: 'heroic', player: r.player, unit: id, mode: b.dataset.heroic })) {
+                    const event = state.game.events[state.game.events.length - 1];
+                    message(event.failed ? `Charge roll ${event.roll}": no enemy unit within reach, so the Heroic Intervention fails.`
+                        : `Charge roll ${event.roll}". Pick the targets and drag ${unitById(id).name} into combat.`);
+                    if (!event.failed) {
+                        state.charge = null;
+                        state.chargeTargets = [];
+                        select(id);
+                    }
+                }
+            }));
         } else {
             bar.innerHTML = `<span><strong>${escapeHtml(who)}: ${escapeHtml(r.name)}?</strong></span>
                 <span class="play-pending-actions"><button class="btn-small" id="react-pass">Pass</button></span>`;
@@ -1481,7 +1525,7 @@
         if (!unit) return;
         const turn = state.game.state.turn;
         const kind = turn.phase === 'shooting' && unit.player === turn.player ? 'shooting'
-            : turn.phase === 'charge' && unit.player === turn.player ? 'charge'
+            : charging(unit) ? 'charge'
             : turn.phase === 'fight' && turn.step === 'fight' ? 'fight' : null;
         if (!kind) return;
         const resp = await fetch(`/api/play/games/${state.game.id}/${kind}/${unit.id}`);
@@ -1557,7 +1601,7 @@
         return `<p class="play-hint">Charge roll <strong>${options.roll}"</strong>. Pick the units to charge (or click them on
             the board), then drag the unit so it ends engaged with every one of them and no other: each model that can
             ends within 1" of a target (or, if it can't, engaged with one).
-            You can redo the move until the Charge phase ends.</p>
+            ${heroicUnit() === unit.id ? 'A Heroic Intervention\'s move is made once.' : 'You can redo the move until the Charge phase ends.'}</p>
             <div class="play-move-modes">${chips}
             ${unit.activity.charged ? '<button class="btn-small" data-reset>Reset charge</button>' : ''}${skiesButton(unit)}</div>`;
     }
