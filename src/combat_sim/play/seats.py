@@ -7,7 +7,7 @@ The engine still checks whether an action is allowed now; this only says which p
 from .game import ActionError, mover, unit_by_id
 
 PLAYER_ACTIONS = {'stratagem', 'rule', 'orders', 'correction', 'accept', 'decline', 'choose_secondaries', 'tactical',
-                  'set_guards'}  # Name their player ('player')
+                  'set_guards', 'pass', 'overwatch'}  # Name their player ('player')
 CHOICE_ACTIONS = {'condemn', 'place_markers', 'beacon', 'tempting'}  # Answer the mission's current choice
 UNIT_ACTIONS = {'place', 'move', 'advance', 'stationary', 'reset_move', 'charge', 'charge_move', 'pile_in', 'fight', 'overrun',
                 'consolidate', 'shoot', 'start_action', 'effect', 'remove_effect'}  # Are their unit's player's
@@ -34,6 +34,8 @@ def waiting_on(state):
         return []
     if state.get('pending'):
         return [1 - state['pending']['player']]
+    if turn.get('window'):  # A reaction window: the other player decides
+        return [turn['window']['player']]
     mission = state.get('mission') or {}
     if mission.get('choice'):
         return [mission['choice']['player']]

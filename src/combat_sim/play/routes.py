@@ -20,7 +20,7 @@ from .seats import actor, check_seat, waiting_on
 from ..settings import load_settings, update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, apply_event, can_fly, charge_options,
                    deployment_zone, fight_options, measure, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
-                   score, shooting_options, terrain_areas)
+                   score, shooting_options, terrain_areas, window_options)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army, rule_texts
 
@@ -58,6 +58,7 @@ def game_response(saved, state=None):
                     'allocation': {u['id']: allocation_groups(u) for u in state['units'] if len(allocation_groups(u)) > 1},
                     'score': score(state),
                     'ready': ready_units(state),
+                    'reaction': window_options(state),
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
                     'unit_objectives': {u['id']: objectives_in_range(state, u) for u in state['units']},
                     'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},

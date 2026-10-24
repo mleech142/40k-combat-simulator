@@ -758,6 +758,7 @@
         renderLog();
         renderSeat();
         renderPending();
+        renderWindow();
         renderSetup();
         renderPlacing();
         renderMission();
@@ -1049,7 +1050,9 @@
                     <select data-orders="${p}" class="filter-select">
                         <option value="farthest" ${orders === 'farthest' ? 'selected' : ''}>farthest from the attacker first</option>
                         <option value="closest" ${orders === 'closest' ? 'selected' : ''}>closest to the attacker first</option>
-                    </select></label>${units.map(u => {
+                    </select></label>
+                <label class="play-orders" title="At the end of the other player's Movement phase">Fire Overwatch
+                    <select data-overwatch="${p}" class="filter-select">${overwatchOrderOptions(player, units)}</select></label>${units.map(u => {
                 const living = u.models.filter(m => m.alive);
                 const placed = living.length && living.every(m => m.position);
                 const done = game.state.turn.phase === 'deployment' ? (state.placing && state.placing.unitId === u.id ? 'placing: press OK' : placed ? 'placed' : 'not placed')
@@ -1070,6 +1073,10 @@
             $(`army-units-${p}`).querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => select(b.dataset.unit)));
             $(`army-units-${p}`).querySelectorAll('[data-orders]').forEach(s => s.addEventListener('change', () =>
                 send({ type: 'orders', player: Number(s.dataset.orders), casualties: s.value })));
+            $(`army-units-${p}`).querySelectorAll('[data-overwatch]').forEach(s => s.addEventListener('change', () => {
+                const [mode, unit] = s.value.split('|');
+                send({ type: 'orders', player: Number(s.dataset.overwatch), reactions: { overwatch: unit ? { mode, unit } : { mode } } });
+            }));
         });
         renderDetail();
     }
@@ -1345,6 +1352,50 @@
         }
         if ($('seat-online')) $('seat-online').addEventListener('click', goOnline);
         if ($('seat-new-code')) $('seat-new-code').addEventListener('click', newInviteCode);
+    }
+
+    /** The open reaction window: the reacting player picks (a unit and target for Fire Overwatch) or passes. */
+    const REACTION_NAMES = { overwatch: 'Fire Overwatch', heroic: 'Heroic Intervention', reroll: 'Command Re-roll' };
+
+    function renderWindow() {
+        const game = state.game;
+        const r = game && game.reaction;
+        const bar = $('window-bar');
+        bar.hidden = !r;
+        if (!r) return;
+        const who = game.state.players[r.player].name;
+        if (game.seat != null && game.seat !== r.player) {
+            bar.innerHTML = `<strong>Waiting for ${escapeHtml(who)}</strong> to decide on ${escapeHtml(r.name)}.`;
+            return;
+        }
+        if (r.kind === 'overwatch') {
+            const ids = Object.keys(r.units);
+            const unit = state.reactUnit && r.units[state.reactUnit] ? state.reactUnit : ids[0];
+            const targets = r.units[unit] || [];
+            bar.innerHTML = `<span><strong>${escapeHtml(who)}: ${escapeHtml(r.name)}?</strong>
+                    ${Number(r.cp)} CP · one unit snap shoots one visible enemy unit within 24": hits only on 6s, never critical.</span>
+                <span class="play-pending-actions">
+                    <select class="filter-select" id="react-unit">${ids.map(id =>
+                        `<option value="${escapeHtml(id)}" ${id === unit ? 'selected' : ''}>${escapeHtml(unitById(id).name)}</option>`).join('')}</select>
+                    at <select class="filter-select" id="react-target">${targets.map(id =>
+                        `<option value="${escapeHtml(id)}">${escapeHtml(unitById(id).name)}</option>`).join('')}</select>
+                    <button class="btn btn-primary" id="react-go"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Fire Overwatch</button>
+                    <button class="btn-small" id="react-pass">Pass</button></span>`;
+            $('react-unit').addEventListener('change', e => { state.reactUnit = e.target.value; renderWindow(); });
+            $('react-go').addEventListener('click', async () => {
+                if (await send({ type: 'overwatch', player: r.player, unit: $('react-unit').value, target: $('react-target').value })) {
+                    const event = state.game.events[state.game.events.length - 1];
+                    const killed = event.attacks.reduce((n, a) => n + a.killed.length, 0);
+                    message(`Overwatch: ${killed} model${killed === 1 ? '' : 's'} killed.`);
+                }
+            });
+        } else {
+            bar.innerHTML = `<span><strong>${escapeHtml(who)}: ${escapeHtml(r.name)}?</strong></span>
+                <span class="play-pending-actions"><button class="btn-small" id="react-pass">Pass</button></span>`;
+        }
+        $('react-pass').addEventListener('click', async () => {
+            if (await send({ type: 'pass', player: r.player })) message(`${who} passed on ${r.name}.`);
+        });
     }
 
     function renderPending() {
@@ -1692,12 +1743,12 @@
                 <div class="play-log-weapon-name"><strong>${escapeHtml(a.name)}</strong>${who ? `<small>${escapeHtml(who)}</small>` : ''}</div>
                 <div class="play-funnel">${funnel}</div>${dice}${notice}</div>`;
         }).join('');
-        const shooter = owner(event.action.unit);
+        const shooter = owner(event.unit || event.action.unit);
         return `<details class="play-log-entry play-log-attack ${PLAYER_CLASSES[shooter] || ''} ${fresh ? 'fresh' : ''}" ${open ? 'open' : ''}>
             <summary class="play-log-head">
                 <span class="play-log-icon"><i class="fa-solid ${fight ? 'fa-hand-fist' : 'fa-crosshairs'}" aria-hidden="true"></i></span>
-                <span class="play-log-who"><strong>${escapeHtml(name(event.action.unit))}</strong>
-                    <span class="play-log-verb">${fight ? 'fights' : 'shoots'}</span>
+                <span class="play-log-who"><strong>${escapeHtml(name(event.unit || event.action.unit))}</strong>
+                    <span class="play-log-verb">${event.overwatch ? 'fires Overwatch at' : fight ? 'fights' : 'shoots'}</span>
                     <strong class="play-log-target ${PLAYER_CLASSES[1 - shooter] || ''}">${escapeHtml(targets.map(name).join(', ') || 'itself')}</strong></span>
                 <span class="play-log-kills ${killed ? '' : 'none'}"><b>${killed}</b><small>killed</small></span>
             </summary>
@@ -1737,6 +1788,15 @@
                  sabotage: 'Sabotage' }[key] || key;
     }
 
+    /** The Fire Overwatch standing order's choices: ask, never, or always with one of the player's units. */
+    function overwatchOrderOptions(player, units) {
+        const order = ((player.orders || {}).reactions || {}).overwatch || { mode: 'ask' };
+        const chosen = order.mode === 'unit' ? `unit|${order.unit}` : order.mode;
+        const option = (value, label) => `<option value="${escapeHtml(value)}" ${value === chosen ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+        return option('ask', 'ask me') + option('never', 'never') +
+            units.filter(u => u.models.some(m => m.alive)).map(u => option(`unit|${u.id}`, `always, with ${u.name}`)).join('');
+    }
+
     /** Markers an event removed, for its log line. */
     function markersRemoved(event) {
         return (event.markers_removed || []).map(r => `<br>Removed ${r.markers.map(m =>
@@ -1759,6 +1819,8 @@
                 return `<span class="play-effect rule">${player(event.player)}: ${escapeHtml(event.rule)}</span> on ${escapeHtml(name(event.unit))}`;
             case 'effect':
                 return `<span class="play-effect manual">Manual effect: ${escapeHtml(event.effect)}</span> on ${escapeHtml(name(event.unit))}`;
+            case 'pass':
+                return `${player(event.player)} passed on ${escapeHtml(REACTION_NAMES[event.passed] || event.passed)}`;
             case 'fight':  // Passed: an overrun fight with no enemy in reach
                 return `<strong>${escapeHtml(name(a.unit))}</strong> had no enemy within reach, so it didn't fight`;
             case 'roll_objectives':

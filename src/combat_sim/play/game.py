@@ -195,6 +195,7 @@ def resolve_action(state, action, dice, rewind=None):
                 'set_guards': lambda s: tactical.set_guards(s, action),
                 'roll_mirrored': lambda s: _roll_mirrored(s, dice),
                 'start_action': lambda s: mission_state.start_action(s, action),
+                'pass': lambda s: _pass(s, action, dice), 'overwatch': lambda s: _overwatch(s, action, dice),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
     kind = action.get('type') if isinstance(action, dict) else None
     if kind not in handlers:
@@ -203,6 +204,10 @@ def resolve_action(state, action, dice, rewind=None):
     if pending and kind not in ('accept', 'decline'):
         other = state['players'][1 - pending['player']]['name']
         raise ActionError(f'A correction is waiting for {other} to accept or decline it.')
+    window = state['turn'].get('window')
+    if window and not pending and kind not in WINDOW_ACTIONS[window['kind']] + ('orders', 'correction'):
+        who = state['players'][window['player']]['name']
+        raise ActionError(f'Waiting for {who}: {REACTIONS[window["kind"]]} or pass.')
     before = copy.deepcopy(_snapshot(state))
     state = copy.deepcopy(state)
     start = len(dice.log)
@@ -357,7 +362,10 @@ def _choose_role(state, action):
 
 def _next_phase(state, dice):
     """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate); effects that
-    lasted until then end."""
+    lasted until then end. First, the other player may react at the end of a phase (reaction windows)."""
+    reaction = _end_of_phase_window(state, dice)
+    if reaction is not None:
+        return reaction
     report = {'battle_shock': [], 'hazards': [], 'vp': []}  # Which units rolled and what scored, for the log
     if state['turn']['phase'] == 'movement':
         _fall_backs(state, dice, report)  # Before control is settled: a battle-shocked unit has no OC
@@ -520,6 +528,9 @@ def _stratagem(state, action):
     """
     _in_battle(state)
     player, entry, unit = _player_entry(state, action, 'stratagem')
+    reaction = next((k for k, name in REACTIONS.items() if entry['name'].lower() == name.lower()), None)
+    if reaction:
+        raise ActionError(f'{entry["name"]} is used when the game offers it: {REACTION_TIMING[reaction]}.')
     status = unit.setdefault('status', {'shocked': False})
     if status.get('shocked'):
         raise ActionError(f'{unit["name"]} is battle-shocked: stratagems can\'t target it.')
@@ -656,6 +667,8 @@ def _orders(state, action):
         if action['casualties'] not in ('farthest', 'closest'):
             raise ActionError('Casualties are removed farthest or closest first.')
         orders['casualties'] = action['casualties']
+    for kind, order in (action.get('reactions') or {}).items():
+        orders['reactions'] = dict(orders.get('reactions') or {}, **{kind: _clean_reaction_order(state, index, kind, order)})
     for unit_id, parts in (action.get('allocation') or {}).items():
         unit = _unit_or_error(state, unit_id)
         if unit['player'] != index:
@@ -843,15 +856,17 @@ def shooting_options(state, unit_id, first_only=False):
     return {'reason': reason, 'weapons': weapons}
 
 
-def _shoot(state, action, dice):
+def _shoot(state, action, dice, snap=False):
     """
     Shoot with a unit: each weapon at its target (`target` for all, or per weapon in `weapons`:
     [{'part', 'weapon', 'target'}]). Every weapon is checked first (_weapon_plan), then rolled in
     turn: models within half range roll on their own. Wounds go to models by the target player's
-    standing orders; Hazardous weapons roll afterwards.
+    standing orders; Hazardous weapons roll afterwards. `snap`: snap shooting (Fire Overwatch, which
+    checks the unit itself).
     """
     shooter = _unit_or_error(state, action.get('unit'))
-    _shooter_checks(state, shooter)
+    if not snap:
+        _shooter_checks(state, shooter)
     activity = shooter['activity']
     picks = action.get('weapons')
     if picks is None:  # Every ranged weapon that starts ticked
@@ -890,7 +905,7 @@ def _shoot(state, action, dice):
             attacker.abilities += extra
             conditions = BattleConditions(half_range=half, stationary=stationary, cover=cover, damaged=damaged)
             first = len(dice.log)
-            pool = roll_attack(attacker, _defender(target, _first_alive(target)['part']), conditions, dice)
+            pool = roll_attack(attacker, _defender(target, _first_alive(target)['part']), conditions, dice, snap=snap)
             killed = _resolve_wounds(state, shooter, target, attacker, conditions, pool, dice)
             attacks.append({'part': part_index, 'weapon': weapon_index, 'name': weapon['name'], 'target': target['id'],
                             'models': len(models), 'half_range': half, 'cover': cover, **asdict(pool),
@@ -905,6 +920,204 @@ def _shoot(state, action, dice):
     activity['shot'] = True
     shooter.setdefault('status', {'shocked': False})['shot_seq'] = state['turn'].get('seq', 0)  # No longer hidden
     return {'attacks': attacks}
+
+
+# --- Reactions: the other player's decisions in your turn (11th edition core stratagems) ------------------------
+
+REACTIONS = {'overwatch': 'Fire Overwatch', 'heroic': 'Heroic Intervention', 'reroll': 'Command Re-roll'}
+WINDOW_ACTIONS = {'overwatch': ('pass', 'overwatch'), 'heroic': ('pass', 'heroic'), 'reroll': ('pass', 'command_reroll')}
+REACTION_ORDERS = {'overwatch': ('ask', 'never', 'unit'), 'heroic': ('ask', 'never'), 'reroll': ('ask', 'never', 'deaths')}
+OVERWATCH_RANGE = 24  # Snap shooting targets one visible enemy unit within this
+REACTION_TIMING = {'overwatch': "at the end of the opponent's Movement phase",
+                   'heroic': "at the end of the opponent's Charge phase",
+                   'reroll': 'just after the roll, from the Re-roll button on it'}
+
+
+def reaction_order(state, player, kind):
+    """A player's standing order for a reaction ({'mode', ...}); 'ask' when they set none."""
+    return ((state['players'][player].get('orders') or {}).get('reactions') or {}).get(kind) or {'mode': 'ask'}
+
+
+def _clean_reaction_order(state, player, kind, order):
+    if kind not in REACTION_ORDERS or not isinstance(order, dict) or order.get('mode') not in REACTION_ORDERS[kind]:
+        raise ActionError('Standing orders for reactions: Overwatch (ask, never, with a unit), Heroic Intervention '
+                          '(ask, never), Command Re-roll of saves (ask, never, only when a model dies).')
+    if order['mode'] == 'unit':
+        unit = _unit_or_error(state, order.get('unit'))
+        if unit['player'] != player:
+            raise ActionError(f'Overwatch with one of your own units ({unit["name"]} isn\'t).')
+        return {'mode': 'unit', 'unit': unit['id']}
+    return {'mode': order['mode']}
+
+
+def reaction_entry(state, player, kind):
+    """The army's stratagem for a reaction (by name), else the core one at 1 CP (armies frozen without Wahapedia)."""
+    name = REACTIONS[kind]
+    entry = next((e for e in state['players'][player].get('stratagems', [])
+                  if e['kind'] == 'stratagem' and e['name'].lower() == name.lower()), None)
+    return entry or {'key': f'core:{kind}', 'kind': 'stratagem', 'name': name, 'cp': 1}
+
+
+def _reaction_ready(state, player, kind, extra_cp=0):
+    """Why a player can't use a reaction's stratagem now (not enough CP, used this phase), else None."""
+    entry, owner = reaction_entry(state, player, kind), state['players'][player]
+    if owner.get('cp', 0) < entry['cp'] + extra_cp:
+        return f'{entry["name"]} costs {entry["cp"] + extra_cp} CP; {owner["name"]} has {owner.get("cp", 0)} CP.'
+    if (owner.get('used') or {}).get(entry['key']) == _phase_id(state['turn']):
+        return f'{entry["name"]} has already been used this phase.'
+    return None
+
+
+def _spend_reaction(state, player, kind, unit, extra_cp=0):
+    """Pay for a reaction's stratagem on `unit`: its CP, once per phase, one stratagem per unit per phase."""
+    problem = _reaction_ready(state, player, kind, extra_cp)
+    if problem:
+        raise ActionError(problem)
+    status = unit.setdefault('status', {'shocked': False})
+    if status.get('shocked'):
+        raise ActionError(f'{unit["name"]} is battle-shocked: stratagems can\'t target it.')
+    if status.get('stratagem_phase') == _phase_id(state['turn']):
+        raise ActionError(f'{unit["name"]} has already been targeted by a stratagem this phase.')
+    entry, owner = reaction_entry(state, player, kind), state['players'][player]
+    owner['cp'] -= entry['cp'] + extra_cp
+    owner.setdefault('used', {})[entry['key']] = _phase_id(state['turn'])
+    status['stratagem_phase'] = _phase_id(state['turn'])
+    return entry
+
+
+def _end_of_phase_window(state, dice):
+    """
+    The window at the end of the active player's Movement phase (Fire Overwatch) or Charge phase (Heroic
+    Intervention), for the other player: opened if they could react and their standing order doesn't answer it
+    (then the phase changes once it closes); None if there is nothing to wait for.
+    """
+    turn = state['turn']
+    kind = {'movement': 'overwatch'}.get(turn['phase'])
+    if kind is None or (turn.get('reacted') or {}).get(kind) == _phase_id(turn):
+        return None
+    player = 1 - turn['player']
+    turn.setdefault('reacted', {})[kind] = _phase_id(turn)  # Asked once a phase
+    order = reaction_order(state, player, kind)
+    if order['mode'] == 'never' or _reaction_ready(state, player, kind) or not overwatch_units(state, player):
+        return None
+    if order['mode'] == 'unit':  # The standing order answers: that unit at the closest target it can shoot
+        unit = next((u for u in state['units'] if u['id'] == order['unit']), None)
+        target = _overwatch_target(state, unit) if unit and unit['id'] in overwatch_units(state, player) else None
+        if target is None:
+            return None
+        detail = _overwatch(state, {'player': player, 'unit': unit['id'], 'target': target['id']}, dice, standing=True)
+        return dict(detail, **_next_phase(state, dice)) if not turn.get('window') else detail
+    turn['window'] = {'kind': kind, 'player': player, 'then': 'next_phase'}
+    return {'window': kind}
+
+
+def window_options(state):
+    """For the page: the open reaction window, if any: {kind, player, name, cp, units: {unit id: [target ids]}}."""
+    window = state['turn'].get('window')
+    if not window:
+        return None
+    entry = reaction_entry(state, window['player'], window['kind'])
+    units = {}
+    if window['kind'] == 'overwatch':
+        units = {u: [t['id'] for t in overwatch_targets(state, unit_by_id(state, u))] for u in overwatch_units(state, window['player'])}
+    return {'kind': window['kind'], 'player': window['player'], 'name': entry['name'], 'cp': entry['cp'], 'units': units}
+
+
+def _close_window(state, dice):
+    """The window is answered: carry on with what it held up (the phase change)."""
+    window = state['turn'].pop('window')
+    if window.get('then') == 'next_phase':
+        return _next_phase(state, dice)
+    return {}
+
+
+def _window_for(state, action, kind):
+    window = state['turn'].get('window')
+    if not window or window['kind'] != kind:
+        raise ActionError(f'{REACTIONS[kind]} is used when the game offers it.')
+    if action.get('player') != window['player']:
+        raise ActionError(f'It is {state["players"][window["player"]]["name"]}\'s decision.')
+    return window
+
+
+def _pass(state, action, dice):
+    """The reacting player lets the window go (no reaction)."""
+    window = state['turn'].get('window')
+    if not window:
+        raise ActionError('There is nothing to pass on.')
+    _window_for(state, action, window['kind'])
+    detail = _close_window(state, dice)
+    return dict(detail, passed=window['kind'], player=window['player'])
+
+
+def overwatch_units(state, player):
+    """The ids of a player's units that could Fire Overwatch now: on the board, unengaged, not Titanic or
+    battle-shocked, not yet targeted by a stratagem this phase, with an enemy they could snap shoot."""
+    phase = _phase_id(state['turn'])
+    return [u['id'] for u in state['units'] if u['player'] == player and _placed_models(u) and not _is_engaged(state, u)
+            and not any(_has(p['keywords'], 'Titanic') for p in u['parts'])
+            and not (u.get('status') or {}).get('shocked') and (u.get('status') or {}).get('stratagem_phase') != phase
+            and _overwatch_target(state, u) is not None]
+
+
+def overwatch_targets(state, unit):
+    """The enemy units `unit` could snap shoot: visible, within 24", and a target for at least one ranged weapon."""
+    targets = []
+    for target in state['units']:
+        if target['player'] == unit['player'] or not _placed_models(target):
+            continue
+        if _unit_distance(_placed_shapes(unit), _placed_shapes(target)) > OVERWATCH_RANGE + 1e-9:
+            continue
+        for p, part in enumerate(unit['parts']):
+            if any(_plan_ok(state, unit, p, w, target) for w, weapon in enumerate(part['weapons']) if weapon['type'] == 'ranged'):
+                targets.append(target)
+                break
+    return targets
+
+
+def _plan_ok(state, unit, part, weapon, target):
+    try:
+        _weapon_plan(state, unit, part, weapon, target)
+        return True
+    except ActionError:
+        return False
+
+
+def _overwatch_target(state, unit):
+    """The closest enemy unit `unit` could snap shoot, or None."""
+    targets = overwatch_targets(state, unit)
+    return min(targets, key=lambda t: _unit_distance(_placed_shapes(unit), _placed_shapes(t))) if targets else None
+
+
+def _overwatch(state, action, dice, standing=False):
+    """
+    Fire Overwatch (1 CP; end of the opponent's Movement phase): one of the reacting player's units snap shoots one
+    enemy unit (`target`) with its ranged weapons (`weapons`, as for shooting, else those that start ticked).
+    `standing`: a standing order fired it, with no window open.
+    """
+    player = action.get('player')
+    if not standing:
+        _window_for(state, action, 'overwatch')
+    unit = _unit_or_error(state, action.get('unit'))
+    if unit['player'] != player:
+        raise ActionError(f'Overwatch with one of your own units ({unit["name"]} isn\'t).')
+    if unit['id'] not in overwatch_units(state, player):
+        raise ActionError(f'{unit["name"]} can\'t Fire Overwatch: it must be unengaged, not Titanic, and have a visible '
+                          f'enemy unit within {OVERWATCH_RANGE}" to shoot.')
+    target = _unit_or_error(state, action.get('target'))
+    if target['id'] not in [t['id'] for t in overwatch_targets(state, unit)]:
+        raise ActionError(f'{unit["name"]} can only snap shoot a visible enemy unit within {OVERWATCH_RANGE}" '
+                          f'({target["name"]} isn\'t one it can shoot).')
+    picks = action.get('weapons')
+    if picks is not None and any(isinstance(p, dict) and p.get('target') not in (None, target['id']) for p in picks):
+        raise ActionError('Snap shooting targets one enemy unit.')
+    entry = _spend_reaction(state, player, 'overwatch', unit)
+    detail = _shoot(state, {'unit': unit['id'], 'target': target['id'], 'weapons': picks}, dice, snap=True)
+    result = dict(detail, stratagem=entry['name'], cp=entry['cp'], player=player, unit=unit['id'], overwatch=True,
+                  **({'standing': True} if standing else {}))
+    if not standing:
+        result.update(_close_window(state, dice))
+    return result
 
 
 def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice):
