@@ -149,7 +149,24 @@ def _through(p, q, polygon):
 def can_see(a, b, blockers):
     """Whether any straight line from a point of base `a` to a point of base `b` is clear (sampled
     at SIGHT_POINTS around each edge, and the centres)."""
+    blockers = between(a, b, blockers)
+    if not blockers:
+        return True
     return any(clear_line(p, q, blockers) for p in _sight_points(a) for q in _sight_points(b))
+
+
+def between(a, b, blockers):
+    """The blockers that could be in the way of a line from shape `a` to shape `b`: those reaching into the box
+    around both (every such line stays inside it)."""
+    a_box, b_box = bounds(a), bounds(b)
+    left, bottom = min(a_box[0], b_box[0]), min(a_box[1], b_box[1])
+    right, top = max(a_box[2], b_box[2]), max(a_box[3], b_box[3])
+    near = []
+    for blocker in blockers:
+        k_left, k_bottom, k_right, k_top = bounds(blocker)
+        if k_left < right and k_right > left and k_bottom < top and k_top > bottom:
+            near.append(blocker)
+    return near
 
 
 def _sight_points(shape):

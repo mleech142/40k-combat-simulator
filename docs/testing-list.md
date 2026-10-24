@@ -26,6 +26,12 @@ written scope for 12. Items 13 and 14 are parked.
 4. **Play: phase changes and actions are slow.** Moving to the next phase, and actions within a phase, take too long
    to process. Measure first: in an online game each action also fetches the other player's moves from the relay
    and then appends to it (two round trips), so check whether offline games are slow too.
+   *Done (2.4.1):* measured on the owner's games (about 50 events). Every action took 25–160 ms offline except
+   in the Shooting phase, where each response (the phase change and every action in it) took about 11 s: listing
+   the units that can still shoot checked line of sight from every model to every enemy model, out of range
+   included, against every terrain piece. Now it checks only models in range, closest first, ignores terrain that
+   can't be in the way, stops at the first target and reuses sight results: 0.16–0.31 s. Online adds the two relay
+   calls, about 85 ms each (0.7 s for the first of a session). `tests/test_play_speed.py` keeps it quick.
 5. **Play bug: gaps in Dense terrain.** A model whose base fits through a gap between terrain pieces (or between a
    piece's walls) is treated as moving through Dense terrain. Check how a move's path is tested against terrain
    footprints: the base should be able to pass anywhere it fits.

@@ -21,7 +21,7 @@ from . import battlefields, mission_state, tactical
 from .missions import MIRRORED_PRIMARIES, NIGHT_VISIBILITY
 from .geometry import clear_line
 from .geometry import footprint as footprint_shape
-from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, bounds, can_see, farther_than, hull_shape,
+from .geometry import (BOARD_DEPTH, BOARD_WIDTH, MM_PER_INCH, base_distance, base_shape, between, bounds, can_see, farther_than, hull_shape,
                        overlaps)
 
 STATE_VERSION = 1
@@ -728,12 +728,14 @@ def _shooter_checks(state, shooter):
         raise ActionError(f'{shooter["name"]} started an action this turn, so it can\'t shoot.')
 
 
-def _weapon_plan(state, shooter, part_index, weapon_index, target):
+def _weapon_plan(state, shooter, part_index, weapon_index, target, sight=None):
     """
     Check one weapon against one target: ([models within half range], [models in range beyond it],
     extra abilities) or ActionError saying why it can't fire. A model fires if a target model it can
-    see is within the weapon's range, base to base.
+    see is within the weapon's range, base to base. `sight` keeps what one model can see of another
+    for further checks of the same board ({(model id, model id): (visible, why not)}).
     """
+    sight = {} if sight is None else sight
     try:
         weapon = shooter['parts'][int(part_index)]['weapons'][int(weapon_index)]
     except (TypeError, ValueError, IndexError):
@@ -775,15 +777,23 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
     for model, shape in _placed_models(shooter):
         if model['part'] != int(part_index) or int(weapon_index) not in model['weapons']:
             continue
-        seen = []
-        for target_model, other in targets:
-            visible, why = sees(state, shape, other, target, target_model)
+        # The closest target model it can see, looking only at those in range (sight is the slow part)
+        in_range = sorted((d, i) for i, (_, other) in enumerate(targets)
+                          if (d := base_distance(shape, other)) <= reach + 1e-9)
+        closest = None
+        for distance, i in in_range:
+            target_model, other = targets[i]
+            key = (model['id'], target_model['id'])
+            if key not in sight:
+                sight[key] = sees(state, shape, other, target, target_model)
+            visible, why = sight[key]
             hidden = hidden or why == 'hidden'
             dark = dark or why == 'night'
             if visible:
-                seen.append(base_distance(shape, other))
-        if seen and min(seen) <= reach + 1e-9:
-            (near if min(seen) <= reach / 2 + 1e-9 else far).append(model)
+                closest = distance
+                break
+        if closest is not None:
+            (near if closest <= reach / 2 + 1e-9 else far).append(model)
             if has_cover(state, shape, target):
                 covered.add(model['id'])
     if not near and not far:
@@ -796,12 +806,14 @@ def _weapon_plan(state, shooter, part_index, weapon_index, target):
     return near, far, extra, covered
 
 
-def shooting_options(state, unit_id):
+def shooting_options(state, unit_id, first_only=False):
     """
     For the page: whether a unit can shoot now ('reason' why not, else None) and, for each of its
     ranged weapons, each enemy unit as a target: {'ok', 'models' (how many would fire), 'reason'}.
+    With `first_only`, it stops at the first target a weapon can shoot (enough to know the unit can shoot).
     """
     shooter = _unit_or_error(state, unit_id)
+    sight = {}
     try:
         _shooter_checks(state, shooter)
         reason = None
@@ -816,12 +828,17 @@ def shooting_options(state, unit_id):
             targets = {}
             for target in enemies:
                 try:
-                    near, far, _, _ = _weapon_plan(state, shooter, part_index, weapon_index, target)
+                    near, far, _, _ = _weapon_plan(state, shooter, part_index, weapon_index, target, sight)
                     targets[target['id']] = {'ok': True, 'models': len(near) + len(far), 'reason': None}
                 except ActionError as error:
                     targets[target['id']] = {'ok': False, 'models': 0, 'reason': str(error)}
+                    continue
+                if first_only:
+                    break
             weapons.append({'part': part_index, 'weapon': weapon_index, 'name': weapon['name'], 'range': weapon.get('range'),
                             'default_use': weapon['default_use'], 'targets': targets})
+            if first_only and any(t['ok'] for t in targets.values()):
+                return {'reason': reason, 'weapons': weapons}
     return {'reason': reason, 'weapons': weapons}
 
 
@@ -1218,7 +1235,8 @@ def _blocking(state, unit, through_all=False):
 
 
 def _engaged(shapes, enemies):
-    return any(base_distance(a, b) <= ENGAGEMENT_RANGE + 1e-9 for a in shapes for b in enemies)
+    return any(not farther_than(a, b, ENGAGEMENT_RANGE + 1e-9) and base_distance(a, b) <= ENGAGEMENT_RANGE + 1e-9
+               for a in shapes for b in enemies)
 
 
 def move_characteristic(part):
@@ -2043,7 +2061,11 @@ def ready_units(state):
         return [u['id'] for u in mine if 'moved' not in u['activity'] and _placed_shapes(u)]
     if phase == 'shooting':
         def can_shoot(unit):
-            options = shooting_options(state, unit['id'])
+            try:
+                _shooter_checks(state, unit)
+            except ActionError:
+                return False
+            options = shooting_options(state, unit['id'], first_only=True)
             return options['reason'] is None and any(t['ok'] for w in options['weapons'] for t in w['targets'].values())
         return [u['id'] for u in mine if can_shoot(u)]
     if phase == 'charge':
@@ -2178,6 +2200,9 @@ def _view_blockers(state, a, b, categories=('light', 'dense')):
 
 def fully_visible(a, b, blockers):
     """Whether every part of model `b` can be seen from model `a`'s centre past `blockers`."""
+    blockers = between(a, b, blockers)
+    if not blockers:
+        return True
     eye = _centre(a)
     return all(clear_line(eye, point, blockers) for point in battlefields.outline_points(b) + [_centre(b)])
 
