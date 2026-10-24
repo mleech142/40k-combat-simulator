@@ -1153,6 +1153,38 @@
     }
 
     /**
+     * Play: the hover card for a unit on the board (its datasheet, and its leaders'): each part's characteristics,
+     * weapons and, once fetched from this PC's data, abilities. `abilities[i]` is part i's {found, abilities, rules}
+     * from /api/play/abilities, or undefined while it loads.
+     */
+    function playUnitCard(unit, abilities = []) {
+        const roles = { leader: 'Leader', support: 'Support' };
+        const parts = unit.parts.map((part, i) => {
+            const stats = matchStatLine(part.stats).map(s => `<span><b>${s.label}</b> ${escapeHtml(s.value)}</span>`).join('');
+            const saves = [part.stats.invulnerable_save && `<span><b>INV</b> ${escapeHtml(part.stats.invulnerable_save)}+</span>`,
+                           part.stats.feel_no_pain && `<span><b>FNP</b> ${escapeHtml(part.stats.feel_no_pain)}+</span>`].filter(Boolean).join('');
+            const weapons = part.weapons.map(w => {
+                const c = matchWeaponCells(w, w.type);
+                const keywords = (w.abilities || []).length ? `<div class="play-card-keywords">${w.abilities.map(escapeHtml).join(', ')}</div>` : '';
+                return `<tr><td>${escapeHtml(w.name)}${w.qty > 1 ? ` <span class="play-card-qty">×${w.qty}</span>` : ''}${keywords}</td>` +
+                    `<td>${c.range}</td><td>${escapeHtml(c.attacks)}</td><td>${c.skill}</td><td>${escapeHtml(c.strength)}</td><td>${c.ap}</td><td>${escapeHtml(c.damage)}</td></tr>`;
+            }).join('');
+            const found = abilities[i];
+            const text = found === undefined ? '<p class="play-card-note">Loading abilities…</p>'
+                : !found.found ? `<p class="play-card-note">Its abilities aren't in this PC's data.</p>`
+                : found.abilities.filter(a => a.name !== 'Leader').map(a => `<div class="play-card-ability">${a.name ? `<b>${escapeHtml(a.name)}:</b> ` : ''}${formatRuleText(a.text)}</div>`).join('') +
+                  (found.rules.length ? `<p class="play-card-rules">${found.rules.map(escapeHtml).join(', ')}</p>` : '');
+            const tags = [roles[part.role], part.warlord && 'Warlord'].filter(Boolean).map(t => `<span class="play-card-tag">${t}</span>`).join('');
+            return `<section class="play-card-part"><h4>${escapeHtml(part.name)}${part.models > 1 ? ` <span class="play-card-qty">×${part.models}</span>` : ''} ${tags}</h4>` +
+                `<div class="play-card-stats">${stats}${saves}</div>` +
+                (weapons ? `<table class="play-card-weapons"><thead><tr><th>Weapon</th><th>Range</th><th>A</th><th>BS/WS</th><th>S</th><th>AP</th><th>D</th></tr></thead><tbody>${weapons}</tbody></table>` : '') +
+                (part.enhancement ? `<p class="play-card-rules"><b>Enhancement:</b> ${escapeHtml(part.enhancement.name)}</p>` : '') +
+                text + `<p class="play-card-keywords">${(part.keywords || []).map(escapeHtml).join(', ')}</p></section>`;
+        }).join('');
+        return `<div class="play-card-unit">${escapeHtml(unit.name)}</div><div class="play-card-parts">${parts}</div>`;
+    }
+
+    /**
      * Is a Match view stratagem shown for the chosen filters? phase: 'all', a phase name such as
      * 'Shooting phase' (a stratagem for any phase, or with none given, is shown for every phase),
      * or 'other' (only those); turn: 'all', 'yours' or 'theirs' (either player's turn counts for both).
@@ -1171,7 +1203,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

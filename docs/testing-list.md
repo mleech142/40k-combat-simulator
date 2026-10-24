@@ -45,6 +45,9 @@ written scope for 12. Items 13 and 14 are parked.
    (`rules-audit-11e.md`, "Not modelled").
 7. **Play: unit profile on hover.** Hovering over a unit on the board shows its datasheet: characteristics,
    weapon profiles and abilities (and the attached leader's).
+   *Done (2.5):* half a second over a model shows a card by the pointer (`Core.playUnitCard`): characteristics,
+   weapons, keywords and abilities, the leaders beside the unit. Abilities come from this PC's data
+   (`/api/play/abilities`), since games carry no rule text.
 8. **Play: show which model is the leader.** A Character leading a unit looks like any other model in it, with no
    label. Make it clear which model is the leader. The board already gives a leader's model the `leader` class
    (`play.js`, model drawing) but no style uses it.

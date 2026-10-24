@@ -12,7 +12,8 @@ import uuid
 from flask import Response, current_app, jsonify, render_template, request
 
 from .. import __version__, armies
-from ..models import SavedArmy, SavedBattlefield, SavedGame, db
+from ..match_view import split_abilities
+from ..models import SavedArmy, SavedBattlefield, SavedGame, Unit, db
 from . import battlefields, game_file, mission_state, missions, relay_client, tactical
 from .dice import Dice
 from .seats import actor, check_seat, waiting_on
@@ -739,6 +740,22 @@ def register_play_routes(app):
             return jsonify(OPTIONS[kind](replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist), unit_id))
         except ActionError as error:
             return jsonify({'error': str(error)}), 404
+
+    @app.route('/api/play/abilities')
+    def api_abilities():
+        """
+        A game part's abilities from this PC's data, for the board's hover card (games carry no rule text): by its
+        BSData ID (`bsdata`), else its database ID (`unit`). {'found', 'abilities': [{name, text}], 'rules': [names]}.
+        """
+        unit = None
+        if request.args.get('bsdata'):
+            unit = Unit.query.filter_by(bsdata_id=request.args['bsdata']).first()
+        if unit is None and request.args.get('unit', '').isdigit():
+            unit = db.session.get(Unit, int(request.args['unit']))
+        if unit is None:
+            return jsonify({'found': False, 'abilities': [], 'rules': []})
+        abilities, rules = split_abilities(unit.abilities)
+        return jsonify({'found': True, 'abilities': abilities, 'rules': rules})
 
     @app.route('/api/play/measure', methods=['POST'])
     def api_measure():

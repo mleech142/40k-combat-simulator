@@ -70,6 +70,8 @@
         board.addEventListener('pointermove', pointerMove);
         board.addEventListener('pointerup', pointerUp);
         board.addEventListener('contextmenu', e => e.preventDefault());  // Right-drag pans
+        board.addEventListener('pointerover', hoverModel);
+        board.addEventListener('pointerout', e => { if (!e.relatedTarget || !e.relatedTarget.closest('[data-model]')) hideCard(); });
         board.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });  // No auto-scroll on middle-drag
         document.addEventListener('battlefields-changed', e => fillBattlefields(e.detail));
         document.addEventListener('keydown', e => {
@@ -1900,9 +1902,69 @@
         drawMeasure();
     }
 
+    // --- The hover card: a unit's datasheet (and its leaders') after a short pause over one of its models ---
+
+    const CARD_DELAY = 500;  // ms
+    const abilityCache = {};  // 'bsdata|unit' -> /api/play/abilities answer (or its promise)
+    let cardTimer = null, cardUnit = null;
+
+    function hoverModel(event) {
+        const target = event.target.closest('[data-model]');
+        if (!target || state.drag || state.pan || state.measure) return;
+        const unitId = target.dataset.unit;
+        if (unitId === cardUnit) return;
+        hideCard();
+        const at = { x: event.clientX, y: event.clientY };
+        cardTimer = setTimeout(() => showCard(unitId, at), CARD_DELAY);
+    }
+
+    function hideCard() {
+        clearTimeout(cardTimer);
+        cardTimer = null;
+        cardUnit = null;
+        const card = $('play-card');
+        if (card) card.hidden = true;
+    }
+
+    async function showCard(unitId, at) {
+        const unit = unitById(unitId);
+        if (!unit || state.drag || state.pan || state.measure) return;
+        cardUnit = unitId;
+        let card = $('play-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'play-card';
+            card.className = 'play-card';
+            card.setAttribute('role', 'tooltip');
+            document.body.appendChild(card);
+        }
+        const key = part => `${part.bsdata_id || ''}|${part.unit_id || ''}`;
+        const draw = () => {
+            if (cardUnit !== unitId) return;
+            card.classList.toggle('wide', unit.parts.length > 1);  // Its leaders beside it, not below
+            card.innerHTML = Core.playUnitCard(unit, unit.parts.map(p => abilityCache[key(p)] instanceof Promise ? undefined : abilityCache[key(p)]));
+            card.hidden = false;
+            // Beside the pointer, kept on screen
+            const box = card.getBoundingClientRect(), gap = 16;
+            const left = at.x + gap + box.width > innerWidth ? Math.max(8, at.x - gap - box.width) : at.x + gap;
+            card.style.left = `${left}px`;
+            card.style.top = `${Math.max(8, Math.min(at.y - 20, innerHeight - box.height - 8))}px`;
+        };
+        draw();
+        const missing = unit.parts.filter(p => !(key(p) in abilityCache));
+        missing.forEach(p => {
+            abilityCache[key(p)] = fetch(`/api/play/abilities?bsdata=${encodeURIComponent(p.bsdata_id || '')}&unit=${p.unit_id || ''}`)
+                .then(r => r.json()).catch(() => ({ found: false, abilities: [], rules: [] }))
+                .then(answer => { abilityCache[key(p)] = answer; });
+        });
+        await Promise.all(unit.parts.map(p => abilityCache[key(p)]).filter(v => v instanceof Promise));
+        draw();
+    }
+
     // --- The Measure tool: two clicks, the distance between them (from a model's base edge if one is clicked) ---
 
     function toggleMeasure(on = !state.measure) {
+        hideCard();
         state.measure = on ? { from: null, to: null, distance: null, fixed: false } : null;
         $('measure-btn').classList.toggle('active', on);
         $('play-board').classList.toggle('measuring', on);
@@ -2138,6 +2200,7 @@
 
     function pointerDown(event) {
         if (!state.game) return;
+        hideCard();
         const target = event.target.closest('[data-model]');
         if (state.measure && event.button === 0) return measureClick(event);
         if (event.button === 1 || event.button === 2 || (event.button === 0 && !target)) {

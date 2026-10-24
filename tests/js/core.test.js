@@ -744,6 +744,30 @@ test('playPath gives a model its path this phase: start, waypoints, where it sta
     assert.deepEqual(Core.playPath(start, undefined, start), [start]);  // Not moved
 });
 
+test('playUnitCard shows the datasheet of each part, its leader marked, abilities once loaded', () => {
+    const stats = { move: '6', toughness: 4, save: 3, wounds: 2, leadership: 6, oc: 1, invulnerable_save: 4, feel_no_pain: null };
+    const unit = { name: 'Squad', parts: [
+        { name: 'Squad', role: 'bodyguard', models: 5, stats, keywords: ['Infantry'], enhancement: null, warlord: false,
+          weapons: [{ name: 'Bolter', type: 'ranged', range: 24, attacks: '2', skill: 3, strength: 4, ap: 1, damage: '1', qty: 5, abilities: ['Rapid Fire 1'] }] },
+        { name: 'Captain <b>', role: 'leader', models: 1, stats, keywords: ['Character'], enhancement: { name: 'Relic' }, warlord: true,
+          weapons: [{ name: 'Sword', type: 'melee', range: null, attacks: '5', skill: 2, strength: 5, ap: 2, damage: '2', qty: 1, abilities: [] }] },
+    ] };
+    const loading = Core.playUnitCard(unit);
+    assert.match(loading, /Loading abilities/);
+    assert.match(loading, /Bolter <span class="play-card-qty">×5<\/span>/);
+    assert.match(loading, /<td>24"<\/td><td>2<\/td><td>3\+<\/td><td>4<\/td><td>-1<\/td><td>1<\/td>/);
+    assert.match(loading, /<td>Melee<\/td>/);
+    assert.match(loading, /<b>INV<\/b> 4\+/);
+    assert.match(loading, /Captain &lt;b&gt;/);  // Escaped
+    assert.match(loading, /<span class="play-card-tag">Leader<\/span><span class="play-card-tag">Warlord<\/span>/);
+    assert.match(loading, /Enhancement:<\/b> Relic/);
+    const loaded = Core.playUnitCard(unit, [{ found: true, abilities: [{ name: 'Oath', text: 'Re-roll **hits**.' }], rules: ['Deep Strike'] },
+                                            { found: false, abilities: [], rules: [] }]);
+    assert.match(loaded, /<b>Oath:<\/b> <p>Re-roll <strong>hits<\/strong>.<\/p>/);
+    assert.match(loaded, /Deep Strike/);
+    assert.match(loaded, /aren't in this PC's data/);
+});
+
 test('playPan moves the view but keeps its centre over the board', () => {
     const board = { width: 60, depth: 44 }, view = { x: 10, y: 10, w: 20, h: 15 };
     assert.deepEqual(Core.playPan(view, 5, -3, board), { x: 15, y: 7, w: 20, h: 15 });

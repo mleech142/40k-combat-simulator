@@ -45,3 +45,17 @@ def test_the_api(make_client):
     answer = client.post('/api/play/measure', json={'ends': [{'x': 0, 'y': 0, 'outline': ROUND}, {'x': 5, 'y': 0}]})
     assert answer.status_code == 200 and answer.get_json() == {'distance': 4.37}
     assert client.post('/api/play/measure', json={'ends': [{'x': 0}]}).status_code == 400
+
+
+def test_a_parts_abilities_for_the_hover_card(make_client):
+    """GET /api/play/abilities: a game part's abilities from this PC's data (games carry no rule text)."""
+    from conftest import BSDATA_FIXTURES
+    client = make_client(APP_DATA, bsdata=BSDATA_FIXTURES)[0]
+    factions = {f['name']: f['id'] for f in client.get('/api/data/factions').get_json()}
+    captain = next(u for u in client.get(f'/api/units?faction_id={factions["Starfarers"]}').get_json() if u['name'] == 'Star Captain')
+    by_id = client.get(f'/api/play/abilities?unit={captain["id"]}').get_json()
+    assert by_id['found'] and (by_id['abilities'] or by_id['rules'])
+    unit = client.get(f'/api/units/{captain["id"]}').get_json()
+    assert unit['bsdata_id']
+    assert client.get(f'/api/play/abilities?bsdata={unit["bsdata_id"]}').get_json() == by_id
+    assert client.get('/api/play/abilities?unit=999999999').get_json() == {'found': False, 'abilities': [], 'rules': []}
