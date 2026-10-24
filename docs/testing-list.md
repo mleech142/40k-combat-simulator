@@ -18,6 +18,9 @@ written scope for 12. Items 13 and 14 are parked.
    unit's formation) and move individual models within the unit, not only drag the unit as a block. Deployment
    already has turning (the 15° and 45° buttons, `Core.playPivot`) and Shift-drag for one model; movement should
    offer the same. Beyond the original plan, but the owner thinks it adds to it.
+   *Done (2.5):* the movement panel's Turn buttons (and Q / E) pivot the unit, each model charged its arc (sent as its
+   route, `Core.playTurn`); Shift + mouse wheel spins one model on the spot for free; Shift-drag moves one model.
+   Turns show at once and go as one move after a short pause.
 3. **Play: work out effects automatically.** Apply abilities', stratagems' and rules' effects to units from their
    text, so the player doesn't have to set them. Today an effect the app can't read becomes a manual effect the
    player picks from a fixed list (`game.MANUAL_EFFECTS`: ±1 to hit, re-rolls, cover and so on), or a stratagem's

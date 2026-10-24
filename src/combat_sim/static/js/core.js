@@ -721,9 +721,31 @@
     function playPivot(spots, degrees) {
         const cx = spots.reduce((s, p) => s + p.x, 0) / spots.length, cy = spots.reduce((s, p) => s + p.y, 0) / spots.length;
         const c = Math.cos(degrees * Math.PI / 180), s = Math.sin(degrees * Math.PI / 180);
-        const round = v => Math.round(v * 100) / 100;
+        const round = v => Math.round(v * 100) / 100 || 0;  // Never -0
         return spots.map(p => ({ ...p, x: round(cx + (p.x - cx) * c - (p.y - cy) * s), y: round(cy + (p.x - cx) * s + (p.y - cy) * c),
                                  angle: (((p.angle || 0) + degrees) % 360 + 360) % 360 }));
+    }
+
+    /**
+     * Play: a Movement-phase turn. The formation (`spots`, [{id, x, y, angle}]) pivots `degrees` anticlockwise about
+     * its centre, then models in `spins` ({id: degrees}) spin on the spot. Gives the new {spots} and each model's
+     * {routes}: points along its arc every `step` degrees at most, so its move is measured by how far its centre
+     * travels (a spin on the spot costs nothing).
+     */
+    function playTurn(spots, degrees, spins = {}, step = 10) {
+        const round = v => Math.round(v * 100) / 100 || 0;
+        const turned = playPivot(spots, degrees);
+        const pieces = Math.max(1, Math.ceil(Math.abs(degrees) / step));
+        const routes = {};
+        for (const p of spots) {
+            routes[p.id] = [];
+            for (let k = 1; k < pieces && degrees; k++) {
+                const at = playPivot(spots, degrees * k / pieces).find(q => q.id === p.id);
+                routes[p.id].push({ x: round(at.x), y: round(at.y) });
+            }
+        }
+        const spun = turned.map(p => spins[p.id] ? { ...p, angle: (((p.angle || 0) + spins[p.id]) % 360 + 360) % 360 } : p);
+        return { spots: spun, routes };
     }
 
     /**
@@ -1203,7 +1225,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

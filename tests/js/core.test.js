@@ -768,6 +768,19 @@ test('playUnitCard shows the datasheet of each part, its leader marked, abilitie
     assert.match(loaded, /aren't in this PC's data/);
 });
 
+test('playTurn pivots the formation along arcs and spins single models for free', () => {
+    const spots = [{ id: 'a', x: 0, y: 0, angle: 0 }, { id: 'b', x: 4, y: 0, angle: 0 }];  // Centre (2, 0)
+    const half = Core.playTurn(spots, 180);
+    assert.deepEqual(half.spots.map(p => [p.id, p.x, p.y, p.angle]), [['a', 4, 0, 180], ['b', 0, 0, 180]]);
+    assert.equal(half.routes.a.length, 17);  // 18 pieces of 10 degrees
+    assert.deepEqual(half.routes.a[8], { x: 2, y: -2 });  // Halfway round: below the centre
+    const length = Core.playPathLength([spots[0], ...half.routes.a, half.spots[0]]);
+    assert.ok(Math.abs(length - 2 * Math.PI) < 0.05, length);  // About the half circle's length, not its 4" chord
+    const spin = Core.playTurn(spots, 0, { b: -15 });
+    assert.deepEqual(spin.spots[1], { id: 'b', x: 4, y: 0, angle: 345 });
+    assert.deepEqual(spin.routes, { a: [], b: [] });
+});
+
 test('playPan moves the view but keeps its centre over the board', () => {
     const board = { width: 60, depth: 44 }, view = { x: 10, y: 10, w: 20, h: 15 };
     assert.deepEqual(Core.playPan(view, 5, -3, board), { x: 15, y: 7, w: 20, h: 15 });

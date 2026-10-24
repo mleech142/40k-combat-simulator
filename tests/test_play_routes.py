@@ -4,6 +4,8 @@ each model's `route`, the bends of the path the player dragged it along, so a mo
 between terrain pieces is measured and checked along that path, not the straight line.
 """
 
+import math
+
 import pytest
 
 from combat_sim.play.game import moved_distance, unit_by_id
@@ -102,3 +104,46 @@ def test_a_charge_move_follows_its_route():
 
     assert 'Dense' in refused(state, charge())  # Straight: through the left ruin
     act(state, charge((9.25, 16.5)))  # 10.54" by way of the gap
+
+
+# --- Turning in the Movement phase (the page sends a turn as a waypoint move, each model's arc as its route) ---
+
+def pair(move=6):
+    """Two models 4" apart, (8, 10) and (12, 10), facing along x."""
+    squad = part('Pair', 2, 1, base={'shape': 'oval', 'length_mm': 60, 'width_mm': 35}, stats={'move': str(move)})
+    return game_on([], [(squad, (8, 10), (12, 10))], [target(50, 40)], phase='movement')
+
+
+def arc(x, y, degrees, pieces=18, centre=(10, 10)):
+    """Points along a turn about `centre`, as Core.playTurn sends them."""
+    out = []
+    for k in range(1, pieces):
+        t = math.radians(degrees * k / pieces)
+        dx, dy = x - centre[0], y - centre[1]
+        out.append({'x': round(centre[0] + dx * math.cos(t) - dy * math.sin(t), 2), 'y': round(centre[1] + dx * math.sin(t) + dy * math.cos(t), 2)})
+    return out
+
+
+def turn(degrees, *ends, routes=True):
+    models = []
+    for (mid, sx, sy), (ex, ey) in zip((('p1-pair-0-1', 8, 10), ('p1-pair-0-2', 12, 10)), ends):
+        model = {'id': mid, 'x': ex, 'y': ey, 'angle': degrees % 360}
+        if routes:
+            model['route'] = arc(sx, sy, degrees)
+        models.append(model)
+    return {'type': 'move', 'unit': 'p1-pair', 'mode': 'normal', 'models': models, 'waypoint': True}
+
+
+def test_turning_a_unit_costs_each_model_its_arc():
+    """A half turn swaps the pair's places: 4" in a straight line, but each centre travels a 2" radius half circle (6.28")."""
+    assert '6.3" asked' in refused(pair(move=6), turn(180, (12, 10), (8, 10)))
+    state, _ = act(pair(move=7), turn(180, (12, 10), (8, 10)))
+    assert moved_distance(unit_by_id(state, 'p1-pair')) == pytest.approx(2 * math.pi, abs=0.05)
+
+
+def test_spinning_a_model_on_the_spot_is_free():
+    spin = {'type': 'move', 'unit': 'p1-pair', 'mode': 'normal', 'waypoint': True,
+            'models': [{'id': 'p1-pair-0-1', 'x': 8, 'y': 10, 'angle': 180}, {'id': 'p1-pair-0-2', 'x': 12, 'y': 10, 'angle': 0}]}
+    state, _ = act(pair(), spin)
+    unit = unit_by_id(state, 'p1-pair')
+    assert moved_distance(unit) == 0 and unit['models'][0]['position']['angle'] == 180

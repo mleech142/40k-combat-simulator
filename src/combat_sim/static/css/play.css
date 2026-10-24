@@ -360,3 +360,5 @@
 .play-card-ability p + p { display: block; margin-top: 0.2rem; }
 .play-card-rules { margin: 0.25rem 0 0; }
 .play-card-note { color: var(--text-secondary); font-style: italic; margin: 0.25rem 0 0; }
+
+.play-turn-label { align-self: center; color: var(--text-secondary); font-size: 0.8rem; margin-right: 0.15rem; }

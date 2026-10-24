@@ -28,6 +28,7 @@
         view: null,  // The board's viewBox, in SVG units (inches, y down)
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
         pan: null,  // {x, y, view, click, point, moved} while panning the camera
+        turning: null,  // A Movement-phase turn not sent yet: {unitId, original, degrees, spins, timer}
         measure: null,  // The Measure tool while it's on: {from, to (ends: a point, or a model's base), distance, fixed}
         moveMode: 'normal',  // How the selected unit will move (Movement phase)
         skies: false,  // The selected Fly unit takes to the skies for its move or charge (2" less, over terrain and models)
@@ -84,7 +85,14 @@
                 toggleMeasure(false);
                 return;
             }
-            if (open.length || !state.placing || state.working || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName);
+            const mover = state.selected && unitById(state.selected);
+            if (!open.length && !typing && !state.placing && mover && canTurn(mover) && ['q', 'e'].includes(e.key.toLowerCase())) {
+                turnUnit(mover, e.key.toLowerCase() === 'q' ? 15 : -15);
+                e.preventDefault();
+                return;
+            }
+            if (open.length || !state.placing || state.working || typing) return;
             const key = e.key.toLowerCase();
             if (key === 'q') pivotPlacing(15);
             else if (key === 'e') pivotPlacing(-15);
@@ -1128,11 +1136,17 @@
                     title="The next move carries on from here, so the unit can go round terrain"><i class="fa-solid fa-route" aria-hidden="true"></i> Waypoint</button>` : ''}
                 ${moved ? '<button class="btn-small" data-mode="reset">Reset move</button>' : ''}
                 ${state.moveMode !== 'stationary' ? skiesButton(unit) : ''}
-            </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]}.
+            </div><div class="play-move-modes"><span class="play-turn-label">Turn</span>${[[45, 'rotate-left', 'anticlockwise'],
+                [15, 'rotate-left', 'anticlockwise'], [-15, 'rotate-right', 'clockwise'], [-45, 'rotate-right', 'clockwise']].map(([deg, icon, way]) =>
+                `<button class="btn-small" data-turn="${deg}" title="Turn the unit ${Math.abs(deg)}° ${way} (Q / E: 15°)">
+                    <i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${Math.abs(deg)}°</button>`).join('')}
+            </div><p class="play-hint">Drag the unit to make the ${MOVE_MODES.find(m => m[0] === state.moveMode)[1]};
+                Shift-drag moves one model. Turning the unit costs each model the distance its centre travels round the turn;
+                Shift + mouse wheel over a model spins it on the spot, which is free.
                 Climbing Dense terrain over 2" high (twice its height) counts against the move, unless the unit is Infantry,
                 Beasts, Swarm or Mobile, or takes to the skies.
                 ${state.waypoint ? 'Waypoint: the next drag carries on from where it stands, and the whole path counts.'
-                    : 'Each drag is measured in a straight line from where it started; Waypoint carries on from where it stands instead.'}
+                    : 'Each drag is measured along the path you drag, from where the unit started the phase; Waypoint carries on from where it stands instead.'}
                 You can move it again or reset it until the Movement phase ends; then moves are locked.</p>`;
         }
         if (turn.phase === 'shooting' && unit.player === turn.player && state.shooting && state.shooting.unit === unit.id) {
@@ -1168,6 +1182,7 @@
             </div>`;
         }).join('');
         $('unit-detail').querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => movementChoice(b.dataset.mode)));
+        $('unit-detail').querySelectorAll('[data-turn]').forEach(b => b.addEventListener('click', () => turnUnit(unit, Number(b.dataset.turn))));
         $('unit-detail').querySelectorAll('[data-skies]').forEach(b => b.addEventListener('click', () => {
             state.skies = !state.skies;
             message(state.skies ? `${unit.name} takes to the skies: 2" less, over all terrain and models.` : '');
@@ -1902,6 +1917,75 @@
         drawMeasure();
     }
 
+    // --- Turning in the Movement phase: shown at once, sent as one move after a short pause ---
+
+    const TURN_SEND_DELAY = 600;  // ms
+
+    function canTurn(unit) {
+        const turn = state.game && state.game.state.turn;
+        return !!turn && turn.phase === 'movement' && unit.player === turn.player && !state.working
+            && unit.models.some(m => m.alive && m.position);
+    }
+
+    function startTurning(unit) {
+        if (state.turning && state.turning.unitId !== unit.id) flushTurn();
+        if (!state.turning) {
+            const original = unit.models.filter(m => m.alive && m.position).map(m => ({ id: m.id, ...m.position }));
+            state.turning = { unitId: unit.id, original, degrees: 0, spins: {}, timer: null };
+        }
+        return state.turning;
+    }
+
+    function previewTurn() {
+        const t = state.turning, unit = unitById(t.unitId);
+        const { spots } = Core.playTurn(t.original, t.degrees, t.spins);
+        const byId = Object.fromEntries(spots.map(p => [p.id, p]));
+        unit.models.forEach(m => { if (byId[m.id]) m.position = { x: byId[m.id].x, y: byId[m.id].y, angle: byId[m.id].angle }; });
+        drawBoard();
+        clearTimeout(t.timer);
+        t.timer = setTimeout(flushTurn, TURN_SEND_DELAY);
+        const parts = [t.degrees && `${Math.abs(t.degrees)}° ${t.degrees > 0 ? 'anticlockwise' : 'clockwise'}`,
+                       Object.keys(t.spins).length && 'spinning models on the spot'].filter(Boolean);
+        message(`Turning ${unit.name}: ${parts.join(', ') || 'back where it was'}…`);
+    }
+
+    function turnUnit(unit, degrees) {
+        if (!canTurn(unit)) return;
+        startTurning(unit).degrees += degrees;
+        previewTurn();
+    }
+
+    function spinModel(unit, modelId, degrees) {
+        startTurning(unit).spins[modelId] = (state.turning.spins[modelId] || 0) + degrees;
+        previewTurn();
+    }
+
+    /** Send the turn as a move carrying on from where the unit stands, each model's arc as its route. */
+    async function flushTurn() {
+        const t = state.turning;
+        if (!t) return;
+        state.turning = null;
+        clearTimeout(t.timer);
+        const unit = unitById(t.unitId);
+        const { spots, routes } = Core.playTurn(t.original, t.degrees, t.spins);
+        const same = (p, i) => p.x === t.original[i].x && p.y === t.original[i].y && p.angle === (t.original[i].angle || 0);
+        if (spots.every(same)) {
+            message('');
+            return;
+        }
+        const models = spots.map(p => Object.assign({ id: p.id, x: p.x, y: p.y, angle: p.angle },
+                                                    routes[p.id].length ? { route: routes[p.id] } : {}));
+        const mode = state.selected === unit.id ? state.moveMode : 'normal';
+        const ok = await send(Object.assign({ type: 'move', unit: unit.id, mode, models, waypoint: true }, flying(unit) ? { skies: true } : {}));
+        if (!ok) {  // Put it back as it was
+            const before = Object.fromEntries(t.original.map(p => [p.id, p]));
+            unitById(t.unitId).models.forEach(m => {
+                if (before[m.id]) m.position = { x: before[m.id].x, y: before[m.id].y, angle: before[m.id].angle || 0 };
+            });
+            render();
+        }
+    }
+
     // --- The hover card: a unit's datasheet (and its leaders') after a short pause over one of its models ---
 
     const CARD_DELAY = 500;  // ms
@@ -2212,6 +2296,7 @@
             return;
         }
         if (event.button !== 0) return;
+        if (state.turning) return flushTurn();  // Send the turn before anything else moves
         const unit = unitById(target.dataset.unit);
         const modelIds = event.shiftKey ? [target.dataset.model] : unit.models.filter(m => m.alive && m.position).map(m => m.id);
         state.drag = { unitId: unit.id, modelIds, start: boardPoint(event), dx: 0, dy: 0, trail: [{ x: 0, y: 0 }] };
@@ -2358,6 +2443,12 @@
 
     function zoom(event) {
         event.preventDefault();
+        const over = event.shiftKey && event.target.closest('[data-model]');
+        if (over) {  // Shift + wheel spins a model on the spot (Shift turns the wheel sideways in some browsers)
+            const unit = unitById(over.dataset.unit);
+            if (unit && canTurn(unit)) spinModel(unit, over.dataset.model, (event.deltaY || event.deltaX) > 0 ? -15 : 15);
+            return;
+        }
         if (!state.view) fitView();
         const svg = $('play-board');
         const pt = svg.createSVGPoint();
