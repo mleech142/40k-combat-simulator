@@ -2091,12 +2091,25 @@
         const outline = state.game.outlines[unit.id][model.part];
         const x = model.position.x, y = depth - model.position.y;
         const angle = -(model.position.angle || 0);  // Anticlockwise on the board is clockwise in SVG
-        const attrs = { class: `play-model${outline.estimated ? ' estimated' : ''}${unit.parts[model.part].role === 'leader' ? ' leader' : ''}`,
+        const leader = unit.parts[model.part].role === 'leader';
+        const attrs = { class: `play-model${outline.estimated ? ' estimated' : ''}${leader ? ' leader' : ''}`,
                         'data-unit': unit.id, 'data-model': model.id, transform: `translate(${x} ${y}) rotate(${angle})` };
-        if (outline.shape === 'rect') {
-            svgEl('rect', { ...attrs, x: -outline.length / 2, y: -outline.width / 2, width: outline.length, height: outline.width }, g);
-        } else {
-            svgEl('ellipse', { ...attrs, rx: outline.length / 2, ry: outline.width / 2 }, g);
+        const base = (a, pad = 0) => outline.shape === 'rect'
+            ? svgEl('rect', { ...a, x: -outline.length / 2 - pad, y: -outline.width / 2 - pad,
+                              width: outline.length + 2 * pad, height: outline.width + 2 * pad }, g)
+            : svgEl('ellipse', { ...a, rx: outline.length / 2 + pad, ry: outline.width / 2 + pad }, g);
+        if (leader) {  // The leader: a gold ring round its base, under it
+            base({ class: 'play-leader-ring', 'data-follow': model.id, 'data-turn': 1, transform: attrs.transform }, 0.16);
+        }
+        const el = base(attrs);
+        if (leader) {
+            const title = svgEl('title', {}, el);
+            title.textContent = `${unit.parts[model.part].name}, leading ${unit.name}`;
+            // ...and a crown on it, kept upright
+            const size = Math.min(outline.length, outline.width) * 0.28;
+            const crown = [[-1, 0.6], [-1, -0.45], [-0.5, 0.1], [0, -0.7], [0.5, 0.1], [1, -0.45], [1, 0.6]];
+            svgEl('polygon', { class: 'play-leader-crown', 'data-follow': model.id, transform: `translate(${x} ${y})`,
+                               points: crown.map(([cx, cy]) => `${cx * size},${cy * size}`).join(' ') }, g);
         }
         const full = unit.parts[model.part].stats.wounds;
         if (model.wounds_left < full) {
@@ -2192,6 +2205,8 @@
             const model = unitById(state.drag.unitId).models.find(m => m.id === id);
             const x = model.position.x + state.drag.dx, y = state.game.board.depth - (model.position.y + state.drag.dy);
             el.setAttribute('transform', `translate(${x} ${y}) rotate(${-(model.position.angle || 0)})`);
+            $('play-board').querySelectorAll(`[data-follow="${id}"]`).forEach(mark =>  // The leader's ring and crown
+                mark.setAttribute('transform', `translate(${x} ${y})${mark.dataset.turn ? ` rotate(${-(model.position.angle || 0)})` : ''}`));
             const badge = $('play-board').querySelector(`[data-badge="${id}"]`);
             if (badge) {
                 const o = state.game.outlines[unit.id][model.part];

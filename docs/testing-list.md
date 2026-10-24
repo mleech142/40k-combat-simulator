@@ -48,11 +48,14 @@ written scope for 12. Items 13 and 14 are parked.
 8. **Play: show which model is the leader.** A Character leading a unit looks like any other model in it, with no
    label. Make it clear which model is the leader. The board already gives a leader's model the `leader` class
    (`play.js`, model drawing) but no style uses it.
+   *Done (2.5):* a gold ring round the leader's base and a crown on it (its name on hover), moving with it when dragged.
 9. **Play: drag to move the camera.** Click and drag to pan around the board. Today the mouse wheel zooms towards
    the pointer (`zoom` in `play.js`, `Core.playZoom`) but there's no way to pan. Dragging a model already moves
    its unit, so panning needs to start on empty board (or use another button) without getting in its way.
+   *Done (2.5):* left-drag on empty board pans (a click still places), middle- or right-drag anywhere (`Core.playPan`).
 10. **Play: measuring tool.** A Measure button: click two points on the board and see the distance between them in
     inches. Today distances only show while dragging a unit (the readout beside the pointer).
+    *Done (2.5):* the ruler button; a click on a model measures from its base edge (`game.measure`, `/api/play/measure`).
 11. **Play: undo needs the other player's OK.** In a game against someone else, pressing Undo asks the other
     player to accept it before it happens. Today undo takes back your own last action at once, as long as no dice
     were rolled since (`play-mode-design.md`: "Movement and setup can be undone freely until a roll is made"; online,

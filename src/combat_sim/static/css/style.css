@@ -3712,7 +3712,9 @@ h4 .fa-solid,
 .play-unit-group { --player: var(--play-p1); }
 .play-unit-group.play-p2 { --player: var(--play-p2); }
 .play-model { fill: var(--player); fill-opacity: 0.85; stroke: #000; stroke-width: 0.06; cursor: grab; }
-.play-model.leader { stroke: var(--text-primary); stroke-width: 0.12; }
+.play-model.leader { stroke: #000; stroke-width: 0.06; }
+.play-leader-ring { fill: none; stroke: #f2c14e; stroke-width: 0.14; pointer-events: none; }
+.play-leader-crown { fill: #f2c14e; stroke: #000; stroke-width: 0.04; pointer-events: none; }
 .play-model.estimated { stroke-dasharray: 0.25 0.15; stroke: var(--text-primary); }
 .play-unit-outline { fill: none; stroke: var(--player); stroke-opacity: 0.35; stroke-width: 0.06; }
 .play-unit-group.selected .play-unit-outline { stroke-opacity: 1; stroke-width: 0.12; }
