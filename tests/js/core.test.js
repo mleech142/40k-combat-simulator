@@ -744,6 +744,15 @@ test('playPath gives a model its path this phase: start, waypoints, where it sta
     assert.deepEqual(Core.playPath(start, undefined, start), [start]);  // Not moved
 });
 
+test('playRouteBends keeps the bends of a dragged path and drops its wobbles', () => {
+    const corner = [{ x: 0, y: 0 }, { x: 1, y: 0.05 }, { x: 2, y: 0 }, { x: 2.04, y: 1 }, { x: 2, y: 2 }];
+    assert.deepEqual(Core.playRouteBends(corner), [{ x: 2, y: 0 }]);
+    assert.deepEqual(Core.playRouteBends([{ x: 0, y: 0 }, { x: 1, y: 0.08 }, { x: 3, y: 0 }]), []);  // Straight enough
+    assert.deepEqual(Core.playRouteBends([{ x: 0, y: 0 }, { x: 1, y: 1 }]), []);
+    const zigzag = [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 0 }, { x: 3, y: 1 }];
+    assert.deepEqual(Core.playRouteBends(zigzag), [{ x: 1, y: 1 }, { x: 2, y: 0 }]);
+});
+
 test('playBattlefieldGroups groups maps, Event layouts by pairing, then saved battlefields', () => {
     const list = [
         { key: 'builtin:dawn-of-war', name: 'Dawn of War', kind: 'map' },

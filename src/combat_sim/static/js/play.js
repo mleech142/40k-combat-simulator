@@ -2045,7 +2045,7 @@
         }
         const unit = unitById(target.dataset.unit);
         const modelIds = event.shiftKey ? [target.dataset.model] : unit.models.filter(m => m.alive && m.position).map(m => m.id);
-        state.drag = { unitId: unit.id, modelIds, start: boardPoint(event), dx: 0, dy: 0 };
+        state.drag = { unitId: unit.id, modelIds, start: boardPoint(event), dx: 0, dy: 0, trail: [{ x: 0, y: 0 }] };
         $('play-board').setPointerCapture(event.pointerId);
     }
 
@@ -2054,7 +2054,10 @@
         const p = boardPoint(event);
         state.drag.dx = p.x - state.drag.start.x;
         state.drag.dy = p.y - state.drag.start.y;
+        const trail = state.drag.trail, last = trail[trail.length - 1];
+        if (Math.hypot(state.drag.dx - last.x, state.drag.dy - last.y) >= 0.1) trail.push({ x: state.drag.dx, y: state.drag.dy });
         const unit = unitById(state.drag.unitId);
+        const bends = dragBends(state.drag);
         // The farthest any dragged model has come from where it started the phase, against its allowance
         let label = null;
         for (const id of state.drag.modelIds) {
@@ -2064,7 +2067,10 @@
             const onward = waypointing(unit);  // Measured along the path so far, then on from here
             const from = onward ? model.position : startOf(unit, model);
             const before = onward ? Core.playPathLength(pathOf(unit, model)) : 0;
-            const here = Core.playMoveLabel(model.position.x + state.drag.dx - from.x, model.position.y + state.drag.dy - from.y, reach, before);
+            const route = routeOf(model, bends);
+            const via = route.length ? before + Core.playPathLength([from, ...route]) : before;
+            const bend = route.length ? route[route.length - 1] : from;
+            const here = Core.playMoveLabel(model.position.x + state.drag.dx - bend.x, model.position.y + state.drag.dy - bend.y, reach, via);
             if (!label || parseFloat(here.text) > parseFloat(label.text) || here.over) label = here;
         }
         showReadout(event, label);
@@ -2085,6 +2091,19 @@
                 badge.setAttribute('transform', `translate(${x + o.length * 0.36} ${y - o.width * 0.36})`);
             }
         }
+    }
+
+    /** The bends of the path dragged so far (offsets from where the drag began), in the phases where moves follow it. */
+    function dragBends(drag) {
+        const phase = state.game.state.turn.phase;
+        if (phase !== 'movement' && phase !== 'charge') return [];  // Pile in and Consolidate go in a straight line
+        return Core.playRouteBends([...drag.trail, { x: drag.dx, y: drag.dy }]);
+    }
+
+    /** A dragged model's route: the drag's bends from where it stood. */
+    function routeOf(model, bends) {
+        const round = v => Math.round(v * 100) / 100;
+        return bends.map(b => ({ x: round(model.position.x + b.x), y: round(model.position.y + b.y) }));
     }
 
     async function pointerUp() {
@@ -2114,10 +2133,11 @@
         const moved = new Set(drag.modelIds);
         const turn = state.game.state.turn;
         if (turn.phase !== 'deployment') {
-            const models = unit.models.filter(m => m.alive).map(m => ({
+            const bends = dragBends(drag);
+            const models = unit.models.filter(m => m.alive).map(m => Object.assign({
                 id: m.id, x: round(m.position.x + (moved.has(m.id) ? drag.dx : 0)),
                 y: round(m.position.y + (moved.has(m.id) ? drag.dy : 0)), angle: m.position.angle || 0,
-            }));
+            }, moved.has(m.id) && bends.length ? { route: routeOf(m, bends) } : {}));
             if (turn.phase === 'movement') {
                 const mode = state.selected === unit.id ? state.moveMode : 'normal';
                 await send(Object.assign({ type: 'move', unit: unit.id, mode, models }, waypointing(unit) ? { waypoint: true } : {},

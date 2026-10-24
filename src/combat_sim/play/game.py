@@ -1144,10 +1144,52 @@ def _spots(unit, action, verb):
     if set(spots) != set(living):
         raise ActionError(f'{verb} every model of {unit["name"]} at once.')
     for spot in spots.values():  # Whole numbers stay whole in the saved game
-        for key in ('x', 'y', 'angle'):
-            if spot[key].is_integer():
-                spot[key] = int(spot[key])
+        _whole(spot)
     return spots
+
+
+def _whole(position):
+    for key in ('x', 'y', 'angle'):
+        if float(position[key]).is_integer():
+            position[key] = int(position[key])
+    return position
+
+
+MAX_ROUTE = 100  # Bends in a dragged route
+
+
+def _route(action, mid, spot):
+    """
+    The positions a model passes through on its way to `spot`: the bends of the path the player dragged it
+    along (the action's models[].route), so a model steered through a gap is checked along that path.
+    """
+    entry = next((m for m in action.get('models') or [] if m.get('id') == mid), {})
+    raw = entry.get('route') or []
+    if not isinstance(raw, list):
+        raise ActionError('A route is a list of points.')
+    if len(raw) > MAX_ROUTE:
+        raise ActionError(f'A route has at most {MAX_ROUTE} points.')
+    route = []
+    for point in raw:
+        try:
+            x, y = float(point['x']), float(point['y'])
+        except (KeyError, TypeError, ValueError):
+            raise ActionError('Each point of a route needs an x and y.')
+        if not (0 <= x <= BOARD_WIDTH and 0 <= y <= BOARD_DEPTH):
+            raise ActionError('A route must stay on the board.')
+        route.append(_whole({'x': x, 'y': y, 'angle': spot['angle']}))
+    return route
+
+
+def _check_path(part, path, blocking, spot):
+    """Refuse a path (positions) on which the model would pass through any of `blocking`, every leg checked."""
+    for a, b in zip(path, path[1:]):
+        steps = max(1, math.ceil(math.dist(_xy(a), _xy(b)) / PATH_STEP))
+        for i in range(1, steps + (b is not path[-1])):
+            t = i / steps
+            here = {'x': a['x'] + t * (b['x'] - a['x']), 'y': a['y'] + t * (b['y'] - a['y']), 'angle': spot['angle']}
+            if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
+                raise ActionError(f'{part["name"]} can\'t move through enemy models.')
 
 
 # --- Movement ---------------------------------------------------------------------------------
@@ -1353,16 +1395,11 @@ def _charge_move(state, action):
         model, part = living[mid], unit['parts'][living[mid]['part']]
         start = activity['charge_start'].get(mid) or model['position']
         allowance = roll - (SKIES if skies else 0)
-        distance = math.dist((start['x'], start['y']), (spot['x'], spot['y']))
-        climb = 0 if skies else _climb(state, part, [start, spot])
+        path = [start, *_route(action, mid, spot), spot]
+        distance = path_length(path)
+        climb = 0 if skies else _climb(state, part, path)
         _within_allowance(part, distance, climb, allowance, f'the charge roll{" less 2 for taking to the skies" if skies else ""}')
-        steps = max(1, math.ceil(distance / PATH_STEP))
-        for i in range(1, steps):
-            t = i / steps
-            here = {'x': start['x'] + t * (spot['x'] - start['x']), 'y': start['y'] + t * (spot['y'] - start['y']),
-                    'angle': spot['angle']}
-            if any(overlaps(model_shape(part, here), enemy) for enemy in enemies):
-                raise ActionError(f'{part["name"]} can\'t move through enemy models.')
+        _check_path(part, path, enemies, spot)
         shapes[mid] = model_shape(part, spot)
         if distance > 1e-6:
             before = min(base_distance(model_shape(part, start), t) for t in target_shapes)
@@ -1486,19 +1523,14 @@ def _move(state, action):
             here = model['position']
             if _xy(here) not in (_xy(start), _xy(spot)) and not (via[mid] and _xy(via[mid][-1]) == _xy(here)):
                 via[mid].append(dict(here))
+        via[mid] += _route(action, mid, spot)  # The bends it was dragged along, kept as waypoints
         path = [start, *via[mid], spot]
         allowance = move_characteristic(part) + (activity.get('advance_roll', 0) if mode == 'advance' else 0) - (SKIES if skies else 0)
         distance = path_length(path)
         mobile = twist_is(state, 'ruinscape') and mode in ('normal', 'advance')  # Ruinscape: Mobile while moving
         climb = 0 if skies or mobile else _climb(state, part, path)
         _within_allowance(part, distance, climb, allowance, 'less 2 for taking to the skies' if skies else '')
-        for a, b in zip(path, path[1:]):  # Every leg, waypoints included
-            steps = max(1, math.ceil(math.dist(_xy(a), _xy(b)) / PATH_STEP))
-            for i in range(1, steps + (b is not spot)):
-                t = i / steps
-                here = {'x': a['x'] + t * (b['x'] - a['x']), 'y': a['y'] + t * (b['y'] - a['y']), 'angle': spot['angle']}
-                if any(overlaps(model_shape(part, here), enemy) for enemy in blocking):
-                    raise ActionError(f'{part["name"]} can\'t move through enemy models.')
+        _check_path(part, path, blocking, spot)
         shapes[mid] = model_shape(part, spot)
 
     for shape in shapes.values():

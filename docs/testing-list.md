@@ -29,6 +29,9 @@ written scope for 12. Items 13 and 14 are parked.
 5. **Play bug: gaps in Dense terrain.** A model whose base fits through a gap between terrain pieces (or between a
    piece's walls) is treated as moving through Dense terrain. Check how a move's path is tested against terrain
    footprints: the base should be able to pass anywhere it fits.
+   *Done (2.4.1):* the page sent only the drop point, and the server measured a straight line from where the unit
+   started the phase, which could cut through terrain the model was steered round. Movement and charge moves now
+   follow the route dragged (`route`, its bends kept as waypoints).
 6. **Play: pre-set stratagems and actions (standing orders).** Let a player set reactions in advance that happen
    during the other player's turn, for example "Fire Overwatch with this unit if X enemy units come within range"
    or "use a Command Re-roll if this unit would die". Planned as **standing orders** in `play-mode-design.md`

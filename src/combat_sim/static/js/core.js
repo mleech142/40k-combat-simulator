@@ -764,6 +764,26 @@
     }
 
     /**
+     * Play: the bends of a dragged path ([{x, y}, ...] from where the drag began to where it is now), as the
+     * points between its ends that stray more than `tolerance` inches from a straight line (Ramer–Douglas–
+     * Peucker), so the pointer's small wobbles don't add to the distance moved.
+     */
+    function playRouteBends(points, tolerance = 0.1) {
+        if (points.length < 3) return [];
+        const first = points[0], last = points[points.length - 1];
+        const dx = last.x - first.x, dy = last.y - first.y, length2 = dx * dx + dy * dy;
+        let far = -1, farthest = tolerance;
+        for (let i = 1; i < points.length - 1; i++) {
+            const p = points[i];
+            const t = length2 ? Math.max(0, Math.min(1, ((p.x - first.x) * dx + (p.y - first.y) * dy) / length2)) : 0;
+            const gap = Math.hypot(p.x - (first.x + t * dx), p.y - (first.y + t * dy));
+            if (gap > farthest) { far = i; farthest = gap; }
+        }
+        if (far < 0) return [];
+        return [...playRouteBends(points.slice(0, far + 1), tolerance), points[far], ...playRouteBends(points.slice(far), tolerance)];
+    }
+
+    /**
      * An attack's dice for the dice log: the event's rolls from `range` ([first, last)) as groups
      * {label, need ('3+' or null), note, dice: [{face, kind, rerolled_from}]}, kind being 'critical',
      * 'success', 'fail' or 'value' (a rolled amount such as damage). Rolls of the same kind and target
@@ -1141,7 +1161,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,
