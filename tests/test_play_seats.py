@@ -96,7 +96,7 @@ def test_every_action_the_engine_takes_has_a_seat_and_passes_the_game_file_check
     """ACTION_TYPES is what game files and the relay may carry: the engine's own list of actions, no more, no less."""
     import inspect
     from combat_sim.play import game
-    handled = set(re.findall(r"'([a-z_]+)': lambda s", inspect.getsource(game.resolve_action)))
+    handled = set(re.findall(r"'([a-z_]+)': lambda s", inspect.getsource(game._handlers)))
     assert handled == ACTION_TYPES
     with pytest.raises(ActionError, match='Unknown action'):
         resolve_action(deployed(), {'type': 'self_destruct'}, Dice())

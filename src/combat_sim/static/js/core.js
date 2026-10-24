@@ -809,16 +809,18 @@
      * An attack's dice for the dice log: the event's rolls from `range` ([first, last)) as groups
      * {label, need ('3+' or null), note, dice: [{face, kind, rerolled_from}]}, kind being 'critical',
      * 'success', 'fail' or 'value' (a rolled amount such as damage). Rolls of the same kind and target
-     * show as one group, even taking turns (saves and Feel No Pain are rolled one wound at a time).
+     * show as one group, even taking turns (saves and Feel No Pain are rolled one wound at a time). Each die
+     * keeps `ref`, 'roll:die', its place in the event's rolls.
      */
     function playDiceGroups(rolls, range) {
         const label = purpose => purpose.replace(/\b\w/g, c => c.toUpperCase());
         const groups = [];
-        for (const roll of rolls.slice(range[0], range[1])) {
+        rolls.slice(range[0], range[1]).forEach((roll, r) => {
             const value = roll.need == null;
-            const dice = roll.dice.map(d => ({
+            const dice = roll.dice.map((d, i) => ({
                 face: d.face, rerolled_from: d.rerolled_from ?? null,
                 kind: value ? 'value' : d.critical ? 'critical' : d.success ? 'success' : 'fail',
+                ref: `${range[0] + r}:${i}`,  // Its place in the event's rolls (roll:die), for Command Re-roll
             }));
             const need = value ? null : `${roll.need}+`;
             const note = value ? `${roll.dice.length > 1 ? roll.dice.length : ''}D${roll.size}${roll.modifier ? (roll.modifier > 0 ? '+' : '') + roll.modifier : ''} = ${roll.total}` : null;
@@ -829,7 +831,7 @@
             } else {
                 groups.push({ purpose: roll.purpose, label: label(roll.purpose), need, note, dice });
             }
-        }
+        });
         return groups.map(({ purpose, ...group }) => group);
     }
 

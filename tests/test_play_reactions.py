@@ -184,3 +184,131 @@ def test_a_mode_with_nothing_to_charge_isnt_offered():
     state, _ = act(charged_board(blue=(part('Hero', 1, 4, base=BASE), (10, 30))), NEXT)  # 8.7" away: Leap only
     assert state['turn']['window']['kind'] == 'heroic'
     assert 'nothing to charge' in refused(state, heroic('fray'), 6, 6)
+
+
+# --- Command Re-roll ---------------------------------------------------------------------------------------------
+
+from combat_sim.play.dice import Dice  # noqa: E402
+from combat_sim.play.game import apply_event, redo_history, rerollable, resolve_action  # noqa: E402
+from test_play_dice import FixedRolls  # noqa: E402
+from test_play_terrain import SHOOT, gunner  # noqa: E402
+
+
+class Game:
+    """A game played action by action, keeping its events and the state before each (for redo_history)."""
+
+    def __init__(self, state):
+        self.states, self.events = [state], []
+
+    @property
+    def state(self):
+        return self.states[-1]
+
+    def act(self, action, *faces):
+        redo = redo_history(self.events, lambda n: self.states[n]) if action['type'] == 'command_reroll' else None
+        event = resolve_action(self.state, action, Dice(FixedRolls(*faces)), redo=redo)
+        self.events.append(event)
+        self.states.append(apply_event(self.state, event))
+        return event
+
+    def refused(self, action, *faces):
+        import pytest
+        from combat_sim.play.game import ActionError
+        redo = redo_history(self.events, lambda n: self.states[n])
+        with pytest.raises(ActionError) as error:
+            resolve_action(self.state, action, Dice(FixedRolls(*faces)), redo=redo)
+        return str(error.value)
+
+
+def shooting(cp=2):
+    """Red's gunner (one 36" shot, 3+ to hit) and Blue's 3-wound target 10" away, each player with `cp` CP."""
+    state = game_on([], [gunner(10, 10)], [target(10, 20)])
+    for player in state['players']:
+        player['cp'] = cp
+    return Game(state)
+
+
+def reroll(player, roll, die=0):
+    return {'type': 'command_reroll', 'player': player, 'roll': roll, 'die': die}
+
+
+def target_wounds(game):
+    return unit_by_id(game.state, 'p2-target')['models'][0]['wounds_left']
+
+
+def test_the_attacker_re_rolls_a_missed_hit():
+    game = shooting()
+    event = game.act(SHOOT, 2)  # Misses
+    assert rerollable(game.state, event) == {'0': [[0, 0]]} and 'window' not in game.state['turn']
+    event = game.act(reroll(0, 0), 5, 6, 1)  # The re-roll: 5 hits; then wound 6, save 1 fails
+    assert event['rerolled'] == {'roll': 0, 'die': 0, 'from': 2}
+    assert event['rolls'][0]['dice'][0] == {'face': 5, 'success': True, 'critical': False, 'rerolled_from': 2}
+    assert target_wounds(game) == 2 and game.state['players'][0]['cp'] == 1
+    assert game.state['turn']['window'] == {'kind': 'reroll', 'player': 1}  # Now Blue may re-roll the failed save
+
+
+def test_the_defender_re_rolls_a_failed_save_in_the_window():
+    game = shooting()
+    game.act(SHOOT, 6, 6, 1)
+    assert game.state['turn']['window'] == {'kind': 'reroll', 'player': 1} and waiting_on(game.state) == [1]
+    assert target_wounds(game) == 2
+    event = game.act(reroll(1, 2), 5)  # The save, re-rolled: 5 saves
+    assert target_wounds(game) == 3 and 'window' not in game.state['turn'] and game.state['players'][1]['cp'] == 1
+    assert event['rolls'][2]['dice'][0]['rerolled_from'] == 1
+
+
+def test_both_players_re_roll_one_attack():
+    game = shooting()
+    game.act(SHOOT, 2)
+    game.act(reroll(0, 0), 5, 6, 1)  # Red: the hit; Blue's save fails
+    event = game.act(reroll(1, 2), 4)  # Blue: the save
+    assert target_wounds(game) == 3 and [p['cp'] for p in game.state['players']] == [1, 1]
+    assert event['rolls'][0]['dice'][0]['rerolled_from'] == 2 and event['rolls'][2]['dice'][0]['rerolled_from'] == 1
+    assert event['commanded'] == [[0, 0], [2, 0]] and event['base'] == 0
+
+
+def test_what_command_re_roll_refuses():
+    game = shooting()
+    game.act(SHOOT, 6, 6, 1)
+    assert 'your own dice' in game.refused(reroll(0, 2))  # Red's save? It's Blue's
+    game.act(reroll(1, 2), 1)
+    assert 'once' in game.refused(reroll(1, 2))  # Already re-rolled
+    broke = shooting(cp=0)
+    broke.act(SHOOT, 2)
+    assert 'CP' in broke.refused(reroll(0, 0))
+
+
+def test_a_charge_roll_is_re_rolled_in_full():
+    raider = (part('Raider', 1, 3, base=BASE), (10, 10))
+    state = game_on([], [raider], [target(10, 20)], phase='charge')
+    state['players'][0]['cp'] = 1
+    game = Game(state)
+    game.act({'type': 'charge', 'unit': 'p1-raider'}, 1, 2)
+    event = game.act(reroll(0, 0, die=1), 6, 5)
+    assert [d['face'] for d in event['rolls'][0]['dice']] == [6, 5] and event['rolls'][0]['total'] == 11
+    assert [d['rerolled_from'] for d in event['rolls'][0]['dice']] == [1, 2]
+    assert unit_by_id(game.state, 'p1-raider')['activity']['charge_roll'] == 11
+
+
+def test_standing_orders_answer_the_save_window():
+    never = shooting()
+    never.states[-1], _ = act(never.state, {'type': 'orders', 'player': 1, 'reactions': {'reroll': {'mode': 'never'}}})
+    never.act(SHOOT, 6, 6, 1)
+    assert 'window' not in never.state['turn']
+    deaths = shooting()
+    deaths.states[-1], _ = act(deaths.state, {'type': 'orders', 'player': 1, 'reactions': {'reroll': {'mode': 'deaths'}}})
+    deaths.act(SHOOT, 6, 6, 1)  # 1 damage of 3 wounds: nobody died
+    assert 'window' not in deaths.state['turn']
+
+
+def test_a_save_re_rolled_after_overwatch_lets_the_phase_move_on():
+    state = board()
+    state['players'][0]['cp'] = 1
+    game = Game(state)
+    game.act(NEXT)
+    game.act(overwatch(), 6, 6, 1)  # Blue snap shoots; Red's save fails
+    assert game.state['turn']['window'] == {'kind': 'reroll', 'player': 0, 'then': 'next_phase'}
+    assert game.state['turn']['phase'] == 'movement'
+    game.act(reroll(0, 2), 6)
+    assert game.state['turn']['phase'] == 'shooting' and wounds(game.state) == 3
+    assert [p['cp'] for p in game.state['players']] == [0, 1]

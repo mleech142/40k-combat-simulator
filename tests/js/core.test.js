@@ -569,6 +569,7 @@ test('playDiceGroups turns an attack\'s rolls into labelled groups, joining one-
         { purpose: 'damage', size: 3, dice: [die(2, true)], modifier: 1, total: 3 },
     ];
     const groups = Core.playDiceGroups(rolls, [1, 5]);
+    assert.equal(groups[0].dice[0].ref, '1:0');  // Its place in the event's rolls, for Command Re-roll
     assert.deepEqual(groups.map(g => [g.label, g.need]), [['Hit', '3+'], ['Wound', '4+'], ['Save', '3+'], ['Damage', null]]);
     assert.deepEqual(groups[0].dice.map(d => d.kind), ['critical', 'fail', 'success']);
     assert.equal(groups[0].dice[2].rerolled_from, 1);

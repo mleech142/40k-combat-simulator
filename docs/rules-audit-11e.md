@@ -57,7 +57,7 @@ Tick each item when the engine matches (with a test).
 ## Not modelled
 
 Deep Strike, Strategic Reserves, ingress and Rapid Ingress; Transports, Firing Deck, Deadly Demise; Scouts and
-Infiltrators; Fire Overwatch (snap shooting), Heroic Intervention, Counteroffensive (used by hand); Indirect Fire;
+Infiltrators; Counteroffensive (used by hand; Fire Overwatch, Heroic Intervention and Command Re-roll are modelled since 2.6); Indirect Fire;
 Lone Operative; Towering and Plunging Fire; Hover; Aircraft; One Shot; Super-Heavy Walker; surge moves; Epic
 Challenge.
 

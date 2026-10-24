@@ -46,6 +46,10 @@ written scope for 12. Items 13 and 14 are parked.
    or "use a Command Re-roll if this unit would die". Planned as **standing orders** in `play-mode-design.md`
    (Decisions during the opponent's turn) but not built. Overwatch itself isn't built yet either
    (`rules-audit-11e.md`, "Not modelled").
+   *Done (2.6):* the reaction window (`turn.window`) and standing orders for Fire Overwatch (ask, never, always with a
+   unit), Heroic Intervention (ask, never) and re-rolling failed saves with Command Re-roll (ask, never, only when a
+   model dies); Command Re-roll of your own rolls from the battle log. Counteroffensive and faction reactive
+   stratagems come with later effects batches.
 7. **Play: unit profile on hover.** Hovering over a unit on the board shows its datasheet: characteristics,
    weapon profiles and abilities (and the attached leader's).
    *Done (2.5):* half a second over a model shows a card by the pointer (`Core.playUnitCard`): characteristics,

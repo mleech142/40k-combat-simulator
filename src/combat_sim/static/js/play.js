@@ -29,6 +29,7 @@
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
         pan: null,  // {x, y, view, click, point, moved} while panning the camera
         turning: null,  // A Movement-phase turn not sent yet: {unitId, original, degrees, spins, timer}
+        rerolling: null,  // The player picking a die of the last roll to Command Re-roll
         measure: null,  // The Measure tool while it's on: {from, to (ends: a point, or a model's base), distance, fixed}
         moveMode: 'normal',  // How the selected unit will move (Movement phase)
         skies: false,  // The selected Fly unit takes to the skies for its move or charge (2" less, over terrain and models)
@@ -1052,7 +1053,12 @@
                         <option value="closest" ${orders === 'closest' ? 'selected' : ''}>closest to the attacker first</option>
                     </select></label>
                 <label class="play-orders" title="At the end of the other player's Movement phase">Fire Overwatch
-                    <select data-overwatch="${p}" class="filter-select">${overwatchOrderOptions(player, units)}</select></label>${units.map(u => {
+                    <select data-overwatch="${p}" class="filter-select">${overwatchOrderOptions(player, units)}</select></label>
+                <label class="play-orders" title="At the end of the other player's Charge phase">Heroic Intervention
+                    <select data-reaction="${p}|heroic" class="filter-select">${reactionOrderOptions(player, 'heroic', [['ask', 'ask me'], ['never', 'never']])}</select></label>
+                <label class="play-orders" title="After an attack in which one of your saves failed">Re-roll a failed save
+                    <select data-reaction="${p}|reroll" class="filter-select">${reactionOrderOptions(player, 'reroll',
+                        [['ask', 'ask me'], ['deaths', 'only when a model dies'], ['never', 'never']])}</select></label>${units.map(u => {
                 const living = u.models.filter(m => m.alive);
                 const placed = living.length && living.every(m => m.position);
                 const done = game.state.turn.phase === 'deployment' ? (state.placing && state.placing.unitId === u.id ? 'placing: press OK' : placed ? 'placed' : 'not placed')
@@ -1073,6 +1079,10 @@
             $(`army-units-${p}`).querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => select(b.dataset.unit)));
             $(`army-units-${p}`).querySelectorAll('[data-orders]').forEach(s => s.addEventListener('change', () =>
                 send({ type: 'orders', player: Number(s.dataset.orders), casualties: s.value })));
+            $(`army-units-${p}`).querySelectorAll('[data-reaction]').forEach(s => s.addEventListener('change', () => {
+                const [who, kind] = s.dataset.reaction.split('|');
+                send({ type: 'orders', player: Number(who), reactions: { [kind]: { mode: s.value } } });
+            }));
             $(`army-units-${p}`).querySelectorAll('[data-overwatch]').forEach(s => s.addEventListener('change', () => {
                 const [mode, unit] = s.value.split('|');
                 send({ type: 'orders', player: Number(s.dataset.overwatch), reactions: { overwatch: unit ? { mode, unit } : { mode } } });
@@ -1433,6 +1443,14 @@
                     }
                 }
             }));
+        } else if (r.kind === 'reroll') {
+            if (state.rerolling !== r.player) {
+                state.rerolling = r.player;
+                renderLog();
+            }
+            bar.innerHTML = `<span><strong>${escapeHtml(who)}: ${escapeHtml(r.name)}?</strong> A save failed: click one of your
+                    glowing dice in the battle log to re-roll it (${Number(r.cp)} CP), or pass.</span>
+                <span class="play-pending-actions"><button class="btn-small" id="react-pass">Pass</button></span>`;
         } else {
             bar.innerHTML = `<span><strong>${escapeHtml(who)}: ${escapeHtml(r.name)}?</strong></span>
                 <span class="play-pending-actions"><button class="btn-small" id="react-pass">Pass</button></span>`;
@@ -1728,7 +1746,7 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['heroic', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || e.passed || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
@@ -1747,24 +1765,27 @@
         const heading = t => !t || t.phase === 'setup' ? ['Setup', null] : t.phase === 'deployment' ? ['Deployment', null]
             : [`Round ${t.round} · ${players[t.player].name} · ${PHASE_NAMES[t.phase]}`, t.player];
         let last = null;
-        $('dice-log').innerHTML = shots.map(([event, i], n) => {
+        const latest = game.events.length - 1;
+        $('dice-log').innerHTML = rerollBar() + shots.map(([event, i], n) => {
             const fresh = state.logSeen != null && i >= state.logSeen;  // Just made: its dice roll in
             const [title, player] = heading(turns[i]);
             const section = title !== last ? `<h4 class="play-log-heading ${player != null ? PLAYER_CLASSES[player] : ''}">${escapeHtml(title)}</h4>` : '';
             last = title;
             if (!event.attacks || !event.attacks.length) {
                 return `${section}<div class="play-log-entry play-log-roll ${fresh ? 'fresh' : ''}">
-                    <span class="play-log-icon"><i class="${logIcon(event)}" aria-hidden="true"></i></span><div class="play-log-text">${logLine(event, name)}</div></div>`;
+                    <span class="play-log-icon"><i class="${logIcon(event)}" aria-hidden="true"></i></span><div class="play-log-text">${logLine(event, name, i === latest)}</div></div>`;
             }
-            return section + attackEntry(event, n === 0, fresh, name, owner);
+            return section + attackEntry(event, n === 0, fresh, name, owner, i === latest);
         }).join('');
+        wireReroll();
         state.logSeen = game.events.length;
     }
 
     /** A shooting or fighting event in the battle log: who attacked whom and how many died, then each weapon's
      * Attacks › Hits › Wounds › Killed and its dice. */
-    function attackEntry(event, open, fresh, name, owner) {
-        const fight = event.action.type === 'fight';
+    function attackEntry(event, open, fresh, name, owner, latest = false) {
+        const act = event.redo || event.action;  // A Command Re-roll works its action out again
+        const fight = act.type === 'fight';
         const targets = [...new Set(event.attacks.filter(a => a.name !== 'Hazardous').map(a => a.target))];
         const killed = event.attacks.reduce((sum, a) => sum + a.killed.length, 0);
         let k = 0;  // Each die's place, so fresh dice roll in one after another
@@ -1781,39 +1802,98 @@
                 ${escapeHtml(luck.text)}</div>` : '';
             const dice = groups.map(g => `<div class="play-dice-row">
                 <span class="play-dice-label">${escapeHtml(g.label)}${g.need ? `<em>${g.need}</em>` : ''}</span>
-                <span class="play-dice">${g.dice.map(d => dieHtml(d.face, d.kind, k++, d.rerolled_from)).join('')}</span>
+                <span class="play-dice">${g.dice.map(d => dieHtml(d.face, d.kind, k++, d.rerolled_from, latest ? d.ref : null)).join('')}</span>
                 ${g.note ? `<small class="play-dice-note">${escapeHtml(g.note)}</small>` : ''}</div>`).join('');
             return `<div class="play-log-weapon ${a.name === 'Hazardous' ? 'hazardous' : ''}" title="${escapeHtml(Core.playAttackSummary(a))}">
                 <div class="play-log-weapon-name"><strong>${escapeHtml(a.name)}</strong>${who ? `<small>${escapeHtml(who)}</small>` : ''}</div>
                 <div class="play-funnel">${funnel}</div>${dice}${notice}</div>`;
         }).join('');
-        const shooter = owner(event.unit || event.action.unit);
+        const shooter = owner(act.unit);
+        const redone = event.redo ? `<div class="play-log-redo"><i class="fa-solid fa-rotate" aria-hidden="true"></i>
+            ${escapeHtml(state.game.state.players[event.player].name)} used Command Re-roll (${Number(event.cp)} CP): a ${event.rerolled.from} re-rolled.
+            This replaces the roll above.</div>` : '';
         return `<details class="play-log-entry play-log-attack ${PLAYER_CLASSES[shooter] || ''} ${fresh ? 'fresh' : ''}" ${open ? 'open' : ''}>
             <summary class="play-log-head">
                 <span class="play-log-icon"><i class="fa-solid ${fight ? 'fa-hand-fist' : 'fa-crosshairs'}" aria-hidden="true"></i></span>
-                <span class="play-log-who"><strong>${escapeHtml(name(event.unit || event.action.unit))}</strong>
-                    <span class="play-log-verb">${event.overwatch ? 'fires Overwatch at' : fight ? 'fights' : 'shoots'}</span>
+                <span class="play-log-who"><strong>${escapeHtml(name(act.unit))}</strong>
+                    <span class="play-log-verb">${event.overwatch || act.type === 'overwatch' ? 'fires Overwatch at' : fight ? 'fights' : 'shoots'}</span>
                     <strong class="play-log-target ${PLAYER_CLASSES[1 - shooter] || ''}">${escapeHtml(targets.map(name).join(', ') || 'itself')}</strong></span>
                 <span class="play-log-kills ${killed ? '' : 'none'}"><b>${killed}</b><small>killed</small></span>
             </summary>
-            <div class="play-log-body">${weapons}</div>
+            <div class="play-log-body">${redone}${weapons}</div>
         </details>`;
     }
 
     /** A die: pips for a d6 face (else the number), lit by how it went: critical, success, fail or value. */
-    function dieHtml(face, kind, place, rerolledFrom) {
+    function dieHtml(face, kind, place, rerolledFrom, ref = null) {
         face = Number(face);  // Faces come from the log, which the other player's app may have written
         rerolledFrom = rerolledFrom == null ? rerolledFrom : Number(rerolledFrom);
         const pips = Core.playDieFace(face);
         const what = { critical: 'critical', success: 'success', fail: 'fail' }[kind] || '';
         const inside = pips ? pips.map(p => `<i style="grid-area: p${p}"></i>`).join('') : `<span>${face}</span>`;
-        return `<span class="play-die ${kind}" style="--i: ${Math.min(place, 40)}" role="img" aria-label="${face}${what ? ', ' + what : ''}"
-            title="${face}${rerolledFrom ? ` (re-rolled from ${rerolledFrom})` : ''}">${inside}${rerolledFrom ? '<em class="play-die-reroll">&#8635;</em>' : ''}</span>`;
+        const pick = ref != null && pickable(ref);
+        return `<span class="play-die ${kind} ${pick ? 'pickable' : ''}" style="--i: ${Math.min(place, 40)}" ${pick
+                ? `role="button" tabindex="0" data-reroll="${escapeHtml(ref)}"` : 'role="img"'} aria-label="${face}${what ? ', ' + what : ''}${pick ? ': re-roll it' : ''}"
+            title="${face}${rerolledFrom ? ` (re-rolled from ${rerolledFrom})` : ''}${pick ? ' · click to Command Re-roll' : ''}">${inside}${rerolledFrom ? '<em class="play-die-reroll">&#8635;</em>' : ''}</span>`;
+    }
+
+    /** Whether a die of the last event ('roll:die') is one the player picking now may Command Re-roll. */
+    function pickable(ref) {
+        const picking = state.rerolling;
+        return picking != null && ((state.game.rerollable || {})[picking] || []).some(([g, i]) => `${g}:${i}` === ref);
+    }
+
+    /** Players who could Command Re-roll a die of the last roll now (online, only this app's player). */
+    function rerollers() {
+        const game = state.game;
+        return Object.keys(game.rerollable || {}).map(Number).filter(p => game.seat == null || game.seat === p);
+    }
+
+    /** Above the log: Command Re-roll for the last roll, or picking its die. */
+    function rerollBar() {
+        const game = state.game;
+        const players = rerollers();
+        if (state.rerolling != null && !players.includes(state.rerolling)) state.rerolling = null;
+        if (!players.length) return '';
+        if (state.rerolling != null) {
+            return `<div class="play-reroll-bar"><i class="fa-solid fa-rotate" aria-hidden="true"></i>
+                Command Re-roll (1 CP): click one of ${escapeHtml(game.state.players[state.rerolling].name)}'s glowing dice in the last roll.
+                <button class="btn-small" data-reroll-cancel>Cancel</button></div>`;
+        }
+        return `<div class="play-reroll-bar"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Command Re-roll a die of the last roll:
+            ${players.map(p => `<button class="btn-small" data-reroll-player="${p}">${escapeHtml(game.state.players[p].name)} (1 CP)</button>`).join(' ')}</div>`;
+    }
+
+    function wireReroll() {
+        const log = $('dice-log');
+        log.querySelectorAll('[data-reroll-player]').forEach(b => b.addEventListener('click', () => {
+            state.rerolling = Number(b.dataset.rerollPlayer);
+            renderLog();
+        }));
+        log.querySelectorAll('[data-reroll-cancel]').forEach(b => b.addEventListener('click', () => {
+            state.rerolling = null;
+            renderLog();
+        }));
+        log.querySelectorAll('[data-reroll]').forEach(die => {
+            const go = async () => {
+                const [roll, index] = die.dataset.reroll.split(':').map(Number);
+                const player = state.rerolling;
+                if (await send({ type: 'command_reroll', player, roll, die: index })) {
+                    state.rerolling = null;
+                    const event = state.game.events[state.game.events.length - 1];
+                    const after = event.rolls[roll] && event.rolls[roll].dice[index];
+                    message(`Command Re-roll: ${event.rerolled.from} became ${after ? after.face : '?'}.`);
+                    renderLog();
+                }
+            };
+            die.addEventListener('click', go);
+            die.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+        });
     }
 
     /** The icon for a battle log line that isn't an attack. */
     function logIcon(event) {
-        const icons = { fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
+        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
             effect: 'fa-wand-magic-sparkles', roll_off: 'fa-dice', roll_objectives: 'fa-dice', roll_mirrored: 'fa-dice',
             choose_role: 'fa-chess-board', choose_secondaries: 'fa-layer-group', tactical: 'fa-layer-group', condemn: 'fa-gavel',
             start_action: 'fa-flag', place_markers: 'fa-location-dot', beacon: 'fa-tower-broadcast', tempting: 'fa-bullseye',
@@ -1832,6 +1912,12 @@
                  sabotage: 'Sabotage' }[key] || key;
     }
 
+    /** A reaction's standing order choices ([value, label]), the player's current one selected. */
+    function reactionOrderOptions(player, kind, choices) {
+        const mode = ((((player.orders || {}).reactions || {})[kind]) || { mode: 'ask' }).mode;
+        return choices.map(([value, label]) => `<option value="${value}" ${value === mode ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+    }
+
     /** The Fire Overwatch standing order's choices: ask, never, or always with one of the player's units. */
     function overwatchOrderOptions(player, units) {
         const order = ((player.orders || {}).reactions || {}).overwatch || { mode: 'ask' };
@@ -1848,10 +1934,10 @@
     }
 
     /** One line of the dice log for an event that isn't an attack. */
-    function logLine(event, name) {
+    function logLine(event, name, latest = false) {
         const a = event.action;
-        const dice = roll => `<span class="play-dice">${roll.dice.map((d, k) => dieHtml(d.face,
-            roll.need == null ? 'value' : d.critical ? 'critical' : d.success ? 'success' : 'fail', k, d.rerolled_from)).join('')}</span>`;
+        const dice = (roll, g = 0) => `<span class="play-dice">${roll.dice.map((d, k) => dieHtml(d.face,
+            roll.need == null ? 'value' : d.critical ? 'critical' : d.success ? 'success' : 'fail', k, d.rerolled_from, latest ? `${g}:${k}` : null)).join('')}</span>`;
         const player = p => escapeHtml(state.game.state.players[p].name);
         switch (a.type) {
             case 'charge':
@@ -1865,6 +1951,14 @@
                 return `<span class="play-effect manual">Manual effect: ${escapeHtml(event.effect)}</span> on ${escapeHtml(name(event.unit))}`;
             case 'pass':
                 return `${player(event.player)} passed on ${escapeHtml(REACTION_NAMES[event.passed] || event.passed)}`;
+            case 'heroic':
+                return `<span class="play-effect stratagem">${player(event.player)} used Heroic Intervention (${escapeHtml(HEROIC_MODES[event.heroic])}, ${Number(event.cp)} CP)</span>:
+                    ${escapeHtml(name(event.unit))} charge roll ${dice(event.rolls[0])} = <strong>${event.roll}"</strong>${event.failed ? ': nothing in reach, it fails' : ''}`;
+            case 'command_reroll': {
+                const roll = event.rolls.find(r => r.purpose === 'charge' || r.purpose === 'advance');
+                return `<span class="play-effect stratagem">${player(event.player)} used Command Re-roll (${Number(event.cp)} CP)</span>:
+                    ${escapeHtml(name(event.unit))} ${roll ? `${roll.purpose === 'charge' ? 'charge' : 'Advance'} roll ${dice(roll, event.rolls.indexOf(roll))} = <strong>${roll.total}"</strong>` : ''}`;
+            }
             case 'fight':  // Passed: an overrun fight with no enemy in reach
                 return `<strong>${escapeHtml(name(a.unit))}</strong> had no enemy within reach, so it didn't fight`;
             case 'roll_objectives':

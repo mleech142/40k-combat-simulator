@@ -168,13 +168,23 @@ def _snapshot(state):
             'layout': [{k: v for k, v in o.items() if k != 'controller'} for o in state.get('objectives', [])]}
 
 
-def resolve_action(state, action, dice, rewind=None):
+def resolve_action(state, action, dice, rewind=None, redo=None):
     """
     Roll an action and return its event: {'action', 'rolls', 'models' (changed models), 'units'
     (changed units' activity), 'turn' (when it changed), ...}. `state` is not changed. Accepting an Undo request
-    needs `rewind`: the game as it was before the action being taken back.
+    needs `rewind`: the game as it was before the action being taken back. A Command Re-roll needs `redo`
+    (redo_history: the action it works out again, the game before it and the re-rolls already made on it).
     """
-    handlers = {'shoot': lambda s: _shoot(s, action, dice), 'place': lambda s: _place(s, action),
+    kind = action.get('type') if isinstance(action, dict) else None
+    handlers = _handlers(action, dice, rewind, redo)
+    if kind not in handlers:
+        raise ActionError(f'Unknown action: {kind}')
+    return _resolve(state, action, dice, handlers[kind])
+
+
+def _handlers(action, dice, rewind=None, redo=None):
+    """Each action type's handler, for `action` rolling with `dice`."""
+    return {'shoot': lambda s: _shoot(s, action, dice), 'place': lambda s: _place(s, action),
                 'end_deployment': lambda s: _end_deployment(s, dice), 'next_phase': lambda s: _next_phase(s, dice),
                 'move': lambda s: _move(s, action), 'advance': lambda s: _advance(s, action, dice),
                 'stationary': lambda s: _stationary(s, action), 'reset_move': lambda s: _reset_move(s, action),
@@ -197,10 +207,12 @@ def resolve_action(state, action, dice, rewind=None):
                 'start_action': lambda s: mission_state.start_action(s, action),
                 'pass': lambda s: _pass(s, action, dice), 'overwatch': lambda s: _overwatch(s, action, dice),
                 'heroic': lambda s: _heroic(s, action, dice),
+                'command_reroll': lambda s: _command_reroll(s, action, dice, redo),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
-    kind = action.get('type') if isinstance(action, dict) else None
-    if kind not in handlers:
-        raise ActionError(f'Unknown action: {kind}')
+
+
+def _resolve(state, action, dice, handler):
+    kind = action.get('type')
     pending = state.get('pending')
     if pending and kind not in ('accept', 'decline'):
         other = state['players'][1 - pending['player']]['name']
@@ -212,7 +224,7 @@ def resolve_action(state, action, dice, rewind=None):
     before = copy.deepcopy(_snapshot(state))
     state = copy.deepcopy(state)
     start = len(dice.log)
-    detail = handlers[kind](state) or {}
+    detail = handler(state) or {}
     # Models removed to restore coherency don't count as destroyed (core rules 03.03)
     mission_state.log_destroyed(state, before['models'], action, {m for c in detail.get('coherency', []) for m in c['removed']})
     after = _snapshot(state)
@@ -920,13 +932,18 @@ def _shoot(state, action, dice, snap=False):
                         'killed': killed, 'rolls': [first, len(dice.log)]})
     activity['shot'] = True
     shooter.setdefault('status', {'shocked': False})['shot_seq'] = state['turn'].get('seq', 0)  # No longer hidden
+    if not snap:  # (Fire Overwatch opens it itself, before carrying on with the phase change)
+        _save_window(state, attacks, dice)
     return {'attacks': attacks}
 
 
 # --- Reactions: the other player's decisions in your turn (11th edition core stratagems) ------------------------
 
 REACTIONS = {'overwatch': 'Fire Overwatch', 'heroic': 'Heroic Intervention', 'reroll': 'Command Re-roll'}
-WINDOW_ACTIONS = {'overwatch': ('pass', 'overwatch'), 'heroic': ('pass', 'heroic', 'charge_move'), 'reroll': ('pass', 'command_reroll')}
+WINDOW_ACTIONS = {'overwatch': ('pass', 'overwatch'), 'heroic': ('pass', 'heroic', 'charge_move', 'command_reroll'),
+                  'reroll': ('pass', 'command_reroll')}
+REROLL_PURPOSES = ('hit', 'wound', 'save', 'damage', 'attacks', 'hazard', 'advance', 'charge')  # Command Re-roll's rolls
+REROLL_ACTIONS = ('shoot', 'fight', 'overwatch', 'charge', 'advance', 'heroic')  # Actions whose rolls it can take
 HEROIC_MODES = {'leap': 'Leap to Defend', 'fray': 'Into the Fray'}  # Into the Fray costs 1 CP more
 HEROIC_REACH = 12  # Units within this of an enemy unit can intervene
 FRAY_REACH = 6  # Into the Fray: any enemy unit within this can be charged
@@ -1203,9 +1220,197 @@ def _overwatch(state, action, dice, standing=False):
     detail = _shoot(state, {'unit': unit['id'], 'target': target['id'], 'weapons': picks}, dice, snap=True)
     result = dict(detail, stratagem=entry['name'], cp=entry['cp'], player=player, unit=unit['id'], overwatch=True,
                   **({'standing': True} if standing else {}))
-    if not standing:
-        result.update(_close_window(state, dice))
+    then = None if standing else state['turn'].pop('window').get('then')
+    if _save_window(state, detail['attacks'], dice, then):  # The moving player may re-roll a save first
+        return result
+    if then == 'next_phase':
+        result.update(_next_phase(state, dice))
     return result
+
+
+def _save_window(state, attacks, dice, then=None):
+    """
+    After an attack: the re-roll window for the player whose units failed a save in it, if they could use Command
+    Re-roll and their standing order doesn't answer it ('never'; 'deaths': only if a model of theirs died). True if
+    it opened (`then`: what to carry on with once it closes).
+    """
+    failed, died = {}, set()
+    for attack in attacks:
+        if attack.get('name') == 'Hazardous':
+            continue
+        target = unit_by_id(state, attack['target'])
+        for group in dice.log[attack['rolls'][0]:attack['rolls'][1]]:
+            if getattr(group, 'need', None) is not None and group.purpose == 'save' and any(not d.success for d in group.dice):
+                failed.setdefault(target['player'], set()).add(target['id'])
+        if attack['killed']:
+            died.add(target['player'])
+    phase = _phase_id(state['turn'])
+    for player, units in failed.items():
+        mode = reaction_order(state, player, 'reroll')['mode']
+        if mode == 'never' or (mode == 'deaths' and player not in died) or _reaction_ready(state, player, 'reroll'):
+            continue
+        if not any((unit_by_id(state, u).get('status') or {}).get('stratagem_phase') != phase
+                   and not (unit_by_id(state, u).get('status') or {}).get('shocked') for u in units):
+            continue
+        state['turn']['window'] = {'kind': 'reroll', 'player': player, **({'then': then} if then else {})}
+        return True
+    return False
+
+
+def roll_owners(state, event):
+    """
+    {roll index: (player, unit id)} for the rolls of an event a Command Re-roll could take: the acting unit's hit, wound,
+    attacks, damage and hazard rolls, the target's saves, and charge and Advance rolls.
+    """
+    action = event['action']
+    kind = action.get('type')
+    if kind == 'command_reroll':
+        kind = (event.get('redo') or {}).get('type')
+        action = event.get('redo') or {}
+    owners = {}
+    if kind not in REROLL_ACTIONS:
+        return owners
+    if kind in ('charge', 'advance', 'heroic'):
+        unit = unit_by_id(state, event.get('unit') or action.get('unit'))
+        for g, roll in enumerate(event['rolls']):
+            if roll['purpose'] in ('charge', 'advance'):
+                owners[g] = (unit['player'], unit['id'])
+        return owners
+    shooter = unit_by_id(state, action['unit'])
+    for attack in event.get('attacks') or []:
+        target = unit_by_id(state, attack['target'])
+        for g in range(*attack['rolls']):
+            purpose = event['rolls'][g]['purpose']
+            if purpose == 'save':
+                owners[g] = (target['player'], target['id'])
+            elif purpose in REROLL_PURPOSES:
+                owners[g] = (shooter['player'], shooter['id'])
+    return owners
+
+
+def rerollable(state, event):
+    """
+    For the page: {player: [[roll, die], ...]}: the dice of the last event each player could Command Re-roll now
+    (failed dice of success rolls, every die of a rolled value; never one already re-rolled).
+    """
+    if not event or state['turn']['phase'] not in PHASES or state.get('pending'):
+        return {}
+    window = state['turn'].get('window')
+    if window and 'command_reroll' not in WINDOW_ACTIONS[window['kind']]:
+        return {}
+    phase, out = _phase_id(state['turn']), {}
+    for g, (player, unit_id) in roll_owners(state, event).items():
+        status = unit_by_id(state, unit_id).get('status') or {}
+        if _reaction_ready(state, player, 'reroll') or status.get('shocked') or status.get('stratagem_phase') == phase:
+            continue
+        roll = event['rolls'][g]
+        for i, die in enumerate(roll['dice']):
+            if die.get('rerolled_from') is None and (roll.get('need') is None or not die['success']):
+                out.setdefault(str(player), []).append([g, i])
+    return out
+
+
+class _ScriptedRolls:
+    """Dice that come up as `faces` in order (a face too big for the die is folded into it), then at random."""
+
+    def __init__(self, faces, rng):
+        self.faces, self.rng = list(faces), rng
+
+    def randint(self, low, high):
+        if not self.faces:
+            return self.rng.randint(low, high)
+        face = self.faces.pop(0)
+        return (face - 1) % high + 1
+
+
+def _roll_sequence(event, swap=None):
+    """
+    The faces an event's rolls came up, in the order they were rolled (a group's first faces, then any it re-rolled
+    by its own rules), each a [face, (roll, die)] pair; `swap` ((roll, die) -> face) replaces some.
+    """
+    commanded = {tuple(c) for c in event.get('commanded', [])}
+    sequence = []
+    for g, roll in enumerate(event['rolls']):
+        rerolls = []
+        for i, die in enumerate(roll['dice']):
+            own = roll.get('need') is not None and die.get('rerolled_from') is not None and (g, i) not in commanded
+            sequence.append([die['rerolled_from'] if own else die['face'], (g, i)])
+            if own:
+                rerolls.append([die['face'], (g, i)])
+        sequence += rerolls
+    if swap:
+        for item in sequence:
+            if item[1] in swap:
+                item[0] = swap[item[1]]
+                swap = {k: v for k, v in swap.items() if k != item[1]}  # Only its first face (the one rolled first)
+    return sequence
+
+
+def _command_reroll(state, action, dice, redo):
+    """
+    Command Re-roll (1 CP, once a phase): re-roll one die of the last event's rolls for one of your units (`roll`, `die`:
+    its place in the event's rolls), a charge roll in full. The action is worked out again from just before it, with
+    the same dice but that one (redo: from redo_history).
+    """
+    if not redo:
+        raise ActionError('Command Re-roll needs the last action to re-roll.')
+    last = redo['last']
+    try:
+        g, i = int(action.get('roll')), int(action.get('die'))
+        roll = last['rolls'][g]
+        die = roll['dice'][i]
+    except (TypeError, ValueError, IndexError, KeyError):
+        raise ActionError('Choose one of the dice of the last roll.')
+    player = action.get('player')
+    owner = roll_owners(state, last).get(g)
+    if owner is None or [g, i] not in rerollable(state, last).get(str(player), []):
+        if owner is not None and owner[0] != player:
+            raise ActionError('Re-roll one of your own dice.')
+        if die.get('rerolled_from') is not None:
+            raise ActionError('A die can only be re-rolled once.')
+        raise ActionError(_reaction_ready(state, player, 'reroll') if owner is not None and _reaction_ready(state, player, 'reroll')
+                          else 'Command Re-roll takes a hit, wound, save, damage, attacks, hazard, Advance or charge roll of '
+                               'one of your units not yet targeted by a stratagem this phase.')
+    # Back to before the action, with the re-rolls already made on it paid for again, and this one paid
+    state.clear()
+    state.update(copy.deepcopy(redo['rewind']))
+    for earlier in redo['chain']:
+        _spend_reaction(state, earlier['player'], 'reroll', unit_by_id(state, earlier['unit']))
+    entry = _spend_reaction(state, player, 'reroll', unit_by_id(state, owner[1]))
+    swap = {(g, k): dice.rng.randint(1, roll.get('size') or 6) for k in (range(len(roll['dice'])) if roll['purpose'] == 'charge' else [i])}
+    sequence = _roll_sequence(last, swap)
+    base = len(dice.log)
+    scripted = dice.rng
+    dice.rng = _ScriptedRolls([face for face, _ in sequence], scripted)
+    try:
+        detail = _handlers(redo['action'], dice)[redo['action']['type']](state) or {}
+    finally:
+        dice.rng = scripted
+    # The re-rolled dice show their first face; those re-rolled before stay marked if rolled before this one
+    order = {key: n for n, (_, key) in enumerate(_roll_sequence(last))}
+    first = min(order[key] for key in swap)
+    marks = {tuple(c) for c in last.get('commanded', []) if order.get(tuple(c), first + 1) < first} | set(swap)
+    for mg, mi in sorted(marks):
+        if base + mg < len(dice.log) and mi < len(dice.log[base + mg].dice):
+            old = last['rolls'][mg]['dice'][mi]
+            dice.log[base + mg].dice[mi].rerolled_from = old['rerolled_from'] if (mg, mi) not in swap else old['face']
+    return dict(detail, stratagem=entry['name'], cp=entry['cp'], player=player, unit=owner[1], redo=redo['action'],
+                base=redo['base'], commanded=sorted([list(m) for m in marks]), rerolled={'roll': g, 'die': i, 'from': die['face']})
+
+
+def redo_history(events, replay_to):
+    """
+    What a Command Re-roll of the last event needs (resolve_action's `redo`): the action it works out again (the
+    last event's own, or the one an earlier re-roll redid), the game just before that action (`replay_to(n)`
+    replays the first n events), the re-rolls already made on it, and the last event. None if there are no events.
+    """
+    if not events:
+        return None
+    last = events[-1]
+    base = last['base'] if last['action'].get('type') == 'command_reroll' else len(events) - 1
+    chain = [{'player': e['player'], 'unit': e['unit']} for e in events[base + 1:] if e['action'].get('type') == 'command_reroll']
+    action = events[base]['action']
+    return {'action': action, 'rewind': replay_to(base), 'chain': chain, 'last': last, 'base': base}
 
 
 def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice):
@@ -2179,6 +2384,7 @@ def _fight_with(state, unit, picks, explicit, default_target, engaged_with, figh
     unit['activity']['fought'] = True
     fight['picker'] = 1 - unit['player']
     _settle_picker(state)
+    _save_window(state, attacks, dice)
     return {'attacks': attacks}
 
 
