@@ -1881,7 +1881,7 @@
             const right = Math.max(...placed.map(m => m.position.x + reach(m)));
             const top = Math.min(...placed.map(m => D - m.position.y - reach(m)));
             const bottom = Math.max(...placed.map(m => D - m.position.y + reach(m)));
-            svgEl('rect', { x: left, y: top, width: right - left, height: bottom - top, rx: 0.6, class: 'play-unit-outline' }, g);
+            drawBorder(g, unit, placed, D);
             if (unit.activity[startKey()] && allowance(unit, placed[0]) != null) {
                 for (const model of placed) {  // Where it started the phase, until moves lock
                     const from = startOf(unit, model);
@@ -1905,6 +1905,10 @@
                     svgEl('circle', { cx: from.x, cy: D - from.y, r: left + Math.max(o.length, o.width) / 2,
                                       class: 'play-move-ring' }, g);
                 }
+            }
+            for (const model of placed) {  // Under the models: grabbing the unit's border area grabs the unit
+                padded(g, unit, model, D, BORDER_PAD, { class: 'play-unit-hit', 'data-unit': unit.id, 'data-model': model.id,
+                                                       'data-follow': model.id, 'data-turn': 1 });
             }
             for (const model of placed) drawModel(g, unit, model, D);
             const label = svgEl('text', { x: (left + right) / 2, y: top - 0.3, class: 'play-label' }, g);
@@ -2233,6 +2237,38 @@
         return { x: model.position.x + dx / length * reach, y: model.position.y + dy / length * reach };
     }
 
+    const BORDER_PAD = 0.4;  // Inches round each base
+    let borderCount = 0;
+
+    /** A model's base grown by `pad` inches, as an SVG shape in `parent` placed and turned like the model. */
+    function padded(parent, unit, model, depth, pad, attrs) {
+        const o = state.game.outlines[unit.id][model.part];
+        const transform = `translate(${model.position.x} ${depth - model.position.y}) rotate(${-(model.position.angle || 0)})`;
+        if (o.shape === 'rect') {
+            return svgEl('rect', { ...attrs, transform, x: -o.length / 2 - pad, y: -o.width / 2 - pad,
+                                   width: o.length + 2 * pad, height: o.width + 2 * pad, rx: pad }, parent);
+        }
+        return svgEl('ellipse', { ...attrs, transform, rx: o.length / 2 + pad, ry: o.width / 2 + pad }, parent);
+    }
+
+    /**
+     * A unit's border: round each model's base, BORDER_PAD out, joined where they meet (a split unit shows as
+     * islands). Each padded base is outlined, and a mask hides the outline wherever it runs inside the unit's
+     * padded bases, so only the edge of them all is left (the outline's outer half: the styles draw it double width).
+     */
+    function drawBorder(g, unit, placed, depth) {
+        const id = `play-border-${++borderCount}`;
+        const W = state.game.board.width, margin = 20;
+        const area = { x: -margin, y: -margin, width: W + 2 * margin, height: depth + 2 * margin };
+        const mask = svgEl('mask', { id, maskUnits: 'userSpaceOnUse', ...area }, g);
+        svgEl('rect', { ...area, fill: 'white' }, mask);
+        const border = svgEl('g', { class: 'play-unit-border', mask: `url(#${id})` }, g);
+        for (const model of placed) {
+            padded(mask, unit, model, depth, BORDER_PAD, { fill: 'black' });
+            padded(border, unit, model, depth, BORDER_PAD, { class: 'play-unit-outline' });
+        }
+    }
+
     function drawModel(g, unit, model, depth) {
         const outline = state.game.outlines[unit.id][model.part];
         const x = model.position.x, y = depth - model.position.y;
@@ -2345,11 +2381,11 @@
         if (state.drag.modelIds.length === unit.models.filter(m => m.alive && m.position).length) {
             // The whole unit: its outline and name go with it (SVG y runs down)
             const group = $('play-board').querySelector(`.play-unit-group[data-unit="${unit.id}"]`);
-            group.querySelectorAll('.play-unit-outline, .play-label').forEach(el =>
+            group.querySelectorAll('.play-unit-border, .play-label').forEach(el =>
                 el.setAttribute('transform', `translate(${state.drag.dx} ${-state.drag.dy})`));
         }
         for (const id of state.drag.modelIds) {
-            const el = $('play-board').querySelector(`[data-model="${id}"]`);
+            const el = $('play-board').querySelector(`.play-model[data-model="${id}"]`);
             const model = unitById(state.drag.unitId).models.find(m => m.id === id);
             const x = model.position.x + state.drag.dx, y = state.game.board.depth - (model.position.y + state.drag.dy);
             el.setAttribute('transform', `translate(${x} ${y}) rotate(${-(model.position.angle || 0)})`);

@@ -54,7 +54,7 @@
 .play-mission-now { color: var(--success); font-weight: 600; white-space: nowrap; }
 .play-mission-later { color: var(--text-secondary); font-style: italic; white-space: nowrap; }
 .play-mission-choice { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.4rem; margin: 0.3rem 0; border: 1px solid var(--warning); border-radius: 6px; font-size: 0.85rem; }
-.play-unit-group.condemned .play-unit-outline { stroke: var(--error); stroke-width: 0.12; stroke-dasharray: 0.4 0.25; }
+.play-unit-group.condemned .play-unit-outline { stroke: var(--error); stroke-width: 0.24; stroke-dasharray: 0.4 0.25; }
 .play-vp-line { color: var(--success); }
 
 .play-matchup { margin: 0 0 0.75rem; }
@@ -94,7 +94,7 @@
 #new-mirrored { margin-top: 0.3rem; }
 
 /* Deployment: a unit placed provisionally, until OK */
-.play-unit-group.provisional .play-unit-outline { stroke-dasharray: 0.4 0.25; stroke-width: 0.12; }
+.play-unit-group.provisional .play-unit-outline { stroke-dasharray: 0.4 0.25; stroke-width: 0.24; }
 .play-unit-group.provisional .play-model { opacity: 0.75; }
 .play-place .btn { padding: 0.25rem 0.8rem; }
 
