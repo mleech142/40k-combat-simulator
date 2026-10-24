@@ -27,6 +27,7 @@
         selected: null,  // Unit id picked in the list
         view: null,  // The board's viewBox, in SVG units (inches, y down)
         drag: null,  // {unitId, modelIds, start, dx, dy} while dragging
+        pan: null,  // {x, y, view, click, point, moved} while panning the camera
         moveMode: 'normal',  // How the selected unit will move (Movement phase)
         skies: false,  // The selected Fly unit takes to the skies for its move or charge (2" less, over terrain and models)
         waypoint: false,  // Its next move carries on from where it stands (Movement phase)
@@ -66,6 +67,8 @@
         board.addEventListener('pointerdown', pointerDown);
         board.addEventListener('pointermove', pointerMove);
         board.addEventListener('pointerup', pointerUp);
+        board.addEventListener('contextmenu', e => e.preventDefault());  // Right-drag pans
+        board.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });  // No auto-scroll on middle-drag
         document.addEventListener('battlefields-changed', e => fillBattlefields(e.detail));
         document.addEventListener('keydown', e => {
             const open = [...document.querySelectorAll('.modal.show')];
@@ -2037,19 +2040,37 @@
     }
 
     function pointerDown(event) {
-        if (!state.game || event.button !== 0) return;
+        if (!state.game) return;
         const target = event.target.closest('[data-model]');
-        if (!target) {
-            if (state.selected && state.game.state.turn.phase === 'deployment') placeSelectedAt(boardPoint(event));
+        if (event.button === 1 || event.button === 2 || (event.button === 0 && !target)) {
+            // Pan: left-drag on empty board, or middle- or right-drag anywhere. A left click without dragging still places.
+            if (!state.view) fitView();
+            state.pan = { x: event.clientX, y: event.clientY, view: Object.assign({}, state.view), click: event.button === 0,
+                point: boardPoint(event), moved: false };
+            $('play-board').setPointerCapture(event.pointerId);
             return;
         }
+        if (event.button !== 0) return;
         const unit = unitById(target.dataset.unit);
         const modelIds = event.shiftKey ? [target.dataset.model] : unit.models.filter(m => m.alive && m.position).map(m => m.id);
         state.drag = { unitId: unit.id, modelIds, start: boardPoint(event), dx: 0, dy: 0, trail: [{ x: 0, y: 0 }] };
         $('play-board').setPointerCapture(event.pointerId);
     }
 
+    function panTo(event) {
+        const pan = state.pan;
+        const px = event.clientX - pan.x, py = event.clientY - pan.y;
+        if (!pan.moved && Math.hypot(px, py) < 4) return;  // Not yet: it may be a click
+        pan.moved = true;
+        const svg = $('play-board'), box = svg.getBoundingClientRect();
+        const scale = Math.max(pan.view.w / box.width, pan.view.h / box.height);  // SVG units per pixel
+        state.view = Core.playPan(pan.view, -px * scale, -py * scale, state.game.board);
+        svg.setAttribute('viewBox', `${state.view.x} ${state.view.y} ${state.view.w} ${state.view.h}`);
+        svg.classList.add('panning');
+    }
+
     function pointerMove(event) {
+        if (state.pan) return panTo(event);
         if (!state.drag) return;
         const p = boardPoint(event);
         state.drag.dx = p.x - state.drag.start.x;
@@ -2107,6 +2128,13 @@
     }
 
     async function pointerUp() {
+        if (state.pan) {
+            const pan = state.pan;
+            state.pan = null;
+            $('play-board').classList.remove('panning');
+            if (!pan.moved && pan.click && state.selected && state.game.state.turn.phase === 'deployment') placeSelectedAt(pan.point);
+            return;
+        }
         const drag = state.drag;
         state.drag = null;
         if (!drag) return;

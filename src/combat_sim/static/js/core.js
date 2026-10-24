@@ -1114,6 +1114,16 @@
         return { x: px - (px - view.x) * scale, y: py - (py - view.y) * scale, w, h: view.h * scale };
     }
 
+    /**
+     * Play: the board's viewBox moved by (dx, dy) SVG units, its centre kept over the board ({width, depth}), so
+     * panning can't lose the battlefield off screen.
+     */
+    function playPan(view, dx, dy, board) {
+        const clamp = (v, low, high) => Math.min(high, Math.max(low, v));
+        const cx = clamp(view.x + dx + view.w / 2, 0, board.width), cy = clamp(view.y + dy + view.h / 2, 0, board.depth);
+        return { x: cx - view.w / 2, y: cy - view.h / 2, w: view.w, h: view.h };
+    }
+
     // -------------------------------------------------------------------------
     // Match view (Armies page): datasheets and stratagems as the table needs them
     // -------------------------------------------------------------------------
@@ -1161,7 +1171,7 @@
     }
 
     return {
-        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

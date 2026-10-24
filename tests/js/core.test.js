@@ -744,6 +744,13 @@ test('playPath gives a model its path this phase: start, waypoints, where it sta
     assert.deepEqual(Core.playPath(start, undefined, start), [start]);  // Not moved
 });
 
+test('playPan moves the view but keeps its centre over the board', () => {
+    const board = { width: 60, depth: 44 }, view = { x: 10, y: 10, w: 20, h: 15 };
+    assert.deepEqual(Core.playPan(view, 5, -3, board), { x: 15, y: 7, w: 20, h: 15 });
+    assert.deepEqual(Core.playPan(view, -100, 0, board), { x: -10, y: 10, w: 20, h: 15 });  // Centre at the left edge
+    assert.deepEqual(Core.playPan(view, 0, 100, board), { x: 10, y: 36.5, w: 20, h: 15 });  // Centre at the bottom edge
+});
+
 test('playRouteBends keeps the bends of a dragged path and drops its wobbles', () => {
     const corner = [{ x: 0, y: 0 }, { x: 1, y: 0.05 }, { x: 2, y: 0 }, { x: 2.04, y: 1 }, { x: 2, y: 2 }];
     assert.deepEqual(Core.playRouteBends(corner), [{ x: 2, y: 0 }]);

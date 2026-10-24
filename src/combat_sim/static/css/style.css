@@ -3693,7 +3693,9 @@ h4 .fa-solid,
     border-radius: 6px;
     touch-action: none;
     user-select: none;
+    cursor: grab;
 }
+.play-board.panning, .play-board.panning .play-model { cursor: grabbing; }
 .play-field { fill: var(--play-field); stroke: var(--border); stroke-width: 0.08; }
 .play-zone { opacity: 0.12; }
 .play-zone.play-p1 { fill: var(--play-p1); }
