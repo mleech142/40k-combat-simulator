@@ -250,7 +250,7 @@ def check(app):
     missing = sorted(m.__name__ for m in db.Model.__subclasses__() if 'owner_id' in m.__table__.columns and m not in POLICY)
     if missing:
         raise RuntimeError(f'Saved tables with an owner need a rule in access.POLICY: {", ".join(missing)}')
-    from .proposals import unreadable_routes
-    unreadable = unreadable_routes(app)
-    if unreadable:
-        raise RuntimeError(f"@proposable routes proposals.py can't describe (PATH_RE): {', '.join(unreadable)}")
+    unknown = sorted(str(rule) for rule in app.url_map.iter_rules()
+                     if route_label(app, rule.endpoint) == PROPOSABLE and not getattr(app.view_functions[rule.endpoint], 'edit', None))
+    if unknown:
+        raise RuntimeError(f"@proposable routes need the edit they make (app_data_edits.edit_route): {', '.join(unknown)}")

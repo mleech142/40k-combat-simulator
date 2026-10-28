@@ -160,15 +160,16 @@ def test_a_data_tab_write_without_a_label_stops_the_app():
         access.check(app)
 
 
-def test_labelled_routes_pass_and_unreadable_proposable_routes_stop_it():
+def test_labelled_routes_pass_and_proposable_routes_need_their_edit():
+    from combat_sim.app_data_edits import edit_route
     app = Flask('check')
 
     @app.route('/api/data/factions', methods=['POST'])
-    @access.proposable
+    @edit_route('faction', 'add')
     def add_faction():
         return ''
 
-    access.check(app)  # labelled and describable
+    access.check(app)  # labelled with the edit it makes
 
     @app.route('/api/data/gizmos', methods=['POST'])
     @access.proposable

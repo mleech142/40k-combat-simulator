@@ -33,7 +33,9 @@ function card(p) {
     const when = p.created_at ? new Date(p.created_at + 'Z').toLocaleString() : '';
     const waiting = p.status === 'pending';
     let detail = '';
-    if (waiting && p.gone) {
+    if (waiting && p.problem) {
+        detail = `<p class="account-warning">${esc(p.problem)}: approving it will fail.</p>`;
+    } else if (waiting && p.gone) {
         detail = '<p class="account-warning">The record this changes has been deleted since: approving it will fail.</p>';
     } else if (waiting) {
         detail = (p.changed_since.length

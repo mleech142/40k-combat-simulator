@@ -734,6 +734,7 @@ class Proposal(db.Model):
     body = db.Column(JSON, nullable=True)  # What was sent
     summary = db.Column(db.String(300), nullable=False)  # "Edit stratagem 'X' (Faction)"
     before = db.Column(JSON, nullable=True)  # The record as it was when proposed (None: a new one)
+    edit = db.Column(JSON, nullable=True)  # The edit (app_data_edits.Edit.to_dict); None: saved before edits were stored
     status = db.Column(db.String(12), nullable=False, default='pending')  # pending, approved, rejected, failed, withdrawn
     note = db.Column(db.Text, nullable=True)  # The host's reason, or why approving it failed
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

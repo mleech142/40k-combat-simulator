@@ -10,17 +10,19 @@ from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy.exc import IntegrityError
 from .models import (db, init_db, Proposal, Faction, Detachment, Enhancement, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
-                     SavedScenario, SavedComparison, SavedArmy, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
+                     SavedScenario, SavedComparison, SavedArmy, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, is_hosted, prepare_data_dir
-from .data_store import DataFileError, check_data, LINKED_FIELDS
+from .data_store import DataFileError, check_data
 from . import armies, army_share, bsdata_download, contagion, effects, folder_dialog, match_view, wahapedia_download
 from .effects import RULE_PHASES
 from .rules_text import ability_buffs
 from .play.routes import register_play_routes
 from .proposals import register_proposal_routes
 from . import access, reference
-from .access import desktop_only, host_only, proposable
+from . import app_data_edits as edits
+from .access import desktop_only, host_only
+from .app_data_edits import WEAPON_MODELS, edit_route, text_list
 from .accounts import register_account_routes, secret_key
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
@@ -137,9 +139,6 @@ def rule_modifiers(records, side, faction_id, weapon_type):
     return modifiers
 
 
-BUFF_SIDES = ('Attacker', 'Target')
-BUFF_PHASES = ('Shooting', 'Fighting', 'Both')
-BUFF_CONDITIONS = (contagion.AFFLICTED,)  # Conditions a buff row can name ('when')
 
 
 def load_leader(leader_id):
@@ -211,24 +210,6 @@ def leader_target(leader, extra_keywords=()):
         keywords=leader.target_keywords + list(extra_keywords),
         model_count=leader.default_models or 1,
     )
-
-
-def clean_buffs(rows):
-    """Leader buff rows from a request: side and phase checked, empty modifiers dropped, a known condition kept."""
-    cleaned = []
-    for row in rows or []:
-        modifier = str(row.get('modifier') or '').strip()
-        if not modifier:
-            continue
-        buff = {
-            'applies_to': row.get('applies_to') if row.get('applies_to') in BUFF_SIDES else 'Attacker',
-            'phase': row.get('phase') if row.get('phase') in BUFF_PHASES else 'Both',
-            'modifier': modifier,
-        }
-        if row.get('when') in BUFF_CONDITIONS:
-            buff['when'] = row['when']
-        cleaned.append(buff)
-    return cleaned
 
 
 def modifier_has_effect(text, modelled_names):
@@ -640,17 +621,12 @@ def register_routes(app):
     def save_data():
         reference.save_app_data(app)  # never while the reference tables are being rebuilt
 
-    def read_only(message='BSData records are read-only.'):
-        return jsonify({'error': message}), 403
-
-    def next_custom_id(model):
-        """IDs for records made in the app stay below the BSData range."""
-        top = db.session.query(db.func.max(model.id)).filter(model.id < BSDATA_ID_BASE).scalar()
-        return (top or 0) + 1
-
-    def editable_faction(faction_id):
-        faction = db.session.get(Faction, int(faction_id)) if faction_id not in (None, '') else None
-        return faction is not None and faction.editable
+    def run_edit(edit):
+        """A Data-tab change (app_data_edits.py) as a web answer."""
+        try:
+            return jsonify(edits.apply(app, edit))
+        except edits.EditError as error:
+            return jsonify({'error': str(error)}), error.status
 
     @app.route('/api/data/status')
     def api_data_status():
@@ -804,17 +780,6 @@ def register_routes(app):
         update_settings(app.config['SETTINGS_JSON'], setup_skipped=True)
         return jsonify({'message': 'Setup skipped'})
 
-    def int_or_none(value):
-        if value in (None, '', '-'):
-            return None
-        return int(value)
-
-    def text_list(value):
-        """A list of strings from a list or a comma-separated string."""
-        if isinstance(value, str):
-            value = value.split(',')
-        return [str(v).strip() for v in (value or []) if str(v).strip()]
-
     def bad_data_request(err):
         """A Data-tab write with a field missing or of the wrong kind: 400, not a crash."""
         if not request.path.startswith('/api/data/'):
@@ -894,66 +859,24 @@ def register_routes(app):
         return jsonify({'army_rules': faction.army_rules or [], 'detachments': [d.to_dict() for d in detachments]})
 
     @app.route('/api/data/factions', methods=['POST'])
-    @proposable
+    @edit_route('faction', 'add')
     def api_data_create_faction():
         """Create a new (custom) faction."""
-        data = request.get_json()
-        faction = Faction(id=next_custom_id(Faction), name=data['name'].strip(), source='custom')
-        db.session.add(faction)
-        save_data()
-        return jsonify({'id': faction.id, 'name': faction.name})
+        return run_edit(edits.make('faction', 'add', fields=request.get_json(silent=True)))
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['PUT'])
-    @proposable
+    @edit_route('faction', 'change')
     def api_data_update_faction(faction_id):
         """Rename a custom faction."""
-        faction = db.get_or_404(Faction, faction_id)
-        if not faction.editable:
-            return read_only()
-        data = request.get_json()
-        faction.name = data.get('name', faction.name).strip()
-        save_data()
-        return jsonify({'id': faction.id, 'name': faction.name})
+        return run_edit(edits.make('faction', 'change', faction_id, fields=request.get_json(silent=True)))
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['DELETE'])
-    @proposable
+    @edit_route('faction', 'delete')
     def api_data_delete_faction(faction_id):
         """Delete a custom faction with its units, weapons, rules and stratagems."""
-        faction = db.get_or_404(Faction, faction_id)
-        if not faction.editable:
-            return read_only()
-        for unit in faction.units:
-            unit.set_loadout('ranged', [])
-            unit.set_loadout('melee', [])
-            db.session.delete(unit)
-        RangedWeapon.query.filter_by(faction_id=faction_id).delete()
-        MeleeWeapon.query.filter_by(faction_id=faction_id).delete()
-        FactionRule.query.filter_by(faction_id=faction_id).delete()
-        Stratagem.query.filter_by(faction_id=faction_id).delete()
-        db.session.delete(faction)
-        save_data()
-        return jsonify({'message': 'Faction deleted'})
+        return run_edit(edits.make('faction', 'delete', faction_id, fields=request.get_json(silent=True)))
 
     # --- Faction rules ------------------------------------------------------
-
-    def apply_detachment(record, data):
-        """detachment_key from the request; its name is looked up (kept if the detachment isn't loaded)."""
-        key = (data.get('detachment_key') or '').strip() or None
-        known = Detachment.query.filter_by(bsdata_id=key).first() if key else None
-        if not key:
-            record.detachment_name = None
-        elif known:
-            record.detachment_name = known.name
-        elif key != record.detachment_key:
-            record.detachment_name = data.get('detachment_name') or key
-        record.detachment_key = key
-
-    def apply_rule_fields(rule, data):
-        rule.name = data['name'].strip()
-        rule.applies_to = data.get('applies_to') or None
-        rule.phase = data.get('phase') or None
-        rule.modifier = (data.get('modifier') or '').strip() or None
-        apply_detachment(rule, data)
 
     @app.route('/api/data/rules')
     def api_data_rules():
@@ -964,68 +887,24 @@ def register_routes(app):
         return jsonify([r.to_dict() for r in query.order_by(FactionRule.name).all()])
 
     @app.route('/api/data/rules', methods=['POST'])
-    @proposable
+    @edit_route('rule', 'add')
     def api_data_create_rule():
-        data = request.get_json()
-        rule = FactionRule(faction_id=int(data['faction_id']))
-        apply_rule_fields(rule, data)
-        db.session.add(rule)
-        save_data()
-        return jsonify(rule.to_dict())
+        """Add a faction rule."""
+        return run_edit(edits.make('rule', 'add', fields=request.get_json(silent=True)))
 
     @app.route('/api/data/rules/<int:rule_id>', methods=['PUT'])
-    @proposable
+    @edit_route('rule', 'change')
     def api_data_update_rule(rule_id):
-        rule = db.get_or_404(FactionRule, rule_id)
-        if rule.source == 'wahapedia':
-            return edit_wahapedia(FactionRule, rule, request.get_json())
-        apply_rule_fields(rule, request.get_json())
-        save_data()
-        return jsonify(rule.to_dict())
+        """Change a rule (a Wahapedia one: how the maths reads it)."""
+        return run_edit(edits.make('rule', 'change', rule_id, fields=request.get_json(silent=True)))
 
     @app.route('/api/data/rules/<int:rule_id>', methods=['DELETE'])
-    @proposable
+    @edit_route('rule', 'delete')
     def api_data_delete_rule(rule_id):
-        rule = db.get_or_404(FactionRule, rule_id)
-        if rule.source == 'wahapedia':
-            return read_only(WAHAPEDIA_READ_ONLY)
-        db.session.delete(rule)
-        save_data()
-        return jsonify({'message': 'Rule deleted'})
-
-    WAHAPEDIA_READ_ONLY = "Rules and stratagems from Wahapedia can't be deleted; change how the maths reads them instead."
-
-    def edit_wahapedia(model, record, data):
-        """
-        Set how the maths reads a Wahapedia rule or stratagem (applies to, phase, modifier) in every
-        faction that has it, or {'reset': true} to go back to what was parsed from its text.
-        """
-        if data.get('reset'):
-            values, edited = (record.parse or {}).get('parsed') or {}, False
-        else:
-            values, edited = data, True
-        applies_to = values.get('applies_to') or 'Attacker'
-        phase = values.get('phase') or None
-        if applies_to not in BUFF_SIDES or (phase is not None and phase not in BUFF_PHASES):
-            return jsonify({'error': 'Applies to must be Attacker or Target, and phase Shooting, Fighting or Both.'}), 400
-        for copy in model.query.filter_by(source='wahapedia', wahapedia_id=record.wahapedia_id):
-            copy.applies_to = applies_to
-            copy.phase = phase
-            copy.modifier = (values.get('modifier') or '').strip() or None
-            copy.edited = edited
-        save_data()
-        return jsonify(record.to_dict())
+        """Delete a rule (not a Wahapedia one)."""
+        return run_edit(edits.make('rule', 'delete', rule_id, fields=request.get_json(silent=True)))
 
     # --- Stratagems (core when faction_id is null) --------------------------
-
-    def apply_stratagem_fields(strat, data):
-        strat.name = data['name'].strip()
-        strat.cp = (str(data.get('cp') or '')).strip() or None
-        strat.applies_to = data.get('applies_to') or None
-        strat.phase = data.get('phase') or None
-        strat.modifier = (data.get('modifier') or '').strip() or None
-        strat.notes = (data.get('notes') or '').strip() or None
-        apply_detachment(strat, data)
 
     @app.route('/api/data/stratagems')
     def api_data_stratagems():
@@ -1038,34 +917,22 @@ def register_routes(app):
         return jsonify([s.to_dict() for s in query.order_by(Stratagem.name).all()])
 
     @app.route('/api/data/stratagems', methods=['POST'])
-    @proposable
+    @edit_route('stratagem', 'add')
     def api_data_create_stratagem():
-        data = request.get_json()
-        strat = Stratagem(faction_id=int_or_none(data.get('faction_id')))
-        apply_stratagem_fields(strat, data)
-        db.session.add(strat)
-        save_data()
-        return jsonify(strat.to_dict())
+        """Add a stratagem (core when faction_id is null)."""
+        return run_edit(edits.make('stratagem', 'add', fields=request.get_json(silent=True)))
 
     @app.route('/api/data/stratagems/<int:strat_id>', methods=['PUT'])
-    @proposable
+    @edit_route('stratagem', 'change')
     def api_data_update_stratagem(strat_id):
-        strat = db.get_or_404(Stratagem, strat_id)
-        if strat.source == 'wahapedia':
-            return edit_wahapedia(Stratagem, strat, request.get_json())
-        apply_stratagem_fields(strat, request.get_json())
-        save_data()
-        return jsonify(strat.to_dict())
+        """Change a stratagem (a Wahapedia one: how the maths reads it)."""
+        return run_edit(edits.make('stratagem', 'change', strat_id, fields=request.get_json(silent=True)))
 
     @app.route('/api/data/stratagems/<int:strat_id>', methods=['DELETE'])
-    @proposable
+    @edit_route('stratagem', 'delete')
     def api_data_delete_stratagem(strat_id):
-        strat = db.get_or_404(Stratagem, strat_id)
-        if strat.source == 'wahapedia':
-            return read_only(WAHAPEDIA_READ_ONLY)
-        db.session.delete(strat)
-        save_data()
-        return jsonify({'message': 'Stratagem deleted'})
+        """Delete a stratagem (not a Wahapedia one)."""
+        return run_edit(edits.make('stratagem', 'delete', strat_id, fields=request.get_json(silent=True)))
 
     # --- Units --------------------------------------------------------------
 
@@ -1085,106 +952,25 @@ def register_routes(app):
             melee_weapon_count=len(u.melee_weapons),
         ) for u in units])
 
-    def apply_unit_fields(unit, data):
-        unit.faction_id = int(data['faction_id'])
-        unit.name = data['name'].strip()
-        unit.toughness = int(data['toughness'])
-        unit.save = int(data['save'])
-        unit.wounds = int(data['wounds'])
-        unit.invulnerable_save = int_or_none(data.get('invulnerable_save'))
-        unit.feel_no_pain = int_or_none(data.get('feel_no_pain'))
-        unit.move = (str(data.get('move') or '')).strip() or None
-        unit.oc = int_or_none(data.get('oc'))
-        unit.leadership = int_or_none(data.get('leadership'))
-        brackets = []
-        for row in data.get('points_by_size') or []:
-            models, points = int_or_none(row.get('models')), int_or_none(row.get('points'))
-            if models and points is not None:
-                brackets.append({'models': models, 'points': points})
-        if brackets or 'points_by_size' in data:
-            unit.points_by_size = brackets
-            unit.points_cost = brackets[0]['points'] if brackets else None
-            unit.default_models = brackets[0]['models'] if brackets else int_or_none(data.get('default_models'))
-        else:
-            unit.points_cost = int_or_none(data.get('points_cost'))
-            unit.default_models = int_or_none(data.get('default_models'))
-        unit.keywords = text_list(data.get('keywords'))
-        unit.modifiers = text_list(data.get('modifiers'))
-        unit.can_lead = text_list(data.get('can_lead'))
-        if 'leader_buffs' in data:
-            unit.leader_buffs = clean_buffs(data.get('leader_buffs'))
-        unit.abilities = (data.get('abilities') or '').strip() or None
-
-    def apply_unit_loadout(unit, data):
-        """Set the loadout from [{'weapon_id', 'qty'}], keeping only the unit's own faction's weapons."""
-        for weapon_type, model in (('ranged', RangedWeapon), ('melee', MeleeWeapon)):
-            key = f'{weapon_type}_weapons'
-            if key not in data:
-                continue
-            entries = data[key] or []
-            ids = [int(e['weapon_id']) for e in entries]
-            allowed = {w.id for w in model.query.filter(model.id.in_(ids), model.faction_id == unit.faction_id)} if ids else set()
-            unit.set_loadout(weapon_type, [e for e in entries if int(e['weapon_id']) in allowed])
-
     @app.route('/api/data/units', methods=['POST'])
-    @proposable
+    @edit_route('unit', 'add')
     def api_data_create_unit():
         """Create a new unit in a custom faction."""
-        data = request.get_json()
-        if not editable_faction(data.get('faction_id')):
-            return read_only('Units can only be added to custom factions.')
-        unit = Unit(id=next_custom_id(Unit))
-        apply_unit_fields(unit, data)
-        db.session.add(unit)
-        db.session.flush()
-        apply_unit_loadout(unit, data)
-        save_data()
-        return jsonify({'id': unit.id, 'message': 'Unit created'})
+        return run_edit(edits.make('unit', 'add', fields=request.get_json(silent=True)))
 
     @app.route('/api/data/units/<int:unit_id>', methods=['PUT'])
-    @proposable
+    @edit_route('unit', 'change')
     def api_data_update_unit(unit_id):
-        """
-        Update a custom unit and its loadout. A BSData unit only takes 'added_modifiers' and
-        'leader_buffs' (null = back to the ones read from BSData), which apply to that datasheet
-        in every faction that has it.
-        """
-        unit = db.get_or_404(Unit, unit_id)
-        data = request.get_json()
-        if not unit.editable:
-            if set(data) - {'added_modifiers', 'leader_buffs'}:
-                return read_only('BSData units are read-only apart from added modifiers and leader buffs.')
-            for same in Unit.query.filter_by(bsdata_id=unit.bsdata_id):
-                if 'added_modifiers' in data:
-                    same.added_modifiers = text_list(data.get('added_modifiers'))
-                if 'leader_buffs' in data:
-                    same.leader_buffs_override = None if data['leader_buffs'] is None else clean_buffs(data['leader_buffs'])
-            save_data()
-            return jsonify({'id': unit.id, 'message': 'Unit updated'})
-        if not editable_faction(data.get('faction_id', unit.faction_id)):
-            return read_only('Units can only be moved to custom factions.')
-        apply_unit_fields(unit, data)
-        db.session.flush()
-        apply_unit_loadout(unit, data)
-        save_data()
-        return jsonify({'id': unit.id, 'message': 'Unit updated'})
+        """Update a custom unit and its loadout; a BSData unit only takes 'added_modifiers' and 'leader_buffs'."""
+        return run_edit(edits.make('unit', 'change', unit_id, fields=request.get_json(silent=True)))
 
     @app.route('/api/data/units/<int:unit_id>', methods=['DELETE'])
-    @proposable
+    @edit_route('unit', 'delete')
     def api_data_delete_unit(unit_id):
         """Delete a custom unit. Its faction's weapons stay."""
-        unit = db.get_or_404(Unit, unit_id)
-        if not unit.editable:
-            return read_only()
-        unit.set_loadout('ranged', [])
-        unit.set_loadout('melee', [])
-        db.session.delete(unit)
-        save_data()
-        return jsonify({'message': 'Unit deleted'})
+        return run_edit(edits.make('unit', 'delete', unit_id, fields=request.get_json(silent=True)))
 
     # --- Weapons ------------------------------------------------------------
-
-    WEAPON_MODELS = {'ranged': RangedWeapon, 'melee': MeleeWeapon}
 
     def weapon_dict(weapon, unit_names=None):
         return dict(
@@ -1217,13 +1003,6 @@ def register_routes(app):
         weapons.sort(key=lambda w: ((w['faction'] or '').lower(), w['name'].lower()))
         return jsonify(weapons)
 
-    def bsdata_profile(weapon_type, bsdata_id):
-        """A BSData weapon with this profile ID (any faction: the profile is the same)."""
-        if not bsdata_id:
-            return None
-        model = WEAPON_MODELS[weapon_type]
-        return model.query.join(Faction).filter(model.bsdata_id == bsdata_id, Faction.source == 'bsdata').first()
-
     @app.route('/api/data/weapons/bsdata')
     def api_data_bsdata_weapons():
         """BSData weapons to copy into a custom faction: ?q=name&type=ranged|melee (one per profile, 40 at most)."""
@@ -1243,40 +1022,11 @@ def register_routes(app):
         found.sort(key=lambda w: w['name'].lower())
         return jsonify(found[:40])
 
-    def apply_weapon_fields(weapon, weapon_type, data):
-        weapon.faction_id = int(data['faction_id'])
-        weapon.name = data['name'].strip()
-        linked = bsdata_profile(weapon_type, (data.get('linked_bsdata_id') or '').strip() or None)
-        weapon.linked_bsdata_id = linked.bsdata_id if linked else None
-        if linked:  # Stats come from BSData (and are refreshed from it on every start)
-            for field in LINKED_FIELDS[weapon_type]:
-                setattr(weapon, field, getattr(linked, field))
-            return
-        weapon.attacks = str(data['attacks']).strip()
-        weapon.strength = int(data['strength'])
-        weapon.armor_penetration = abs(int(data['ap'] or 0))
-        weapon.damage = str(data['damage']).strip()
-        weapon.abilities = text_list(data.get('abilities'))
-        skill = int_or_none(data.get('skill'))
-        if weapon_type == 'ranged':
-            weapon.ballistic_skill = skill
-            weapon.range_inches = int_or_none(data.get('range'))
-        else:
-            weapon.weapon_skill = skill
-
     @app.route('/api/data/weapons', methods=['POST'])
-    @proposable
+    @edit_route('weapon', 'add')
     def api_data_create_weapon():
         """Create a new weapon for a custom faction."""
-        data = request.get_json()
-        if not editable_faction(data.get('faction_id')):
-            return read_only('Weapons can only be added to custom factions.')
-        weapon_type = 'ranged' if data.get('type') == 'ranged' else 'melee'
-        weapon = WEAPON_MODELS[weapon_type](id=next_custom_id(WEAPON_MODELS[weapon_type]))
-        apply_weapon_fields(weapon, weapon_type, data)
-        db.session.add(weapon)
-        save_data()
-        return jsonify({'id': weapon.id, 'message': 'Weapon created'})
+        return run_edit(edits.make('weapon', 'add', fields=request.get_json(silent=True)))
 
     @app.route('/api/data/weapons/<weapon_type>/<int:weapon_id>')
     def api_data_get_weapon(weapon_type, weapon_id):
@@ -1285,38 +1035,16 @@ def register_routes(app):
         return jsonify(weapon_dict(db.get_or_404(model, weapon_id)))
 
     @app.route('/api/data/weapons/<weapon_type>/<int:weapon_id>', methods=['PUT'])
-    @proposable
+    @edit_route('weapon', 'change')
     def api_data_update_weapon(weapon_type, weapon_id):
         """Update a weapon. Moving it to another faction drops it from other factions' units."""
-        weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
-        weapon = db.get_or_404(WEAPON_MODELS[weapon_type], weapon_id)
-        data = request.get_json()
-        if not weapon.faction.editable or not editable_faction(data.get('faction_id', weapon.faction_id)):
-            return read_only()
-        apply_weapon_fields(weapon, weapon_type, data)
-        db.session.flush()
-
-        table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
-        other_units = [u.id for u in Unit.query.filter(Unit.faction_id != weapon.faction_id)]
-        if other_units:
-            db.session.execute(table.delete().where(
-                (table.c.weapon_id == weapon.id) & (table.c.unit_id.in_(other_units))))
-        save_data()
-        return jsonify({'id': weapon.id, 'message': 'Weapon updated'})
+        return run_edit(edits.make('weapon', 'change', weapon_id, fields=request.get_json(silent=True), weapon_type=weapon_type))
 
     @app.route('/api/data/weapons/<weapon_type>/<int:weapon_id>', methods=['DELETE'])
-    @proposable
+    @edit_route('weapon', 'delete')
     def api_data_delete_weapon(weapon_type, weapon_id):
         """Delete a weapon and remove it from every loadout."""
-        weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
-        weapon = db.get_or_404(WEAPON_MODELS[weapon_type], weapon_id)
-        if not weapon.faction.editable:
-            return read_only()
-        table = unit_ranged_weapons if weapon_type == 'ranged' else unit_melee_weapons
-        db.session.execute(table.delete().where(table.c.weapon_id == weapon.id))
-        db.session.delete(weapon)
-        save_data()
-        return jsonify({'message': 'Weapon deleted'})
+        return run_edit(edits.make('weapon', 'delete', weapon_id, fields=request.get_json(silent=True), weapon_type=weapon_type))
 
     @app.route('/api/scenarios/<int:scenario_id>', methods=['PUT'])
     def api_update_scenario(scenario_id):

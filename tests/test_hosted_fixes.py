@@ -176,12 +176,11 @@ def test_the_hosts_diff_uses_the_data_tabs_field_names(host):
     assert proposal['changes'] == [{'field': 'strength', 'now': 5, 'proposed': 6}]  # range, skill and AP unchanged
 
 
-def test_a_proposal_missing_a_field_fails_instead_of_crashing(host):
+def test_a_proposal_that_cant_be_made_is_refused_when_proposed(host):
     pat = add_player(host, 'Pat')
-    assert pat.post('/api/data/factions', json={'nickname': 'no name'}).status_code == 202
-    proposal = host.get('/api/proposals').get_json()[0]
-    resp = host.post(f"/api/proposals/{proposal['id']}/approve")
-    assert resp.status_code == 400 and resp.get_json()['status'] == 'failed'
+    resp = pat.post('/api/data/factions', json={'nickname': 'no name'})
+    assert resp.status_code == 400 and "'name' is missing" in resp.get_json()['error']
+    assert host.get('/api/proposals').get_json() == []  # nothing for the host to approve
 
 
 # --- Games -----------------------------------------------------------------------------------
