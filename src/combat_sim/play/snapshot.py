@@ -6,7 +6,7 @@ Needs an app context; everything else in the play package works on the plain dat
 
 from .. import armies
 from ..models import Enhancement, Faction, FactionRule, MeleeWeapon, RangedWeapon, Stratagem, Unit, db
-from ..rules_text import damaged_threshold, has_core_ability, plain_text, scouts_distance
+from ..rules_text import damaged_threshold, deadly_demise, firing_deck, has_core_ability, parse_transport, plain_text, scouts_distance
 
 STATS = ('move', 'toughness', 'save', 'wounds', 'invulnerable_save', 'feel_no_pain', 'oc', 'leadership')
 WEAPON_FIELDS = ('name', 'type', 'attacks', 'skill', 'strength', 'ap', 'damage', 'range', 'abilities')
@@ -125,6 +125,9 @@ def _part(entry, role, catalogue, warlord):
         'deep_strike': has_core_ability(unit.abilities, 'Deep Strike'),
         'infiltrators': has_core_ability(unit.abilities, 'Infiltrators'),
         'scouts': scouts_distance(unit.abilities),
+        'transport': parse_transport(unit.abilities) if 'Transport' in (unit.keywords or []) else None,
+        'firing_deck': firing_deck(unit.abilities),
+        'deadly_demise': deadly_demise(unit.abilities),
         'damaged': damaged_threshold(unit.abilities),
     }
 

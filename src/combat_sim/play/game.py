@@ -57,6 +57,12 @@ ENEMY_ZONE_FROM = 3  # ...and outside the opponent's deployment zone before this
 RESERVES_LOST = 3  # Units still in reserves at the end of this battle round are destroyed (20.03)
 SCOUT_GAP = 8  # A scout move ends more than this from every enemy unit (24.32)
 INFILTRATE_GAP = 8  # Infiltrators set up more than this from the enemy deployment zone and enemy units (24.20)
+EMBARK_REACH = 3  # Every model of a unit embarking is within this of its transport (18.02)
+DISEMBARK_REACH = {'rapid': 3, 'tactical': 3, 'combat': 6}  # Disembark moves: set up wholly within this of the transport (18.04)
+DISEMBARK_NAMES = {'rapid': 'Rapid disembark', 'tactical': 'Tactical disembark', 'combat': 'Combat disembark'}
+EMERGENCY_REACH = 6  # Emergency disembark: as close as possible to the destroyed transport, within this (18.05)
+DEMISE_REACH = 6  # Deadly Demise: on a 6, each unit within this suffers X mortal wounds (24.08)
+SET_UP_MOVES = ('ingress', 'disembark')  # Set up this phase: no other move until the Charge phase
 # Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
 MANUAL_EFFECTS = {
     'hit_plus': ('+1 to hit', 'Attacker', 'Hit Modifier +1'),
@@ -220,6 +226,7 @@ def _handlers(action, dice, rewind=None, redo=None):
                 'heroic': lambda s: _heroic(s, action, dice),
                 'reserve': lambda s: _reserve(s, action), 'ingress': lambda s: _ingress(s, action),
                 'rapid_ingress': lambda s: _rapid_ingress(s, action, dice), 'scout': lambda s: _scout(s, action, dice),
+                'embark': lambda s: _embark(s, action), 'disembark': lambda s: _disembark(s, action, dice),
                 'command_reroll': lambda s: _command_reroll(s, action, dice, redo),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
 
@@ -239,8 +246,8 @@ def _resolve(state, action, dice, handler):
     start = len(dice.log)
     detail = handler(state) or {}
     # Models removed to restore coherency don't count as destroyed (core rules 03.03)
-    mission_state.log_destroyed(state, before['models'], action,
-                                {m for key in ('coherency', 'reserves_lost') for c in detail.get(key, []) for m in c['removed']})
+    _aftermath(state, before, dice, detail)
+    mission_state.log_destroyed(state, before['models'], action, _uncounted(detail))
     after = _snapshot(state)
     event = {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]],
              'models': {k: v for k, v in after['models'].items() if v != before['models'][k]},
@@ -309,7 +316,7 @@ def _require(state, phase, unit=None):
 
 def _unplaced(state, player):
     """A player's units still to be set up in deployment (not those put in reserves)."""
-    return [u for u in state['units'] if u['player'] == player and not in_reserve(u)
+    return [u for u in state['units'] if u['player'] == player and not in_reserve(u) and not is_embarked(u)
             and any(m['alive'] and not m['position'] for m in u['models'])]
 
 
@@ -327,7 +334,8 @@ def reserve_room(state, player):
     limit = state['players'][player].get('reserve_limit')
     if limit is None:  # Games started before reserves: half of what the army costs
         limit = int(sum(unit_points(u) for u in state['units'] if u['player'] == player) * RESERVE_SHARE)
-    return limit - sum(unit_points(u) for u in state['units'] if u['player'] == player and in_reserve(u))
+    return limit - sum(unit_points(u) for u in state['units'] if u['player'] == player
+                       and (in_reserve(u) or (is_embarked(u) and in_reserve(unit_by_id(state, u['status']['embarked'])))))
 
 
 def _reserve(state, action):
@@ -344,9 +352,10 @@ def _reserve(state, action):
     if any(_has(p['keywords'], 'Fortification') for p in unit['parts']):
         raise ActionError('Fortifications can\'t be put in reserves.')
     room = reserve_room(state, unit['player'])
-    if unit_points(unit) > room:
+    cost = unit_points(unit) + sum(unit_points(u) for u in embarked_in(state, unit))  # With the units it carries
+    if cost > room:
         raise ActionError(f'Reserves can cost at most {state["players"][unit["player"]].get("reserve_limit", "half the")} points '
-                          f'in all: {unit["name"]} ({unit_points(unit)} pts) leaves too little room ({max(room, 0)} pts left).')
+                          f'in all: {unit["name"]} ({cost} pts) leaves too little room ({max(room, 0)} pts left).')
     unit.setdefault('status', {'shocked': False})['reserve'] = True
     _next_deployer(state, unit)
     return {'reserve': unit['id']}
@@ -364,6 +373,15 @@ def _end_deployment(state, dice):
     if _unplaced(state, 0) or _unplaced(state, 1):
         raise ActionError('Place every unit before deployment ends.')
     report = {'battle_shock': [], 'hazards': []}
+    for unit in state['units']:  # A Dedicated Transport must carry a unit, or it is lost (18.01)
+        if any(_has(p['keywords'], 'Dedicated Transport') for p in unit['parts']) and any(m['alive'] for m in unit['models']) \
+                and not embarked_in(state, unit):
+            lost = [m['id'] for m in unit['models'] if m['alive']]
+            for model in unit['models']:
+                model['alive'], model['wounds_left'] = False, 0
+            unit['status'].pop('reserve', None)
+            unit['status']['lost_empty'] = True
+            report.setdefault('empty_transports', []).append({'unit': unit['id'], 'name': unit['name'], 'removed': lost})
     first = 0
     if state.get('setup'):  # Roll off for the first turn: the winner goes first
         report['first_turn'] = _roll_off(dice, 'first turn')
@@ -389,8 +407,13 @@ def _begin_battle(state, dice, report):
 
 # --- Pre-battle abilities: Scouts (core rules 24.31, 24.32) ---------------------------------------------------
 
-def scouts(unit):
-    """X from Scouts X" if every living model in the unit has it (the least of its parts' X), else None."""
+def scouts(unit, state=None):
+    """X from Scouts X" if every living model in the unit has it (the least of its parts' X), else None. With `state`,
+    a Dedicated Transport has the least X of its passengers if every one of them has Scouts (24.31)."""
+    if state is not None and any(_has(p['keywords'], 'Dedicated Transport') for p in unit['parts']):
+        passengers = [scouts(u) for u in embarked_in(state, unit)]
+        if passengers and all(passengers):
+            return min(passengers)
     living = {m['part'] for m in unit['models'] if m['alive']}
     values = [unit['parts'][p].get('scouts') for p in living]
     return min(values) if values and all(values) else None
@@ -405,7 +428,7 @@ def _wholly_in_zone(state, unit):
 def scout_units(state, player):
     """A player's units that can still use Scouts in the pre-battle step: in reserves, or wholly within their zone."""
     done = (state['turn'].get('scouted') or []) if state['turn']['phase'] == 'prebattle' else []
-    return [u['id'] for u in state['units'] if u['player'] == player and u['id'] not in done and scouts(u)
+    return [u['id'] for u in state['units'] if u['player'] == player and u['id'] not in done and scouts(u, state)
             and any(m['alive'] for m in u['models']) and (in_reserve(u) or _wholly_in_zone(state, u))]
 
 
@@ -444,7 +467,7 @@ def _scout(state, action, dice):
         unit['status'].pop('reserve', None)
         how = 'set_up'
     else:
-        reach = scouts(unit)
+        reach = scouts(unit, state)
         blocking = _blocking(state, unit)
         for mid, spot in spots.items():
             part = unit['parts'][living[mid]['part']]
@@ -828,7 +851,8 @@ def score(state):
         return [mission_state.total(state, p) for p in (0, 1)]
     points = [0, 0]
     for unit in state['units']:
-        if unit['models'] and not any(m['alive'] for m in unit['models']) and not unit['status'].get('lost_in_reserve'):
+        if unit['models'] and not any(m['alive'] for m in unit['models']) \
+                and not (unit['status'].get('lost_in_reserve') or unit['status'].get('lost_empty')):
             points[1 - unit['player']] += sum(part.get('points') or 0 for part in unit['parts'])
     return points
 
@@ -886,7 +910,7 @@ def _is_engaged(state, unit):
 def moved_distance(unit):
     """The farthest any model of the unit has moved in this turn's Movement phase, along its path (from
     where it started, by way of any waypoints)."""
-    if unit['activity'].get('moved') == 'ingress':  # Set up this phase: it counts as having moved
+    if unit['activity'].get('moved') in SET_UP_MOVES:  # Set up this phase: it counts as having moved
         return math.inf
     start = unit['activity'].get('start') or {}
     via = unit['activity'].get('via') or {}
@@ -1010,7 +1034,7 @@ def shooting_options(state, unit_id, first_only=False):
     ranged weapons, each enemy unit as a target: {'ok', 'models' (how many would fire), 'reason'}.
     With `first_only`, it stops at the first target a weapon can shoot (enough to know the unit can shoot).
     """
-    shooter = _unit_or_error(state, unit_id)
+    shooter = _with_deck(state, copy.deepcopy(_unit_or_error(state, unit_id)))
     sight = {}
     try:
         _shooter_checks(state, shooter)
@@ -1034,7 +1058,7 @@ def shooting_options(state, unit_id, first_only=False):
                 if first_only:
                     break
             weapons.append({'part': part_index, 'weapon': weapon_index, 'name': weapon['name'], 'range': weapon.get('range'),
-                            'default_use': weapon['default_use'], 'targets': targets})
+                            'default_use': weapon['default_use'], 'targets': targets, **({'deck': True} if weapon.get('deck') else {})})
             if first_only and any(t['ok'] for t in targets.values()):
                 return {'reason': reason, 'weapons': weapons}
     return {'reason': reason, 'weapons': weapons}
@@ -1051,6 +1075,7 @@ def _shoot(state, action, dice, snap=False):
     shooter = _unit_or_error(state, action.get('unit'))
     if not snap:
         _shooter_checks(state, shooter)
+        _with_deck(state, shooter)  # Passengers' weapons (Firing Deck); parts aren't recorded, so this lasts the action
     activity = shooter['activity']
     picks = action.get('weapons')
     if picks is None:  # Every ranged weapon that starts ticked
@@ -1059,6 +1084,7 @@ def _shoot(state, action, dice, snap=False):
     if not picks:
         raise ActionError(f'{shooter["name"]} has no ranged weapons to fire.')
     stationary = moved_distance(shooter) <= HEAVY_MOVE + 1e-9 and not _is_engaged(state, shooter)  # Heavy
+    deck = _deck_picks(state, shooter, picks)
     plans = []
     for pick in picks:
         if not isinstance(pick, dict) or 'part' not in pick or 'weapon' not in pick:
@@ -1102,6 +1128,9 @@ def _shoot(state, action, dice, snap=False):
         attacks.append({'name': 'Hazardous', 'target': shooter['id'], 'models': len(hazardous),
                         'killed': killed, 'rolls': [first, len(dice.log)]})
     activity['shot'] = True
+    if deck:  # Units embarked in it can't shoot for the rest of the turn
+        for passenger in embarked_in(state, shooter):
+            passenger['activity']['shot'] = True
     shooter.setdefault('status', {'shocked': False})['shot_seq'] = state['turn'].get('seq', 0)  # No longer hidden
     if not snap:  # (Fire Overwatch opens it itself, before carrying on with the phase change)
         _save_window(state, attacks, dice)
@@ -2040,9 +2069,12 @@ def _board_mover(state, unit):
     """The unit's activity for a move on the board: not one in reserves or one that arrived this phase."""
     if in_reserve(unit):
         raise ActionError(f'{unit["name"]} is in reserves: it arrives with an ingress move (from battle round {INGRESS_FROM}).')
+    if is_embarked(unit):
+        raise ActionError(f'{unit["name"]} is embarked: it disembarks first.')
     activity = _ready_to_move(state, unit)
-    if activity.get('moved') == 'ingress':
-        raise ActionError(f'{unit["name"]} arrived this phase: it can\'t make another move until the Charge phase.')
+    if activity.get('moved') in SET_UP_MOVES:
+        raise ActionError(f'{unit["name"]} was set up this phase ({"arrived" if activity["moved"] == "ingress" else "disembarked"}): '
+                          'it can\'t make another move until the Charge phase.')
     return activity
 
 
@@ -2083,9 +2115,13 @@ def _reset_move(state, action):
         raise ActionError('Moves can only be reset in the movement phase or charge phase they were made in '
                           '(or the pile in and consolidate steps).')
     activity = _ready_to_move(state, unit, phase)
+    if phase == 'movement' and activity.get('moved') == 'disembark':
+        raise ActionError(f'{unit["name"]} disembarked: that can\'t be reset (use Undo).')
     _back_to_start(unit, START_KEYS[phase])
     if phase == 'movement' and activity.get('moved') == 'ingress':  # Back into reserves
         unit['status']['reserve'] = True
+    if phase == 'movement' and activity.pop('embarked', None):  # Back out of the transport, where it moved to
+        unit['status'].pop('embarked', None)
     for key in ('moved', 'via') if phase == 'movement' else ('charged', 'charge_targets'):
         activity.pop(key, None)
 
@@ -2207,6 +2243,397 @@ def _reserves_lost(state, report):
             unit['status'].pop('reserve', None)
             unit['status']['lost_in_reserve'] = True
             report.setdefault('reserves_lost', []).append({'unit': unit['id'], 'name': unit['name'], 'removed': lost})
+            for passenger in embarked_in(state, unit):
+                aboard = [m['id'] for m in passenger['models'] if m['alive']]
+                for model in passenger['models']:
+                    model['alive'], model['wounds_left'] = False, 0
+                passenger['status'].pop('embarked', None)
+                passenger['status']['lost_in_reserve'] = True
+                report['reserves_lost'].append({'unit': passenger['id'], 'name': passenger['name'], 'removed': aboard})
+
+
+# --- Transports (core rules 18) ------------------------------------------------------------------------------
+
+def transport_info(unit):
+    """The unit's transport capacity (rules_text.parse_transport), {} if it is a TRANSPORT whose capacity wasn't read,
+    None if it isn't one."""
+    for part in unit['parts']:
+        if part.get('transport') is not None:
+            return part['transport']
+    return {} if any(_has(p['keywords'], 'Transport') for p in unit['parts']) else None
+
+
+def is_embarked(unit):
+    return bool((unit.get('status') or {}).get('embarked'))
+
+
+def embarked_in(state, transport):
+    """The units embarked within a transport."""
+    return [u for u in state['units'] if (u.get('status') or {}).get('embarked') == transport['id']]
+
+
+def _phrase_keywords(phrase, universe):
+    """The keywords (from `universe`, lower case) a phrase such as 'Adeptus Astartes Infantry' names, longest first;
+    words that aren't keywords (faction names, which units don't carry) are left out."""
+    text, found = ' ' + phrase.lower() + ' ', []
+    for keyword in sorted(universe, key=len, reverse=True):
+        if f' {keyword} ' in text:
+            found.append(keyword)
+            text = text.replace(f' {keyword} ', ' | ')
+    return found
+
+
+def _is_kind(unit, part, kind, universe, open_ended=False):
+    """Whether a model (its part) is of a kind a transport names: its unit's or part's name, or every keyword the
+    phrase names. A phrase naming no keyword matches every model when `open_ended` (a capacity of 'N DEATH GUARD
+    INFANTRY' names Infantry; 'N models' names nothing), else none."""
+    kind = kind.strip().lower()
+    if not kind or kind in (unit['name'].lower(), part['name'].lower()):
+        return True
+    needed = _phrase_keywords(kind, universe)
+    if not needed:
+        return open_ended
+    mine = {k.lower() for k in part['keywords']}
+    return all(k in mine for k in needed)
+
+
+def transport_problem(state, transport, units):
+    """Why `units` can't all be embarked within `transport` together (its capacity), else None."""
+    info = transport_info(transport)
+    if info is None:
+        return f'{transport["name"]} isn\'t a transport.'
+    if not info:  # Its capacity wasn't read from the datasheet: the players judge it
+        return None
+    universe = {k.lower() for u in state['units'] for p in u['parts'] for k in p['keywords']}
+    used = [0] * len(info['pools'])
+    for unit in units:
+        for model in (m for m in unit['models'] if m['alive']):
+            part = unit['parts'][model['part']]
+            if info['only'] and not any(_is_kind(unit, part, k, universe) and k.strip() for k in info['only']):
+                return f'{transport["name"]} can only transport {", ".join(info["only"])}.'
+            if any(_is_kind(unit, part, k, universe) for k in info['excluded']):
+                return f'{transport["name"]} can\'t transport {part["name"]}.'
+            cost = next((c['n'] for c in info['costs'] if any(_is_kind(unit, part, k, universe) for k in c['kinds'])), 1)
+            kinds = [i for i, pool in enumerate(info['pools']) if any(_is_kind(unit, part, k, universe, True) for k in pool['kinds'])]
+            if not kinds:
+                return f'{transport["name"]} can only transport {" or ".join(k for p in info["pools"] for k in p["kinds"])} models.'
+            pool = next((i for i in kinds if used[i] + cost <= info['pools'][i]['n']), None)
+            if pool is None:
+                return f'{transport["name"]} has no room: its capacity is {" and ".join(str(p["n"]) for p in info["pools"])} models.'
+            used[pool] += cost
+    return None
+
+
+def _embark(state, action):
+    """
+    Embark a unit within a friendly transport: in deployment it starts embarked (counting as its turn to deploy);
+    in its Movement phase, after a Normal move, Advance or Fall Back, with every model within 3" of the transport,
+    unless it was set up this turn (core rules 18.01, 18.02). Its capacity is checked with the units already aboard.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    transport = _unit_or_error(state, action.get('transport'))
+    if transport is unit or transport['player'] != unit['player'] or transport_info(transport) is None:
+        raise ActionError('Choose one of your own transports.')
+    if not any(m['alive'] for m in transport['models']):
+        raise ActionError(f'{transport["name"]} has been destroyed.')
+    if is_embarked(unit):
+        raise ActionError(f'{unit["name"]} is already embarked.')
+    problem = transport_problem(state, transport, embarked_in(state, transport) + [unit])
+    if problem:
+        raise ActionError(problem)
+    if state['turn']['phase'] == 'deployment':
+        _require(state, 'deployment', unit)
+        if in_reserve(unit) or any(m['position'] for m in unit['models'] if m['alive']):
+            raise ActionError(f'{unit["name"]} is already set up.')
+        if in_reserve(transport) and unit_points(unit) > reserve_room(state, unit['player']):
+            raise ActionError(f'{transport["name"]} is in reserves, and {unit["name"]} ({unit_points(unit)} pts) would take '
+                              'your reserves over half your points.')
+        unit.setdefault('status', {'shocked': False})['embarked'] = transport['id']
+        _next_deployer(state, unit)
+        return {'embarked': unit['id'], 'transport': transport['id']}
+    _require(state, 'movement', unit)
+    activity = unit['activity']
+    if activity.get('moved') not in MOVE_MODES:
+        raise ActionError(f'{unit["name"]} embarks after a Normal move, Advance or Fall Back this phase: move it within '
+                          f'{EMBARK_REACH}" of {transport["name"]} first.')
+    if activity.get('disembarked'):
+        raise ActionError(f'{unit["name"]} was set up this turn, so it can\'t embark.')
+    carriers = _placed_shapes(transport)
+    if not carriers:
+        raise ActionError(f'{transport["name"]} is not on the battlefield.')
+    if any(min(base_distance(shape, c) for c in carriers) > EMBARK_REACH + 1e-9 for shape in _placed_shapes(unit)):
+        raise ActionError(f'Every model of {unit["name"]} must be within {EMBARK_REACH}" of {transport["name"]} to embark.')
+    for model in unit['models']:
+        model['position'] = None
+    unit['status']['embarked'] = transport['id']
+    activity['embarked'] = True  # It can't disembark this phase; reset_move takes it back out
+    return {'embarked': unit['id'], 'transport': transport['id']}
+
+
+def disembark_mode(state, unit):
+    """
+    How an embarked unit disembarks now (core rules 18.04): Rapid if its transport made a Normal or ingress move,
+    Combat if the transport is engaged, else Tactical. ActionError if it can't (embarked this phase, the transport
+    Advanced, Fell Back or isn't on the battlefield).
+    """
+    transport = unit_by_id(state, unit['status']['embarked'])
+    if not _placed_shapes(transport):
+        raise ActionError(f'{transport["name"]} is not on the battlefield.')
+    if unit['activity'].get('embarked'):
+        raise ActionError(f'{unit["name"]} embarked this phase.')
+    moved = transport['activity'].get('moved')
+    if moved in ('advance', 'fall_back'):
+        raise ActionError(f'{transport["name"]} {"Advanced" if moved == "advance" else "Fell Back"} this phase, so no unit can disembark.')
+    if moved in ('normal', 'ingress'):
+        return 'rapid'
+    return 'combat' if _is_engaged(state, transport) else 'tactical'
+
+
+def disembark_options(state):
+    """For the page: the active player's embarked units that can disembark now: {unit id: {mode, reach, transport}}."""
+    turn = state['turn']
+    if turn['phase'] != 'movement':
+        return {}
+    options = {}
+    for unit in state['units']:
+        if unit['player'] != turn['player'] or not is_embarked(unit) or 'moved' in unit['activity']:
+            continue
+        try:
+            mode = disembark_mode(state, unit)
+        except ActionError:
+            continue
+        options[unit['id']] = {'mode': mode, 'reach': DISEMBARK_REACH[mode], 'transport': unit['status']['embarked']}
+    return options
+
+
+def embark_options(state):
+    """For the page: units the active player could embark now, {unit id: [transport ids]}: in deployment, units not
+    yet set up (transports with room); in the Movement phase, units that moved and stand within 3" of one."""
+    turn = state['turn']
+    transports = [u for u in state['units'] if u['player'] == turn['player'] and transport_info(u) is not None
+                  and any(m['alive'] for m in u['models'])]
+    if not transports or turn['phase'] not in ('deployment', 'movement'):
+        return {}
+    options = {}
+    for unit in state['units']:
+        if unit['player'] != turn['player'] or transport_info(unit) is not None or is_embarked(unit):
+            continue
+        if turn['phase'] == 'deployment':
+            if unit not in _unplaced(state, turn['player']):
+                continue
+            fits = [t['id'] for t in transports if not transport_problem(state, t, embarked_in(state, t) + [unit])]
+        else:
+            if unit['activity'].get('moved') not in MOVE_MODES or unit['activity'].get('disembarked'):
+                continue
+            mine = _placed_shapes(unit)
+            fits = [t['id'] for t in transports if _placed_shapes(t)
+                    and all(min(base_distance(s, c) for c in _placed_shapes(t)) <= EMBARK_REACH + 1e-9 for s in mine)
+                    and not transport_problem(state, t, embarked_in(state, t) + [unit])]
+        if fits:
+            options[unit['id']] = fits
+    return options
+
+
+def _wholly_within(shape, others, reach):
+    """Whether every part of a base is within `reach` of one of `others` (measured to its far edge)."""
+    centre = _centre(shape)
+    return min(base_distance(shape, o) for o in others) + 2 * _reach(shape, centre) <= reach + 1e-9
+
+
+def _disembark(state, action, dice):
+    """
+    A disembark move (core rules 18.04): every model set up wholly within 3" of its transport (6" for a Combat
+    disembark), on the board, overlapping nothing, in coherency and unengaged (a Combat disembark may engage enemies
+    its transport is engaged with). Rapid: no more moving or charging this turn. Tactical: the unit then makes its
+    move from there as usual. Combat: each model makes a hazard roll, and the unit is battle-shocked and can't charge.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    _require(state, 'movement', unit)
+    if not is_embarked(unit):
+        raise ActionError(f'{unit["name"]} isn\'t embarked.')
+    if 'moved' in unit['activity']:
+        raise ActionError(f'{unit["name"]} has already moved this phase.')
+    transport = unit_by_id(state, unit['status']['embarked'])
+    mode = disembark_mode(state, unit)
+    reach = DISEMBARK_REACH[mode]
+    living = {m['id']: m for m in unit['models'] if m['alive']}
+    spots = _spots(unit, action, 'Set up')
+    shapes = [model_shape(unit['parts'][living[mid]['part']], spot) for mid, spot in spots.items()]
+    carriers = _placed_shapes(transport)
+    for shape in shapes:
+        left, bottom, right, top = bounds(shape)
+        if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
+            raise ActionError('Every model must be wholly on the board.')
+        if not _wholly_within(shape, carriers, reach):
+            raise ActionError(f'{DISEMBARK_NAMES[mode]}: every model is set up wholly within {reach}" of {transport["name"]}.')
+    others = [shape for u in state['units'] if u is not unit for shape in _placed_shapes(u)]
+    for i, shape in enumerate(shapes):
+        if any(overlaps(shape, other) for other in shapes[i + 1:] + others):
+            raise ActionError("Models' bases can't overlap.")
+    problem = coherency_problem(shapes)
+    if problem:
+        raise ActionError(problem)
+    allowed = _engaged_units(state, transport) if mode == 'combat' else []
+    near = [shape for u in state['units'] if u['player'] != unit['player'] and u not in allowed for shape in _placed_shapes(u)]
+    if _engaged(shapes, near):
+        raise ActionError(f'{DISEMBARK_NAMES[mode]}: models can\'t be set up in engagement range of enemies'
+                          f'{" other than those engaged with " + transport["name"] if mode == "combat" else ""}.')
+    for mid, spot in spots.items():
+        living[mid]['position'] = spot
+    unit['status'].pop('embarked', None)
+    activity = unit['activity']
+    activity['start'] = {mid: dict(spot) for mid, spot in spots.items()}  # A Tactical disembark's move starts here
+    activity['disembarked'] = mode
+    detail = {'disembarked': unit['id'], 'transport': transport['id'], 'mode': mode}
+    if mode in ('rapid', 'combat'):
+        activity['moved'] = 'disembark'
+        activity['no_charge'] = mode
+    if mode == 'combat':
+        detail['hazards'] = [dict(_hazard(state, unit, len(living), dice), unit=unit['id'], name=unit['name'])]
+        unit['status']['shocked'] = True
+    return detail
+
+
+# --- Destroyed models: emergency disembarks and Deadly Demise ----------------------------------------------------------
+
+def _uncounted(detail):
+    """Models an action removed without the enemy destroying them (coherency, lost in reserves, empty transports)."""
+    return {m for key in ('coherency', 'reserves_lost', 'empty_transports') for c in detail.get(key, []) for m in c['removed']}
+
+
+def _aftermath(state, before, dice, detail):
+    """
+    After any action: for each model destroyed in it, a destroyed transport's passengers make emergency disembarks
+    first, then Deadly Demise X rolls a D6 (on a 6 each unit within 6" suffers X mortal wounds), repeated for what
+    those destroy (core rules 18.05, 24.08). Recorded in `detail` ('emergency', 'demise').
+    """
+    skip, done = _uncounted(detail), set()
+    while True:
+        dead = [(u, m) for u in state['units'] for m in u['models']
+                if before['models'][m['id']]['alive'] and not m['alive'] and m['id'] not in skip and m['id'] not in done]
+        if not dead:
+            return
+        done.update(m['id'] for _, m in dead)
+        for unit in {u['id']: u for u, _ in dead}.values():
+            if transport_info(unit) is not None and not any(m['alive'] for m in unit['models']) and embarked_in(state, unit):
+                _emergency(state, unit, before, dice, detail)
+        for unit, model in dead:
+            part = unit['parts'][model['part']]
+            where = model['position'] or before['models'][model['id']]['position']
+            if not part.get('deadly_demise') or not where:
+                continue
+            roll = dice.roll_value('D6', 'deadly demise')
+            entry = {'unit': unit['id'], 'name': part['name'], 'roll': roll, 'hits': []}
+            if roll == 6:
+                blast = model_shape(part, where)
+                for other in state['units']:
+                    if any(base_distance(blast, s) <= DEMISE_REACH + 1e-9 for s in _placed_shapes(other)):
+                        count = dice.roll_value(part['deadly_demise'], 'deadly demise')
+                        entry['hits'].append({'unit': other['id'], 'name': other['name'], 'mortal_wounds': count,
+                                              'killed': _mortal_wounds(state, other, count, dice)})
+            detail.setdefault('demise', []).append(entry)
+
+
+def _emergency(state, transport, before, dice, detail):
+    """
+    Emergency disembark (core rules 18.05): each unit in a destroyed transport makes a hazard roll per model, then its
+    models are set up as close as possible to the transport (within 6"), unengaged if they can be; any that can't be
+    set up are destroyed. The unit is battle-shocked and can't charge this turn.
+    """
+    hulls = [model_shape(transport['parts'][m['part']], m['position'] or before['models'][m['id']]['position'])
+             for m in transport['models'] if m['position'] or before['models'][m['id']]['position']]
+    for unit in embarked_in(state, transport):
+        unit['status'].pop('embarked', None)
+        hazard = _hazard(state, unit, sum(m['alive'] for m in unit['models']), dice)
+        set_up, lost = [], []
+        for model in [m for m in unit['models'] if m['alive']]:
+            spot = _closest_spot(state, unit, unit['parts'][model['part']], hulls)
+            if spot is None:
+                model['alive'], model['wounds_left'] = False, 0
+                lost.append(model['id'])
+            else:
+                model['position'] = spot
+                set_up.append(model['id'])
+        unit['status']['shocked'] = True
+        unit['activity']['no_charge'] = 'emergency'
+        detail.setdefault('emergency', []).append({'unit': unit['id'], 'name': unit['name'], 'transport': transport['id'],
+                                                   'hazard': hazard, 'lost': lost, 'set_up': set_up})
+
+
+def _closest_spot(state, unit, part, hulls):
+    """The free spot nearest the destroyed transport (`hulls`) for a model, wholly within 6" of it and on the board,
+    unengaged if possible; None if there is none."""
+    others = [shape for u in state['units'] for shape in _placed_shapes(u)]
+    enemies = _enemy_shapes(state, unit)
+    size = model_shape(part, {'x': 0, 'y': 0, 'angle': 0})
+    reach = _reach(size, (0, 0))
+    candidates = []
+    for hull in hulls:
+        cx, cy = _centre(hull)
+        around = _reach(hull, (cx, cy))
+        ring = 0.05
+        while ring <= EMERGENCY_REACH:
+            radius = around + reach + ring
+            steps = max(12, int(2 * math.pi * radius / (reach or 0.5)))
+            for i in range(steps):
+                t = 2 * math.pi * i / steps
+                candidates.append((ring, {'x': round(cx + radius * math.cos(t), 2), 'y': round(cy + radius * math.sin(t), 2), 'angle': 0}))
+            ring += max(0.5, reach)
+    candidates.sort(key=lambda c: c[0])
+    for unengaged in (True, False):
+        for _, spot in candidates:
+            shape = model_shape(part, spot)
+            left, bottom, right, top = bounds(shape)
+            if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
+                continue
+            if not _wholly_within(shape, hulls, EMERGENCY_REACH) or any(overlaps(shape, o) for o in others):
+                continue
+            if unengaged and _engaged([shape], enemies):
+                continue
+            return spot
+    return None
+
+
+def _with_deck(state, shooter):
+    """
+    Firing Deck X (core rules 24.14): a transport shooting with units embarked adds their ranged weapons (not One
+    Shot) to its own, each as many times as up to X of their models carry it, fired by one of its models and marked
+    'deck'. Changes `shooter`: a copy, or the shooting action's own state (parts aren't recorded in events).
+    """
+    deck = next((p.get('firing_deck') for p in shooter['parts'] if p.get('firing_deck')), None)
+    passengers = [u for u in embarked_in(state, shooter) if not u['activity'].get('shot')]
+    firers = [m for m in shooter['models'] if m['alive'] and m['position']]
+    if not deck or not passengers or not firers:
+        return shooter
+    carried = {}
+    for unit in passengers:
+        for model in (m for m in unit['models'] if m['alive']):
+            for index in model['weapons']:
+                weapon = unit['parts'][model['part']]['weapons'][index]
+                if weapon['type'] == 'ranged' and not _has(weapon['abilities'] or [], 'One Shot'):
+                    key = json.dumps({k: weapon.get(k) for k in ('name', 'attacks', 'skill', 'strength', 'ap', 'damage', 'range')}, sort_keys=True)
+                    carried.setdefault(key, [weapon, 0])[1] += 1
+    firer = firers[0]
+    host = shooter['parts'][firer['part']]
+    for weapon, carriers in carried.values():
+        for _ in range(min(deck, carriers)):
+            firer['weapons'].append(len(host['weapons']))
+            host['weapons'].append(dict(weapon, qty=1, default_use=False, deck=deck))
+    return shooter
+
+
+def _deck_picks(state, shooter, picks):
+    """The Firing Deck weapons picked; refused if more than X, or more than the embarked models that could fire them."""
+    chosen = [shooter['parts'][int(p['part'])]['weapons'][int(p['weapon'])] for p in picks
+              if isinstance(p, dict) and 'part' in p and 'weapon' in p
+              and int(p['part']) < len(shooter['parts']) and int(p['weapon']) < len(shooter['parts'][int(p['part'])]['weapons'])]
+    deck = [w for w in chosen if w.get('deck')]
+    if not deck:
+        return []
+    models = sum(1 for u in embarked_in(state, shooter) for m in u['models'] if m['alive'] and m['weapons'])
+    if len(deck) > min(deck[0]['deck'], models):
+        raise ActionError(f'Firing Deck {deck[0]["deck"]}: up to {min(deck[0]["deck"], models)} embarked models each fire one weapon.')
+    return deck
 
 
 # --- Charges --------------------------------------------------------------------------------------
@@ -2231,6 +2658,9 @@ def _charge_checks(state, unit):
         raise ActionError(f'{unit["name"]} {mode} this turn, so it can\'t declare a charge.')
     if 'charge_roll' in activity:
         raise ActionError(f'{unit["name"]} has already declared a charge this phase.')
+    if activity.get('no_charge'):
+        raise ActionError(f'{unit["name"]} disembarked ({DISEMBARK_NAMES.get(activity["no_charge"], "emergency")}) this turn, '
+                          'so it can\'t declare a charge.')
     if activity.get('action'):
         raise ActionError(f'{unit["name"]} started an action this turn, so it can\'t declare a charge.')
     if not _placed_shapes(unit):
@@ -2988,7 +3418,7 @@ def ready_units(state):
         return scout_units(state, active)
     if phase == 'movement':
         return [u['id'] for u in mine if 'moved' not in u['activity']
-                and (_placed_shapes(u) or (in_reserve(u) and turn['round'] >= INGRESS_FROM))]
+                and (_placed_shapes(u) or (in_reserve(u) and turn['round'] >= INGRESS_FROM) or u['id'] in disembark_options(state))]
     if phase == 'shooting':
         def can_shoot(unit):
             try:

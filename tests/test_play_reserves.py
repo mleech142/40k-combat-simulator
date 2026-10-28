@@ -122,8 +122,8 @@ def test_deep_strike_arrives_anywhere_more_than_8_inches_away():
 
 def test_an_arrived_unit_cant_move_again_but_can_be_set_up_again_or_reset():
     state, _ = act(board(), arrive(1, 20))
-    assert 'arrived this phase' in refused(state, {'type': 'stationary', 'unit': 'p1-lander'})
-    assert 'arrived this phase' in refused(state, {'type': 'advance', 'unit': 'p1-lander'})
+    assert 'set up this phase (arrived)' in refused(state, {'type': 'stationary', 'unit': 'p1-lander'})
+    assert 'set up this phase (arrived)' in refused(state, {'type': 'advance', 'unit': 'p1-lander'})
     again, _ = act(state, arrive(1, 25))
     assert placed(again)[0]['y'] == 25
     back, _ = act(state, {'type': 'reset_move', 'unit': 'p1-lander'})

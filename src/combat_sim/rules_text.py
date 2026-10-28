@@ -72,6 +72,68 @@ def scouts_distance(text):
     return None
 
 
+FIRING_DECK = re.compile(r'^firing deck (\d+)$', re.I)
+DEADLY_DEMISE = re.compile(r'^deadly demise (d?\d+(?:\s*\+\s*\d+)?)$', re.I)
+
+
+def firing_deck(text):
+    """X from a datasheet's 'Firing Deck X' line, else None."""
+    for line in plain_text(text).split('\n'):
+        found = FIRING_DECK.match(line.strip().rstrip('.'))
+        if found:
+            return int(found.group(1))
+    return None
+
+
+def deadly_demise(text):
+    """X from a datasheet's 'Deadly Demise X' line ('1', 'D3', 'D6+2'), else None."""
+    for line in plain_text(text).split('\n'):
+        found = DEADLY_DEMISE.match(line.strip().rstrip('.'))
+        if found:
+            return found.group(1).upper().replace(' ', '')
+    return None
+
+
+def _kinds(text):
+    """A list of model kinds ('JUMP PACK, WULFEN or GRAVIS models', 'TERMINATOR/JUMP PACK'), each as written."""
+    text = re.sub(r'\bmodels?\b', '', text, flags=re.I)
+    parts = re.split(r'\s*(?:,|/|\bor\b|\band\b)\s*', text, flags=re.I)
+    return [re.sub(r'^the\s+', '', p.strip(), flags=re.I).strip() for p in parts if p.strip()]
+
+
+def parse_transport(text):
+    """
+    A TRANSPORT's capacity from its datasheet text ('This model has a transport capacity of 12 ADEPTUS ASTARTES
+    INFANTRY models. It cannot transport JUMP PACK models. Each GRAVIS model takes up the space of 2 models.'):
+    {'pools': [{'n', 'kinds': [phrase, ...]}] (a model fits a pool by any of its phrases), 'excluded': [kind],
+    'costs': [{'kinds', 'n'}], 'only': [unit name]}; None without a capacity sentence. Phrases are kept as written:
+    the game matches them against keywords (play.game.transport_problem).
+    """
+    plain = re.sub(r'\*\*|\^\^', '', plain_text(text or ''))
+    line = next((l for l in plain.split('\n') if re.search(r'transport capacity of', l, re.I)), None)
+    if line is None:
+        return None
+    found = re.search(r'transport capacity of (.+?)(?:\.(?:\s|$)|$)', line, re.I)
+    capacity = found.group(1)
+    excluded = []
+    for aside in re.finditer(r'\(excluding ([^)]+)\)', capacity, re.I):  # '12 HERETIC ASTARTES INFANTRY (excluding X and Y models)'
+        excluded += _kinds(aside.group(1))
+    capacity = re.sub(r'\s*\([^)]*\)', '', capacity)
+    pools = []
+    for item in re.split(r'\s+and\s+(?=\d)', capacity):
+        m = re.match(r'(\d+)\s+(.*)$', item.strip())
+        if m:
+            kinds = [k.strip() for k in re.split(r'\s+or\s+', re.sub(r'\bmodels?\b', '', m.group(2), flags=re.I)) if k.strip()]
+            pools.append({'n': int(m.group(1)), 'kinds': kinds or ['']})
+    if not pools:
+        return None
+    excluded += [k for m in re.finditer(r'cannot transport ([^.]+)', line, re.I) for k in _kinds(m.group(1))]
+    costs = [{'kinds': _kinds(m.group(1)), 'n': int(m.group(2))}
+             for m in re.finditer(r'each ([^.]+?) model takes up the space of (\d+) models', line, re.I)]
+    only = [k for m in re.finditer(r'can only transport ([^.]+)', line, re.I) for k in _kinds(m.group(1))]
+    return {'pools': pools, 'excluded': excluded, 'costs': costs, 'only': only}
+
+
 def has_core_ability(text, name):
     """Whether a datasheet's abilities text lists a core ability ('Fights First', 'Deep Strike'): BSData puts
     each on its own line, where a unit's own abilities say 'Name: what it does'."""

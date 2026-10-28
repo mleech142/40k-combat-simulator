@@ -56,7 +56,7 @@ Tick each item when the engine matches (with a test).
 
 ## Not modelled
 
-Transports, Firing Deck, Deadly Demise (Deep Strike, Strategic Reserves, ingress and Rapid Ingress, Scouts and Infiltrators are modelled since 2.7); Counteroffensive (used by hand; Fire Overwatch, Heroic Intervention and Command Re-roll are modelled since 2.6); Indirect Fire;
+(Deep Strike, Strategic Reserves, ingress and Rapid Ingress, Scouts and Infiltrators, Transports, Firing Deck and Deadly Demise are modelled since 2.7; not Assault or Shock disembarks, or battle-shock tests while embarked); Counteroffensive (used by hand; Fire Overwatch, Heroic Intervention and Command Re-roll are modelled since 2.6); Indirect Fire;
 Lone Operative; Towering and Plunging Fire; Hover; Aircraft; One Shot; Super-Heavy Walker; surge moves; Epic
 Challenge.
 

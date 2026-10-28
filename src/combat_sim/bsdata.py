@@ -60,7 +60,7 @@ from pathlib import Path
 from .rules_text import tidy_text, plain_text, parse_leader_buffs, parse_enhancement  # noqa: F401 (also used by importers of bsdata)
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 11  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 13  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -844,6 +844,12 @@ def build_unit(entry, faction_cat, report, known_keywords):
                         fnp = min(fnp or 7, int(m.group(1)))
                     elif m and effect not in modifiers:
                         modifiers.append(effect)
+            elif profile.get('typeName') == 'Transport' and 'Transport' not in seen_abilities:
+                # A transport's capacity in its own profile (most catalogues): kept as an ability line, as others write it
+                capacity = (characteristics(profile).get('Capacity') or '').strip()
+                if capacity:
+                    seen_abilities.add('Transport')
+                    ability_lines.append(f'Transport: {capacity}')
         for rule in rule_links(source):
             if rule not in rules:
                 rules.append(rule)

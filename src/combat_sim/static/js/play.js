@@ -15,7 +15,9 @@
     const PHASE_NAMES = { setup: 'Setup', deployment: 'Deployment', prebattle: 'Pre-battle', command: 'Command', movement: 'Movement', shooting: 'Shooting',
                           charge: 'Charge', fight: 'Fight' };
     const MOVE_MODES = [['normal', 'Normal move'], ['advance', 'Advance'], ['fall_back', 'Fall Back']];
-    const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary', ingress: 'arrived' };
+    const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary', ingress: 'arrived',
+                   disembark: 'disembarked' };
+    const DISEMBARK_NAMES = { rapid: 'Rapid disembark', tactical: 'Tactical disembark', combat: 'Combat disembark' };
     const STEP_NAMES = { pile_in: 'Pile in', fight: 'Fight', consolidate: 'Consolidate' };
     const SHORT_MOVE = 3;  // Pile-in and consolidation moves, as the server sends them in errors
     const SKIES = 2;  // Inches off a move or charge when a Fly unit takes to the skies (game.SKIES)
@@ -641,7 +643,7 @@
         const W = state.game.board.width, D = state.game.board.depth;
         const board = kind === 'scout' ? Core.playBounds(state.game.zones[unit.player]) : { left: 0, bottom: 0, right: W, top: D };
         // Rows run along the nearest battlefield edge, so the unit stays within the band along it
-        const sideways = kind !== 'scout' && Math.min(point.x, W - point.x) < Math.min(point.y, D - point.y);
+        const sideways = ['ingress', 'rapid_ingress'].includes(kind) && Math.min(point.x, W - point.x) < Math.min(point.y, D - point.y);
         let spots = living.map((m, i) => ({ id: m.id, ...Core.playFormation(sizes, point.x, point.y, false)[i], angle: 0 }));
         if (sideways) spots = Core.playPivot(spots, 90);
         const fitted = Core.playFit(spots, sizes.map(s => s / 2), board);
@@ -654,7 +656,8 @@
         if (state.placing) return message(`Press OK or Cancel for ${unitById(state.placing.unitId).name} first.`, true);
         state.arriving = { unitId: unit.id, kind, player };
         state.selected = unit.id;
-        message(`Click the board where ${unit.name} arrives (the shaded ground), then press OK.`);
+        message(kind === 'disembark' ? `Click the shaded ground next to ${unitById(unit.status.embarked).name} to set ${unit.name} up there, then press OK.`
+            : `Click the board where ${unit.name} arrives (the shaded ground), then press OK.`);
         render();
     }
 
@@ -711,7 +714,9 @@
         if (await (action ? send(action) : place(unitId, placingSpots()))) {  // The server checks it (zone, edges, enemies, overlaps)
             state.placing = null;
             state.selected = null;
-            if (kind) message(`${unitById(unitId).name} ${kind === 'scout' ? 'is set up' : 'arrived from reserves'}.${kind === 'ingress' ? ' Drag it to set it up somewhere else until the phase ends.' : ''}`);
+            if (kind) message(`${unitById(unitId).name} ${kind === 'scout' ? 'is set up' : kind === 'disembark' ? 'disembarked' : 'arrived from reserves'}.${
+                kind === 'ingress' ? ' Drag it to set it up somewhere else until the phase ends.'
+                : kind === 'disembark' && unitById(unitId).activity.disembarked === 'tactical' ? ' Now drag it to move it as usual.' : ''}`);
             render();
         }
     }
@@ -732,7 +737,7 @@
         if (!placing) return;
         const pivot = (deg, icon, label) => `<button class="btn-small" data-pivot="${deg}" title="Pivot ${label}">
             <i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${Math.abs(deg)}°</button>`;
-        bar.innerHTML = `<span>${placing.kind ? 'Arriving' : 'Placing'} <strong>${escapeHtml(unitById(placing.unitId).name)}</strong>:
+        bar.innerHTML = `<span>${placing.kind === 'disembark' ? 'Disembarking' : placing.kind ? 'Arriving' : 'Placing'} <strong>${escapeHtml(unitById(placing.unitId).name)}</strong>:
                 drag it or click the board to move it, pivot it (Q / E), then press OK.${placing.kind ? ' It can only be set up on the shaded ground.' : ''}</span>
             <span class="play-pending-actions">${pivot(45, 'rotate-left', 'anticlockwise')}${pivot(15, 'rotate-left', 'anticlockwise')}
                 ${pivot(-15, 'rotate-right', 'clockwise')}${pivot(-45, 'rotate-right', 'clockwise')}
@@ -1105,13 +1110,16 @@
                 const living = u.models.filter(m => m.alive);
                 const placed = living.length && living.every(m => m.position);
                 const reserve = u.status && u.status.reserve;
-                const done = game.state.turn.phase === 'deployment' ? (state.placing && state.placing.unitId === u.id ? 'placing: press OK'
-                        : reserve ? 'in reserves' : placed ? 'placed' : 'not placed')
-                    : reserve ? 'in reserves' : (u.status || {}).lost_in_reserve ? 'lost in reserves' : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
+                const ride = u.status && u.status.embarked ? `embarked in ${unitById(u.status.embarked).name}` : '';
+                const aboard = game.state.units.filter(o => o.status && o.status.embarked === u.id).length;
+                const done = (game.state.turn.phase === 'deployment' ? (state.placing && state.placing.unitId === u.id ? 'placing: press OK'
+                        : ride || (reserve ? 'in reserves' : placed ? 'placed' : 'not placed'))
+                    : ride || (reserve ? 'in reserves' : (u.status || {}).lost_in_reserve ? 'lost in reserves'
+                        : (u.status || {}).lost_empty ? 'lost (empty transport)' : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
                        u.activity.shot ? 'shot' : '',
                        u.activity.charge_roll != null ? `charge roll ${u.activity.charge_roll}${u.activity.charged ? ', charged' : ''}` : '',
                        u.activity.fought ? 'fought' : '']
-                        .filter(Boolean).join(' · ');
+                        .filter(Boolean).join(' · '))) + (aboard ? ` · carrying ${aboard} unit${aboard === 1 ? '' : 's'}` : '');
                 const ready = game.ready.includes(u.id);
                 const acted = actedThisPhase(u, game.state.turn);
                 const tags = Core.playUnitTags(u, { ready, inRange: (game.unit_objectives || {})[u.id], objectives: game.state.objectives, players: game.state.players });
@@ -1202,10 +1210,26 @@
         const placedNow = unit.models.some(m => m.alive && m.position);
         if (turn.phase === 'deployment' && unit.player === turn.player && !reserve && !placedNow && !state.placing) {
             controls = `<div class="play-move-modes"><button class="btn-small" data-reserve>
-                    <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i> Put in reserves</button></div>
+                    <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i> Put in reserves</button>${embarkButtons(unit)}</div>
                 <p class="play-hint">Strategic Reserves: off the board until it arrives in your Movement phase from battle round 2
                     (within 6" of an edge, or anywhere with Deep Strike; more than 8" from enemies). Up to half your points in all;
-                    units still in reserves at the end of battle round 3 are lost.</p>`;
+                    units still in reserves at the end of battle round 3 are lost.${embarkButtons(unit)
+                        ? ' Or it can start embarked in a transport (with it, if that goes into reserves).' : ''}
+                    ${unit.parts.some(p => p.keywords.includes('Dedicated Transport'))
+                        ? ' A Dedicated Transport must carry a unit when deployment ends, or it is lost.' : ''}</p>`;
+        }
+        const disembark = (state.game.disembark || {})[unit.id];
+        if (turn.phase === 'movement' && unit.player === turn.player && unit.status && unit.status.embarked) {
+            const transport = unitById(unit.status.embarked);
+            controls = disembark
+                ? `<div class="play-move-modes"><button class="btn btn-primary" data-disembark>
+                        <i class="fa-solid fa-door-open" aria-hidden="true"></i> ${DISEMBARK_NAMES[disembark.mode]}</button></div>
+                    <p class="play-hint">Set it up wholly within ${disembark.reach}" of ${escapeHtml(transport.name)}${disembark.mode === 'combat'
+                        ? ' (it may engage enemies the transport is engaged with). Each model makes a hazard roll; the unit is battle-shocked and can\'t charge'
+                        : ', not in engagement range of enemies'}.${disembark.mode === 'tactical' ? ' Then move it as usual.'
+                        : disembark.mode === 'rapid' ? ' It can\'t move again or charge this turn (the transport has moved).' : ''}</p>`
+                : `<p class="play-hint">Embarked in ${escapeHtml(transport.name)}: it can't disembark now (it embarked this phase,
+                    or the transport Advanced, Fell Back or isn't on the battlefield).</p>`;
         }
         if (turn.phase === 'prebattle' && unit.player === turn.player && state.game.ready.includes(unit.id)) {
             const reach = (state.game.scouts || {})[unit.id];
@@ -1228,7 +1252,7 @@
                 : `<div class="play-move-modes"><button class="btn btn-primary" data-arrive>
                         <i class="fa-solid fa-parachute-box" aria-hidden="true"></i> Arrive</button></div>
                     <p class="play-hint">An ingress move: set it up ${ground}${zone}. It can't move again until the Charge phase.</p>`;
-        } else if (turn.phase === 'movement' && unit.player === turn.player) {
+        } else if (turn.phase === 'movement' && unit.player === turn.player && !(unit.status && unit.status.embarked)) {
             const rolled = unit.activity.advance_roll != null;
             const moved = unit.activity.moved;
             controls = `<div class="play-move-modes">${MOVE_MODES.map(([mode, label]) => `
@@ -1250,7 +1274,8 @@
                 Beasts, Swarm or Mobile, or takes to the skies.
                 ${state.waypoint ? 'Waypoint: the next drag carries on from where it stands, and the whole path counts.'
                     : 'Each drag is measured along the path you drag, from where the unit started the phase; Waypoint carries on from where it stands instead.'}
-                You can move it again or reset it until the Movement phase ends; then moves are locked.</p>`;
+                You can move it again or reset it until the Movement phase ends; then moves are locked.</p>
+                ${embarkButtons(unit) ? `<div class="play-move-modes">${embarkButtons(unit)}</div>` : ''}`;
         }
         if (turn.phase === 'shooting' && unit.player === turn.player && state.shooting && state.shooting.unit === unit.id) {
             controls = shootingControls(unit);
@@ -1292,6 +1317,14 @@
                 render();
             }
         }));
+        $('unit-detail').querySelectorAll('[data-embark]').forEach(b => b.addEventListener('click', async () => {
+            if (await send({ type: 'embark', unit: unit.id, transport: b.dataset.embark })) {
+                state.selected = null;
+                message(`${unit.name} embarked in ${unitById(b.dataset.embark).name}.`);
+                render();
+            }
+        }));
+        $('unit-detail').querySelectorAll('[data-disembark]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'disembark', unit.player)));
         $('unit-detail').querySelectorAll('[data-scout-setup]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'scout', unit.player)));
         $('unit-detail').querySelectorAll('[data-arrive]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'ingress', unit.player)));
         $('unit-detail').querySelectorAll('[data-turn]').forEach(b => b.addEventListener('click', () => turnUnit(unit, Number(b.dataset.turn))));
@@ -1345,6 +1378,12 @@
         }));
         $('unit-detail').querySelectorAll('[data-remove-effect]').forEach(b => b.addEventListener('click', () =>
             send({ type: 'remove_effect', unit: unit.id, index: Number(b.dataset.removeEffect) })));
+    }
+
+    /** Buttons to embark a unit in each transport the server says it can (game.embark). */
+    function embarkButtons(unit) {
+        return ((state.game.embark || {})[unit.id] || []).map(id => `<button class="btn-small" data-embark="${escapeHtml(id)}">
+            <i class="fa-solid fa-truck-moving" aria-hidden="true"></i> Embark in ${escapeHtml(unitById(id).name)}</button>`).join('');
     }
 
     // --- Effects, stratagems and rules ---------------------------------------------------------
@@ -1830,7 +1869,7 @@
             const why = choice && !choice.ok ? `<small class="play-why">${escapeHtml(choice.reason)}</small>` : '';
             return `<div class="play-weapon ${choice && !choice.ok ? 'blocked' : ''}">
                 <label><input type="checkbox" data-fire="${escapeHtml(key)}" ${checked ? 'checked' : ''} ${choice && choice.ok ? '' : 'disabled'}>
-                    ${escapeHtml(w.name)} <small>${w.range ? w.range + '"' : ''}</small></label>${select}${why}</div>`;
+                    ${escapeHtml(w.name)}${w.deck ? ' <small class="play-tag">Firing Deck</small>' : ''} <small>${w.range ? w.range + '"' : ''}</small></label>${select}${why}</div>`;
         }).join('');
         return `<div class="play-shooting">${rows}
             <button class="btn btn-primary" id="fire-btn"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> Fire</button></div>`;
@@ -1855,12 +1894,14 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['heroic', 'rapid_ingress', 'scout', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['heroic', 'rapid_ingress', 'scout', 'embark', 'disembark', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || e.passed || ONE_LINE.includes(e.action.type)
+                || (e.demise && e.demise.length) || (e.emergency && e.emergency.length)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
                     && (e.rolls.length || (e.vp && e.vp.length) || (e.actions && e.actions.length) || (e.markers_removed && e.markers_removed.length)
                         || (e.coherency && e.coherency.length) || (e.reserves_lost && e.reserves_lost.length)
+                        || (e.empty_transports && e.empty_transports.length)
                         || e.drawn || (e.discards && e.discards.length)))).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
@@ -1930,8 +1971,19 @@
                     <strong class="play-log-target ${PLAYER_CLASSES[1 - shooter] || ''}">${escapeHtml(targets.map(name).join(', ') || 'itself')}</strong></span>
                 <span class="play-log-kills ${killed ? '' : 'none'}"><b>${killed}</b><small>killed</small></span>
             </summary>
-            <div class="play-log-body">${redone}${weapons}</div>
+            <div class="play-log-body">${redone}${weapons}${aftermath(event, name)}</div>
         </details>`;
+    }
+
+    /** What models destroyed in an event set off: emergency disembarks and Deadly Demise. */
+    function aftermath(event, name) {
+        const lines = (event.emergency || []).map(e => `<strong>${escapeHtml(e.name)}</strong> made an emergency disembark from
+            ${escapeHtml(name(e.transport))}: ${e.hazard.fails} hazard roll${e.hazard.fails === 1 ? '' : 's'} failed,
+            ${e.hazard.killed.length + e.lost.length} model${e.hazard.killed.length + e.lost.length === 1 ? '' : 's'} lost; battle-shocked`)
+            .concat((event.demise || []).map(d => `<strong>${escapeHtml(d.name)}</strong> Deadly Demise: rolled ${d.roll}${d.roll === 6
+                ? ': ' + (d.hits.map(h => `${escapeHtml(h.name)} ${h.mortal_wounds} mortal wound${h.mortal_wounds === 1 ? '' : 's'}${h.killed.length ? ` (${h.killed.length} killed)` : ''}`).join(', ') || 'nothing within 6"')
+                : ' (needs a 6)'}`));
+        return lines.length ? `<div class="play-log-aftermath">${lines.map(l => `<div>${l}</div>`).join('')}</div>` : '';
     }
 
     /** A die: pips for a d6 face (else the number), lit by how it went: critical, success, fail or value. */
@@ -2003,7 +2055,8 @@
 
     /** The icon for a battle log line that isn't an attack. */
     function logIcon(event) {
-        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', rapid_ingress: 'fa-parachute-box', scout: 'fa-person-running', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
+        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', rapid_ingress: 'fa-parachute-box', scout: 'fa-person-running',
+            embark: 'fa-truck-moving', disembark: 'fa-door-open', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
             effect: 'fa-wand-magic-sparkles', roll_off: 'fa-dice', roll_objectives: 'fa-dice', roll_mirrored: 'fa-dice',
             choose_role: 'fa-chess-board', choose_secondaries: 'fa-layer-group', tactical: 'fa-layer-group', condemn: 'fa-gavel',
             start_action: 'fa-flag', place_markers: 'fa-location-dot', beacon: 'fa-tower-broadcast', tempting: 'fa-bullseye',
@@ -2064,6 +2117,13 @@
             case 'heroic':
                 return `<span class="play-effect stratagem">${player(event.player)} used Heroic Intervention (${escapeHtml(HEROIC_MODES[event.heroic])}, ${Number(event.cp)} CP)</span>:
                     ${escapeHtml(name(event.unit))} charge roll ${dice(event.rolls[0])} = <strong>${event.roll}"</strong>${event.failed ? ': nothing in reach, it fails' : ''}`;
+            case 'embark':
+                return `${escapeHtml(name(a.unit))} embarked in ${escapeHtml(name(a.transport))}`;
+            case 'disembark': {
+                const hz = (event.hazards || [])[0];
+                return `${escapeHtml(name(a.unit))} disembarked from ${escapeHtml(name(event.transport))} (${escapeHtml(DISEMBARK_NAMES[event.mode])})`
+                    + (hz ? `: hazard rolls ${dice(event.rolls[0])}, ${hz.killed.length} lost` : '');
+            }
             case 'scout':
                 return `${escapeHtml(name(a.unit))} ${event.how === 'set_up' ? 'was set up from reserves' : 'made a scout move'} (Scouts)`;
             case 'rapid_ingress':
@@ -2121,6 +2181,9 @@
                         : b.was_shocked ? '<strong class="play-shock-good">recovers</strong>' : '<strong class="play-shock-good">holds</strong>';
                     lines.push(`<strong>${escapeHtml(b.name)}</strong> battle-shock test${b.reason ? ` (${escapeHtml(b.reason)})` : ''}: ${dice(event.rolls[b.rolls[0]])}
                         = ${b.total} (needs ${b.leadership}+): ${outcome}`);
+                }
+                for (const c of event.empty_transports || []) {
+                    lines.push(`<strong>${escapeHtml(c.name)}</strong> carried no unit when deployment ended: lost (a Dedicated Transport must carry one)`);
                 }
                 for (const c of event.reserves_lost || []) {
                     lines.push(`<strong>${escapeHtml(c.name)}</strong> was still in reserves at the end of battle round 3: lost`);
@@ -2246,7 +2309,8 @@
             }
             for (const model of placed) drawModel(g, unit, model, D);
             const label = svgEl('text', { x: (left + right) / 2, y: top - 0.3, class: 'play-label' }, g);
-            label.textContent = unit.name;
+            const carrying = game.state.units.filter(o => o.status && o.status.embarked === unit.id).length;
+            label.textContent = unit.name + (carrying ? ` (${carrying} unit${carrying === 1 ? '' : 's'} aboard)` : '');
         }
         // Wounds badges on top of every model, so a neighbouring base never hides one
         const badges = svgEl('g', { class: 'play-badges' }, svg);
@@ -2606,6 +2670,10 @@
         if (placingUnit && (state.game.infiltrators || []).includes(placingUnit.id)) return drawInfiltrate(svg, depth, placingUnit);
         const unit = arrivingUnit();
         if (unit && state.placing && state.placing.kind === 'scout') return;  // Its own zone, as in deployment
+        const leaving = unit && (state.game.disembark || {})[unit.id];
+        if (leaving && ((state.arriving && state.arriving.kind === 'disembark') || (state.placing && state.placing.kind === 'disembark'))) {
+            return drawDisembark(svg, depth, unit, leaving);
+        }
         const rules = unit && (state.game.ingress || [])[unit.player];
         if (!rules) return;
         const W = state.game.board.width, edge = rules.edge;
@@ -2620,6 +2688,22 @@
         }
         for (const enemy of state.game.state.units.filter(u => u.player !== unit.player)) {
             for (const model of enemy.models.filter(m => m.alive && m.position)) padded(mask, enemy, model, depth, rules.gap, { fill: 'black' });
+        }
+        svgEl('rect', { x: 0, y: 0, width: W, height: depth, class: 'play-ingress', mask: `url(#${id})` }, svg);
+    }
+
+    /** Shade where a unit can disembark: within the move's reach of its transport, out of engagement range (but a
+     * Combat disembark may engage what the transport is engaged with: not shaded out). */
+    function drawDisembark(svg, depth, unit, leaving) {
+        const W = state.game.board.width;
+        const id = 'play-ingress-mask';
+        const mask = svgEl('mask', { id, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: W, height: depth }, svg);
+        const transport = unitById(leaving.transport);
+        for (const model of transport.models.filter(m => m.alive && m.position)) padded(mask, transport, model, depth, leaving.reach, { fill: 'white' });
+        if (leaving.mode !== 'combat') {
+            for (const enemy of state.game.state.units.filter(u => u.player !== unit.player)) {
+                for (const model of enemy.models.filter(m => m.alive && m.position)) padded(mask, enemy, model, depth, 2, { fill: 'black' });
+            }
         }
         svgEl('rect', { x: 0, y: 0, width: W, height: depth, class: 'play-ingress', mask: `url(#${id})` }, svg);
     }
