@@ -49,6 +49,7 @@
         </div>
     </section>
 
+    {% if not hosted %}
     <section class="setup-card">
         <h3>Units: use a folder you already have</h3>
         <p>The folder holding <code>Warhammer 40,000.json</code> and the faction catalogues (for example a
@@ -64,6 +65,7 @@
         </div>
         <div class="setup-message" id="folder-message"></div>
     </section>
+    {% endif %}
 
     <section class="setup-card">
         <h3>Units: re-import</h3>
@@ -80,11 +82,16 @@
         <label class="setup-row"><input type="checkbox" id="play-setting" {% if show_play %}checked{% endif %}
             onchange="setPlay(this.checked)"> Show Play in the menu</label>
         {% if show_play %}
+        {% if hosted %}
+        <p>Online games go through a relay that passes moves between the two players' apps. On a self-hosted copy
+            its address is set when the copy is started (<code>RELAY_URL</code>).</p>
+        {% else %}
         <p>Online games go through a relay that passes moves between the two players' apps. Leave the address
             empty to use the app's own, or enter a relay you host yourself.</p>
+        {% endif %}
         <div class="setup-row">
             <input type="text" id="player-name" class="filter-input" maxlength="40" placeholder="Your name" aria-label="Your name">
-            <input type="url" id="relay-url" class="filter-input" placeholder="https://..." aria-label="Relay address">
+            <input type="url" id="relay-url" class="filter-input" placeholder="https://..." aria-label="Relay address"{% if hosted %} hidden{% endif %}>
             <button class="btn btn-secondary" onclick="saveRelay()">Save</button>
         </div>
         <p>Your name is shown to the other player when you start or join an online game, so each of you
@@ -143,12 +150,14 @@ function renderStatus(status) {
         el.innerHTML = `${folder} could not be read: ${esc(status.error)}`;
     } else {
         el.className = 'bsdata-status bsdata-status-missing';
-        el.innerHTML = `No BSData catalogues yet (looked in ${folder}). Download them or choose a folder below.`;
+        el.innerHTML = `No BSData catalogues yet (looked in ${folder}). Download them${status.hosted ? '' : ' or choose a folder below'}.`;
     }
     document.getElementById('download-folder').textContent = status.download_folder || '';
-    document.getElementById('default-folder').textContent = status.default_folder ? `(${status.default_folder})` : '';
-    const input = document.getElementById('folder-input');
-    if (!input.value) input.value = status.folder || '';
+    const input = document.getElementById('folder-input');  // Not on a self-hosted copy
+    if (input) {
+        document.getElementById('default-folder').textContent = status.default_folder ? `(${status.default_folder})` : '';
+        if (!input.value) input.value = status.folder || '';
+    }
     document.getElementById('skip-btn').style.display = status.loaded ? 'none' : '';
     renderWahapediaStatus(status.wahapedia || {});
     renderReportSummary(status);
@@ -219,9 +228,11 @@ async function loadRelay() {
 }
 
 async function saveRelay() {
+    const field = document.getElementById('relay-url');
+    const body = {name: document.getElementById('player-name').value};
+    if (!field.hidden) body.url = field.value;  // Hosted mode: set when the copy is started
     const resp = await fetch('/api/play/relay', {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                                 body: JSON.stringify({url: document.getElementById('relay-url').value,
-                                                                       name: document.getElementById('player-name').value})});
+                                                 body: JSON.stringify(body)});
     const data = await resp.json();
     document.getElementById('relay-message').textContent = resp.ok
         ? `Saved${data.name ? ` (you are ${data.name})` : ''}. Relay: ${data.url || 'none set'}` : data.error;

@@ -396,6 +396,8 @@ def register_play_routes(app):
         if request.method == 'POST':
             data = request.get_json(silent=True) or {}
             changes = {}
+            if 'url' in data and current_app.config.get('HOSTED'):
+                return jsonify({'error': "The relay's address is set with RELAY_URL on a self-hosted copy (hosted mode)."}), 403
             if 'url' in data:
                 url = str(data.get('url') or '').strip().rstrip('/')
                 if url and not url.startswith(('https://', 'http://127.0.0.1', 'http://localhost')):

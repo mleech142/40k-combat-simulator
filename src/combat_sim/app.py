@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from .models import (db, init_db, Faction, Detachment, Enhancement, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
                      SavedScenario, SavedComparison, SavedArmy, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
-from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
+from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, is_hosted, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
 from . import armies, army_share, bsdata_download, contagion, effects, folder_dialog, match_view, wahapedia, wahapedia_download
@@ -53,6 +53,9 @@ def create_app(config=None):
     app.config['SETTINGS_JSON'] = str(settings_path(data_json))
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # Hosted mode (docs/self-hosting.md): other people's browsers reach this copy, so what only makes sense on
+    # your own computer is refused (the folder dialog, BSData folders by path, the relay's address)
+    app.config['HOSTED'] = is_hosted()
 
     # New on every start. Pages tag saved page state with it, so state survives
     # switching tabs but is discarded after the app is restarted.
@@ -64,6 +67,7 @@ def create_app(config=None):
         last_update = ((app.config.get('WAHAPEDIA_STATUS') or {}).get('source') or {}).get('last_update') or ''
         return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
                 'bsdata_label': bsdata_label(app),
+                'hosted': app.config['HOSTED'],
                 'show_play': bool(load_settings(app.config['SETTINGS_JSON']).get('show_play')),
                 'wahapedia_label': (last_update[:10] or 'loaded') if wahapedia_loaded else None}
 
@@ -710,6 +714,7 @@ def register_routes(app):
             'label': bsdata_label(app),
             'download': load_settings(app.config['SETTINGS_JSON']).get('download'),
             'download_folder': app.config['DOWNLOAD_DIR'],
+            'hosted': app.config['HOSTED'],
             'default_folder': app.config['DEFAULT_BSDATA_DIR'],
             'wahapedia': wahapedia_status(bool(request.args.get('report'))),
         })
@@ -759,6 +764,9 @@ def register_routes(app):
 
     # --- Setup: choosing, downloading and re-importing the BSData folder -------------
 
+    def hosted_refusal(what):
+        return jsonify({'error': f'{what} is turned off on a self-hosted copy (hosted mode).'}), 403
+
     @app.route('/setup')
     def setup_page():
         return render_template('setup.html')
@@ -767,6 +775,8 @@ def register_routes(app):
     def api_bsdata_folder():
         """Use the BSData folder {'path'} (null = back to the default), if it loads."""
         path = (request.get_json() or {}).get('path')
+        if path and app.config['HOSTED']:
+            return hosted_refusal('Choosing a BSData folder by path')
         settings_file = app.config['SETTINGS_JSON']
         previous = load_settings(settings_file).get('bsdata_dir')
         if path:
@@ -789,6 +799,8 @@ def register_routes(app):
     @app.route('/api/bsdata/browse', methods=['POST'])
     def api_bsdata_browse():
         """Open the computer's folder dialog; {'path'} or {'path': null} if cancelled or unavailable."""
+        if app.config['HOSTED']:
+            return hosted_refusal('The folder dialog')
         return jsonify({'path': folder_dialog.choose_folder(initial=app.config.get('BSDATA_DIR'))})
 
     @app.route('/api/bsdata/download', methods=['POST'])

@@ -1,0 +1,8 @@
+# Only run.py, requirements.txt, src/ and data/app_data.json go into the image (Dockerfile)
+*
+!run.py
+!requirements.txt
+!src/
+!data/app_data.json
+**/__pycache__
+**/*.py[cod]

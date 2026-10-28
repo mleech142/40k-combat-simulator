@@ -92,6 +92,8 @@ written scope for 12. Items 13 and 14 are parked.
     - **Hosting:** where it runs, what it costs, who looks after it, and security once it's on the internet.
     - **Phones:** the Play board and the other pages are built for a desktop screen and mouse.
     - **Docker for self-hosting** (a group runs its own copy) as a possible smaller first step.
+    *Scope written (October 2026):* [hosted-version-scope.md](hosted-version-scope.md). Agreed: Docker
+    self-hosting with named players, the host approving edits; release 2.8 (its section 8).
 13. **Play: games with more than two players.** Team games (2v2) and free-for-all (1v1v1v1), on larger boards.
     Play is built for exactly two players throughout: two seats and two armies per game, the relay's two seats,
     turn order, deployment maps and missions. Needs planning: which rules to follow (whether Games Workshop

@@ -1,0 +1,16 @@
+# A self-hosted copy of the app (docs/self-hosting.md): docker compose up -d
+# Then open http://<this computer's address>:5000 and download the data on the Setup page.
+services:
+  combat-sim:
+    image: ghcr.io/mleech142/40k-combat-simulator:latest
+    # build: .   # instead of the image, to build from this repository
+    ports:
+      - "5000:5000"
+    volumes:
+      - combat-sim-data:/data  # app data JSON, database, settings, BSData and Wahapedia downloads
+    # environment:
+    #   RELAY_URL: https://your-relay.example  # your own relay for online games (default: the project's)
+    restart: unless-stopped
+
+volumes:
+  combat-sim-data:

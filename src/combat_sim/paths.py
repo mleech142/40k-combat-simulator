@@ -12,6 +12,9 @@ The BSData catalogues are never shipped: users put them in the `bsdata` folder i
 data folder (BSDATA_DIR overrides it). The cached import sits next to the app data JSON, and
 so does the `wahapedia` folder of rules and stratagems the user downloads (WAHAPEDIA_DIR overrides it).
 
+A self-hosted copy (Docker, `run.py --hosted`) keeps everything in the folder named by
+COMBAT_SIM_DATA instead, seeded the same way.
+
 Version 1 kept everything in `40k_data.json`; on the first start of version 2 that file and
 the database (whose saved scenarios refer to its IDs) are moved into `archive-v1`.
 """
@@ -29,6 +32,13 @@ BSDATA_CACHE_FILE = 'bsdata_cache.json'
 WAHAPEDIA_FOLDER = 'wahapedia'
 V1_DATA_FILE = '40k_data.json'
 V1_ARCHIVE_FOLDER = 'archive-v1'
+DATA_ENV = 'COMBAT_SIM_DATA'  # The data folder of a self-hosted copy (docs/self-hosting.md)
+HOSTED_ENV = 'COMBAT_SIM_HOSTED'  # Set (to 1) for hosted mode
+
+
+def is_hosted():
+    """Whether this copy is self-hosted for other people's browsers (docs/self-hosting.md)."""
+    return os.environ.get(HOSTED_ENV, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def is_frozen():
@@ -55,6 +65,8 @@ def user_data_dir():
 
 def data_dir():
     """Folder the app reads and writes its data JSON and database in."""
+    if os.environ.get(DATA_ENV):
+        return Path(os.environ[DATA_ENV]).expanduser()
     return user_data_dir() if is_frozen() else bundle_root() / 'data'
 
 

@@ -12,9 +12,9 @@ Users download a zipped build for Windows or Linux from GitHub Releases and run 
    git push origin master v1.1.0
    ```
 
-3. The **Release** workflow (`.github/workflows/release.yml`) builds on Windows and on Linux (Ubuntu 22.04) side by side: each checks the tag matches `__version__`, runs the full test suite, builds with PyInstaller and zips the result (`40kCombatSimulator-v1.1.0-windows.zip`, `…-linux.zip`). When both succeed, it creates the GitHub release with both zips and the notes from `docs/release-notes/<tag>.md` (or generated from the commits). If any step fails, no release is created; fix, delete the tag (`git tag -d v1.1.0 && git push origin :v1.1.0`) and tag again.
+3. The **Release** workflow (`.github/workflows/release.yml`) builds on Windows and on Linux (Ubuntu 22.04) side by side: each checks the tag matches `__version__`, runs the full test suite, builds with PyInstaller and zips the result (`40kCombatSimulator-v1.1.0-windows.zip`, `…-linux.zip`). When both succeed, it creates the GitHub release with both zips and the notes from `docs/release-notes/<tag>.md` (or generated from the commits). Alongside, it builds the Docker image (`Dockerfile`, for amd64 and arm64) and pushes it to `ghcr.io/mleech142/40k-combat-simulator` as `:<version>` and `:latest` ([self-hosting.md](self-hosting.md)); the release is created only after that. The first push makes the package private: make it public once in the package's settings on GitHub (Package settings → Change visibility). If any step fails, no release is created; fix, delete the tag (`git tag -d v1.1.0 && git push origin :v1.1.0`) and tag again.
 
-**Trial build:** Actions → Release → *Run workflow* (on any branch) builds and tests both zips and keeps them as workflow artifacts (`…-vX.Y.Z-test-…`), without publishing a release.
+**Trial build:** Actions → Release → *Run workflow* (on any branch) builds and tests both zips and keeps them as workflow artifacts (`…-vX.Y.Z-test-…`), and builds the Docker image, without publishing a release or the image.
 
 **Tests on every push:** the **Tests** workflow (`.github/workflows/tests.yml`) runs the suite on Linux for every push and pull request.
 
