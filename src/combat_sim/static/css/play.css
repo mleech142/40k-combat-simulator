@@ -213,6 +213,7 @@
 .play-tag i { font-size: 0.6rem; }
 .play-tag.ready { background: var(--success); border-color: var(--success); color: var(--on-accent); text-transform: uppercase; }
 .play-tag.shocked { border-color: var(--warning); color: var(--warning); text-transform: uppercase; }
+.play-tag.afflicted { border-color: var(--plague, #7a9a2e); color: var(--plague, #7a9a2e); text-transform: uppercase; }
 .play-tag.objective { border-color: color-mix(in srgb, var(--player) 70%, var(--border)); color: var(--text-primary);
     background: color-mix(in srgb, var(--player) 25%, var(--bg-secondary)); }
 .play-tag.destroyed { border-color: var(--error); color: var(--error); text-transform: uppercase; }

@@ -4,9 +4,10 @@ own pricing (armies.price_army), so a game never changes when the data or BSData
 Needs an app context; everything else in the play package works on the plain data alone.
 """
 
-from .. import armies
-from ..models import Enhancement, Faction, FactionRule, MeleeWeapon, RangedWeapon, Stratagem, Unit, db
-from ..rules_text import damaged_threshold, deadly_demise, firing_deck, has_core_ability, parse_transport, plain_text, scouts_distance
+from .. import armies, contagion
+from ..models import Detachment, Enhancement, Faction, FactionRule, MeleeWeapon, RangedWeapon, Stratagem, Unit, db
+from ..rules_text import (ability_buffs, afflicts_after_shooting, contagion_bonus, damaged_threshold, deadly_demise, firing_deck,
+                          granted_ability, has_core_ability, parse_transport, plain_text, scouts_distance, units_contagion_bonus)
 
 STATS = ('move', 'toughness', 'save', 'wounds', 'invulnerable_save', 'feel_no_pain', 'oc', 'leadership')
 WEAPON_FIELDS = ('name', 'type', 'attacks', 'skill', 'strength', 'ap', 'damage', 'range', 'abilities')
@@ -16,7 +17,8 @@ def freeze_army(army):
     """
     An army (the Armies page's form: name, faction_id, units, warlord, ...) as
     {'name', 'faction', 'disposition', 'units': [{'uid', 'name', 'parts': [part, ...]}]}. A unit's first part is the
-    unit itself ('bodyguard' when others join it, else 'unit'); its leaders and support units follow.
+    unit itself ('bodyguard' when others join it, else 'unit'); its leaders and support units follow. The chosen
+    detachments' rules the game applies are frozen as data: 'contagion_bonuses' and 'grants' (_detachment_effects).
     """
     army = armies.clean_army(army)
     priced = armies.price_army(army)
@@ -33,12 +35,31 @@ def freeze_army(army):
         attached = [(by_uid[uid], 'leader') for uid in entry['led_by']] + \
                    [(by_uid[uid], 'support') for uid in entry['supported_by']]
         role = 'bodyguard' if attached else 'unit'
-        parts = [_part(entry, role, catalogue, priced['warlord'])] + \
-                [_part(e, r, catalogue, priced['warlord']) for e, r in attached]
+        parts = [_part(entry, role, catalogue, priced['warlord'], army['faction_id'])] + \
+                [_part(e, r, catalogue, priced['warlord'], army['faction_id']) for e, r in attached]
         units.append({'uid': entry['uid'], 'name': entry['name'], 'parts': parts})
     return {'name': army['name'], 'faction': priced['faction'], 'disposition': priced['disposition'], 'units': units,
             'points_limit': army.get('points_limit'),
-            'stratagems': _stratagems(army), 'rules': _rules(army)}
+            'stratagems': _stratagems(army), 'rules': _rules(army), **_detachment_effects(army)}
+
+
+def _detachment_effects(army):
+    """
+    What the chosen detachments' rules (BSData) give that the game applies itself: 'contagion_bonuses'
+    ([{'rule', 'keywords', 'inches'}]: Hypervirulent Strains) and 'grants' ([{'rule', 'ability', 'keywords',
+    'count'}]: Verminous Haze). Only the data is frozen, never the text.
+    """
+    bonuses, grants = [], []
+    keys = army.get('detachment_keys') or []
+    for detachment in Detachment.query.filter(Detachment.bsdata_id.in_(keys)) if keys else []:
+        for rule in detachment.rules or []:
+            bonus = units_contagion_bonus(rule.get('text'))
+            if bonus:
+                bonuses.append({'rule': rule['name'], 'keywords': bonus[0], 'inches': bonus[1]})
+            grant = granted_ability(rule.get('text'))
+            if grant:
+                grants.append(dict(grant, rule=rule['name']))
+    return {'contagion_bonuses': bonuses, 'grants': grants}
 
 
 def _offered(record, army):
@@ -103,7 +124,7 @@ def _rules(army):
     return [_entry(r, 'rule') for r in records if _offered(r, army)]
 
 
-def _part(entry, role, catalogue, warlord):
+def _part(entry, role, catalogue, warlord, faction_id=None):
     unit = db.session.get(Unit, entry['unit_id'])
     enhancement = Enhancement.query.filter_by(bsdata_id=entry['enhancement']).first() if entry['enhancement'] else None
     return {
@@ -129,6 +150,11 @@ def _part(entry, role, catalogue, warlord):
         'firing_deck': firing_deck(unit.abilities),
         'deadly_demise': deadly_demise(unit.abilities),
         'damaged': damaged_threshold(unit.abilities),
+        # Death Guard (contagion.py): Nurgle's Gift counts for a model of the army's own faction
+        'contagion': has_core_ability(unit.abilities, contagion.RULE_NAME) and unit.faction_id == faction_id,
+        'contagion_bonus': contagion_bonus(unit.abilities),
+        'afflicts': afflicts_after_shooting(unit.abilities),
+        'ability_buffs': ability_buffs(unit.abilities),  # Its own attacks' bonuses (so far only against Afflicted units)
     }
 
 

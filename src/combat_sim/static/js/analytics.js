@@ -45,7 +45,9 @@
             cover: false,
             damaged: false,
             reroll_hits: 'none',
-            reroll_wounds: 'none'
+            reroll_wounds: 'none',
+            attackers_afflicted: '',  // Death Guard's Nurgle's Gift: '' (not Afflicted), 'none' (no Plague) or a Plague
+            defenders_afflicted: ''
         }
     };
 
@@ -207,6 +209,12 @@
         });
         document.getElementById('mat-reroll-wounds').addEventListener('change', (e) => {
             state.conditions.reroll_wounds = e.target.value;
+        });
+        document.getElementById('mat-attackers-afflicted').addEventListener('change', (e) => {
+            state.conditions.attackers_afflicted = e.target.value;
+        });
+        document.getElementById('mat-defenders-afflicted').addEventListener('change', (e) => {
+            state.conditions.defenders_afflicted = e.target.value;
         });
 
         // Metric selector
@@ -1033,6 +1041,7 @@
                     enhancements: defender.enhancements || [],
                     model_count: defender.model_count,
                     conditions: request.conditions,
+                    afflicted: request.afflicted,
                     attacker_rules: request.attacker_rules,
                     defender_rules: request.defender_rules,
                     iterations: 1000
@@ -1302,6 +1311,11 @@
         document.getElementById('mat-damaged').checked = !!state.conditions.damaged;
         document.getElementById('mat-reroll-hits').value = state.conditions.reroll_hits;
         document.getElementById('mat-reroll-wounds').value = state.conditions.reroll_wounds;
+        for (const [id, key] of [['mat-attackers-afflicted', 'attackers_afflicted'], ['mat-defenders-afflicted', 'defenders_afflicted']]) {
+            const select = document.getElementById(id);
+            select.value = state.conditions[key] || '';
+            if (select.selectedIndex < 0) select.value = '';
+        }
     }
 
     function debounce(fn, delay) {

@@ -347,7 +347,7 @@
                 <p class="weapon-picker-hint" id="unit-leader-buffs-note">What this unit grants the unit it leads, in the
                     keyword format of the Keywords tab. "Target" buffs apply when the led unit is attacked.</p>
                 <table class="points-table leader-buffs-table">
-                    <thead><tr><th>Applies to</th><th>Phase</th><th>Modifier</th><th></th></tr></thead>
+                    <thead><tr><th>Applies to</th><th>Phase</th><th>Modifier</th><th>When</th><th></th></tr></thead>
                     <tbody id="unit-leader-buff-rows"></tbody>
                 </table>
                 <button type="button" class="btn-small" onclick="addLeaderBuffRow()">+ Add buff</button>
@@ -1027,6 +1027,7 @@ function leaderBuffRowHtml(buff = {}) {
         <td><select class="buff-side">${option('Attacker', 'Attacker', buff.applies_to || 'Attacker')}${option('Target', 'Target', buff.applies_to)}</select></td>
         <td><select class="buff-phase">${option('Both', 'Both', buff.phase || 'Both')}${option('Shooting', 'Shooting', buff.phase)}${option('Fighting', 'Fighting', buff.phase)}</select></td>
         <td><input type="text" class="buff-modifier" value="${esc(buff.modifier || '')}" placeholder="e.g. Lethal Hits"></td>
+        <td><select class="buff-when" title="Only against Afflicted units (Death Guard)">${option('', 'Always', buff.when || '')}${option('afflicted', 'Target Afflicted', buff.when)}</select></td>
         <td><button type="button" class="btn-remove" onclick="this.closest('tr').remove(); leaderBuffsTouched = true" title="Remove buff"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></td>
     </tr>`;
 }
@@ -1054,6 +1055,7 @@ function readLeaderBuffRows() {
         applies_to: tr.querySelector('.buff-side').value,
         phase: tr.querySelector('.buff-phase').value,
         modifier: tr.querySelector('.buff-modifier').value.trim(),
+        ...(tr.querySelector('.buff-when').value ? { when: tr.querySelector('.buff-when').value } : {}),
     })).filter(b => b.modifier);
 }
 

@@ -189,6 +189,10 @@ test('leaderBuffSummary: attacker buffs with phases, then target buffs', () => {
         { applies_to: 'Target', phase: 'Both', modifier: 'Invulnerable Save 4+' },
     ]), 'Lethal Hits (shooting), Hit Modifier +1 · as a target: Invulnerable Save 4+');
     assert.equal(Core.leaderBuffSummary([]), '');
+    assert.equal(Core.leaderBuffSummary([
+        { applies_to: 'Attacker', phase: 'Both', modifier: 'Sustained Hits 1', when: 'afflicted' },
+        { applies_to: 'Attacker', phase: 'Fighting', modifier: 'Lethal Hits', when: 'afflicted' },
+    ]), 'Sustained Hits 1 (vs Afflicted), Lethal Hits (melee, vs Afflicted)');
 });
 
 test('withLeaderWeapons adds the leader loadout, replacing a previous leader', () => {
@@ -417,6 +421,14 @@ test('buildMatrixRequest: real defenders, included weapons, labels and rules', (
 
     request.conditions.cover = false;
     assert.equal(page.conditions.cover, true);  // the request has its own copy
+});
+
+test('buildMatrixRequest: Death Guard afflictions go in their own field', () => {
+    assert.deepEqual(Core.buildMatrixRequest(matchupsPage()).afflicted, { attackers: null, defenders: null });
+    const page = matchupsPage();
+    page.conditions.defenders_afflicted = 'rattlejoint';
+    page.conditions.attackers_afflicted = 'none';
+    assert.deepEqual(Core.buildMatrixRequest(page).afflicted, { attackers: 'none', defenders: 'rattlejoint' });
 });
 
 test('enhancements reach the matrix request: the unit own ones, and its leader ones while it leads', () => {
@@ -677,6 +689,12 @@ test('playUnitTags gives a unit row its badges: destroyed, ready, battle-shocked
     assert.deepEqual(Core.playUnitTags({ models: [{ alive: true }] }, { inRange: [], objectives, players }), []);
     const dead = Core.playUnitTags({ models: [{ alive: false }], status: { shocked: true } }, { ready: true, inRange: [], objectives, players });
     assert.deepEqual(dead.map(t => t.kind), ['destroyed']);
+    const afflicted = Core.playUnitTags({ models: [{ alive: true }] },
+        { afflicted: { key: 'rattlejoint', name: 'Rattlejoint Ague', summary: 'Save worsened by 1' } });
+    assert.deepEqual(afflicted.map(t => [t.kind, t.label, t.title]),
+        [['afflicted', 'Afflicted', 'Afflicted (Rattlejoint Ague): -1 Toughness; Save worsened by 1']]);
+    assert.equal(Core.playUnitTags({ models: [{ alive: true }] }, { afflicted: { key: 'none', name: '', summary: '' } })[0].title,
+        'Afflicted: -1 Toughness');
 });
 
 test('playPhaseTrack marks the phases done, current and to come this turn', () => {

@@ -14,7 +14,7 @@ import math
 import re
 from dataclasses import asdict
 
-from .. import effects
+from .. import contagion, effects
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
 from . import battlefields, mission_state, tactical
@@ -120,7 +120,11 @@ def new_game(armies, battlefield=None, roles=None, setup=False, twist=None):
         state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0,
                                  'reserve_limit': int(battle_points * RESERVE_SHARE),
                                  'stratagems': copy.deepcopy(army.get('stratagems', []) + army.get('rules', [])),
-                                 'used': {}, 'vp': mission_state.new_vp(), 'disposition': army.get('disposition')})
+                                 'used': {}, 'vp': mission_state.new_vp(), 'disposition': army.get('disposition'),
+                                 # Rules that add to Contagion Range, and that let the player pick units to gain an
+                                 # ability (snapshot.freeze_army)
+                                 'contagion_bonuses': copy.deepcopy(army.get('contagion_bonuses', [])),
+                                 'grants': copy.deepcopy(army.get('grants', []))})
         for unit in army['units']:
             unit_id = f'p{player + 1}-{unit["uid"]}'
             models = [{'id': f'{unit_id}-{part_index}-{n + 1}', 'part': part_index,
@@ -178,7 +182,8 @@ def _snapshot(state):
             'units': {u['id']: {'activity': u.get('activity', {}), 'status': u.get('status', {'shocked': False}),
                                 'effects': u.get('effects', [])} for u in state['units']},
             'players': [{'orders': p.get('orders', DEFAULT_ORDERS), 'cp': p.get('cp', 0), 'used': p.get('used', {}),
-                         **({'vp': p['vp']} if 'vp' in p else {})} for p in state['players']],
+                         **({'vp': p['vp']} if 'vp' in p else {}),
+                         **({'plague': p['plague']} if 'plague' in p else {})} for p in state['players']],
             'mission': state.get('mission'),
             'turn': state.get('turn'), 'pending': state.get('pending'), 'roles': state.get('roles'),
             'objectives': {o['id']: o.get('controller') for o in state.get('objectives', [])},
@@ -227,6 +232,8 @@ def _handlers(action, dice, rewind=None, redo=None):
                 'reserve': lambda s: _reserve(s, action), 'ingress': lambda s: _ingress(s, action),
                 'rapid_ingress': lambda s: _rapid_ingress(s, action, dice), 'scout': lambda s: _scout(s, action, dice),
                 'embark': lambda s: _embark(s, action), 'disembark': lambda s: _disembark(s, action, dice),
+                'plague': lambda s: _plague(s, action), 'grant': lambda s: _grant(s, action),
+                'afflict': lambda s: _afflict_choice(s, action),
                 'command_reroll': lambda s: _command_reroll(s, action, dice, redo),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
 
@@ -372,6 +379,9 @@ def _end_deployment(state, dice):
     _require(state, 'deployment')
     if _unplaced(state, 0) or _unplaced(state, 1):
         raise ActionError('Place every unit before deployment ends.')
+    for player, owner in enumerate(state['players']):
+        if has_contagion(state, player) and not owner.get('plague'):
+            raise ActionError(f'{owner["name"]}: choose your Plague (Nurgle\'s Gift) before deployment ends.')
     report = {'battle_shock': [], 'hazards': []}
     for unit in state['units']:  # A Dedicated Transport must carry a unit, or it is lost (18.01)
         if any(_has(p['keywords'], 'Dedicated Transport') for p in unit['parts']) and any(m['alive'] for m in unit['models']) \
@@ -661,15 +671,21 @@ def _start_turn(state, round_number, player, dice, report):
         each['cp'] = each.get('cp', 0) + 1
     for unit in state['units']:
         status = unit.setdefault('status', {'shocked': False})
+        if (status.get('afflicted') or {}).get('by') == player:  # "Until the start of your next turn"
+            del status['afflicted']
+    for unit in state['units']:
+        status = unit['status']
         if unit['player'] == player and _placed_shapes(unit) and (status['shocked'] or half_strength(unit)):
-            _battle_shock_roll(unit, dice, report)
+            _battle_shock_roll(unit, dice, report, affliction=affliction_of(state, unit))
     mission_state.start_turn(state, dice, report)
 
 
-def _battle_shock_roll(unit, dice, report, reason=None):
-    """2D6 against the unit's best Leadership: under it, the unit is battle-shocked; at or over it, it isn't (any more)."""
+def _battle_shock_roll(unit, dice, report, reason=None, affliction=None):
+    """2D6 against the unit's best Leadership (worse while Afflicted by Scabrous Soulrot): under it, the unit is
+    battle-shocked; at or over it, it isn't (any more)."""
     status = unit.setdefault('status', {'shocked': False})
-    leadership = min(unit['parts'][m['part']]['stats'].get('leadership') or 7 for m in unit['models'] if m['alive'])
+    leadership = contagion.worsen_leadership(
+        min(unit['parts'][m['part']]['stats'].get('leadership') or 7 for m in unit['models'] if m['alive']), affliction)
     first, was = len(dice.log), status['shocked']
     total = dice.roll_value('2D6', 'battle-shock')
     status['shocked'] = total < leadership
@@ -813,7 +829,7 @@ def _fall_backs(state, dice, report):
             report['hazards'].append({'unit': unit['id'], 'name': unit['name'], 'reason': 'Desperate Escape', **result,
                                       'rolls': [first, len(dice.log)]})
         else:
-            _battle_shock_roll(unit, dice, report, 'Ordered Retreat')
+            _battle_shock_roll(unit, dice, report, 'Ordered Retreat', affliction_of(state, unit))
 
 
 def _hazard(state, unit, rolls, dice):
@@ -1085,12 +1101,15 @@ def _shoot(state, action, dice, snap=False):
         raise ActionError(f'{shooter["name"]} has no ranged weapons to fire.')
     stationary = moved_distance(shooter) <= HEAVY_MOVE + 1e-9 and not _is_engaged(state, shooter)  # Heavy
     deck = _deck_picks(state, shooter, picks)
+    afflicted = afflictions(state)  # Death Guard's Nurgle's Gift (contagion.py), as the volley starts
     plans = []
     for pick in picks:
         if not isinstance(pick, dict) or 'part' not in pick or 'weapon' not in pick:
             raise ActionError('Choose weapons the unit has.')
         target = _unit_or_error(state, pick.get('target') or action.get('target'))
         near, far, extra, covered = _weapon_plan(state, shooter, pick['part'], pick['weapon'], target)
+        if contagion.gives_cover(afflicted.get(shooter['id']), 'ranged'):  # Skullsquirm Blight: its targets have cover
+            covered = {m['id'] for m in near + far}
         part_index, weapon_index = int(pick['part']), int(pick['weapon'])
         if not _big(shooter):  # Each model fires either its Close-Quarters weapons or its others
             for model in shooter['models']:
@@ -1111,12 +1130,14 @@ def _shoot(state, action, dice, snap=False):
         for models, half, cover, damaged in groups:
             if not models or not any(m['alive'] for m in target['models']):
                 continue
-            attacker = _attacker(shooter, part_index, weapon_index, len(models))
+            pair = (afflicted.get(shooter['id']), afflicted.get(target['id']))
+            attacker = _attacker(shooter, part_index, weapon_index, len(models), pair)
             attacker.abilities += extra
             conditions = BattleConditions(half_range=half, stationary=stationary, cover=cover, damaged=damaged)
             first = len(dice.log)
-            pool = roll_attack(attacker, _defender(target, _first_alive(target)['part']), conditions, dice, snap=snap)
-            killed = _resolve_wounds(state, shooter, target, attacker, conditions, pool, dice)
+            pool = roll_attack(attacker, _defender(target, _first_alive(target)['part'], 'ranged', pair), conditions, dice,
+                               snap=snap)
+            killed = _resolve_wounds(state, shooter, target, attacker, conditions, pool, dice, pair)
             attacks.append({'part': part_index, 'weapon': weapon_index, 'name': weapon['name'], 'target': target['id'],
                             'models': len(models), 'half_range': half, 'cover': cover, **asdict(pool),
                             'killed': killed, 'rolls': [first, len(dice.log)]})
@@ -1132,9 +1153,12 @@ def _shoot(state, action, dice, snap=False):
         for passenger in embarked_in(state, shooter):
             passenger['activity']['shot'] = True
     shooter.setdefault('status', {'shocked': False})['shot_seq'] = state['turn'].get('seq', 0)  # No longer hidden
+    detail = {'attacks': attacks}
+    if not snap:
+        detail.update(_afflict_after_shooting(state, shooter, attacks))
     if not snap:  # (Fire Overwatch opens it itself, before carrying on with the phase change)
         _save_window(state, attacks, dice)
-    return {'attacks': attacks}
+    return detail
 
 
 # --- Reactions: the other player's decisions in your turn (11th edition core stratagems) ------------------------
@@ -1624,8 +1648,9 @@ def redo_history(events, replay_to):
     return {'action': action, 'rewind': replay_to(base), 'chain': chain, 'last': last, 'base': base}
 
 
-def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice):
-    """Allocate and resolve a wound pool one wound at a time (normal wounds, then mortal); the models killed."""
+def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice, afflicted=(None, None)):
+    """Allocate and resolve a wound pool one wound at a time (normal wounds, then mortal); the models killed.
+    `afflicted`: the attacking unit's and the target's afflictions (Death Guard; afflictions)."""
     killed = []
     order = state['players'][target['player']].get('orders', DEFAULT_ORDERS)['casualties']
     precision = _has(attacker.abilities, 'Precision')
@@ -1638,7 +1663,9 @@ def _resolve_wounds(state, attacking, target, attacker, conditions, pool, dice):
         model = _allocate(target, attacking, order, precision, _allocation_priority(state, target), visible)
         if model is None:
             break
-        result = roll_wound(attacker, _defender(target, model['part']), conditions, dice, model['wounds_left'], mortal)
+        kind = 'melee' if attacker.is_melee else 'ranged'
+        result = roll_wound(attacker, _defender(target, model['part'], kind, afflicted), conditions, dice,
+                            model['wounds_left'], mortal)
         model['wounds_left'] -= result.damage
         model['alive'] = model['wounds_left'] > 0
         if not model['alive']:
@@ -1736,39 +1763,222 @@ def _allocate(unit, attacking=None, order='farthest', precision=False, priority=
     return pick(min(groups.values(), key=lambda group: min(part_rank(m) for m in group)))
 
 
-def _attacker(unit, part_index, weapon_index, models):
-    """A weapon's AttackerProfile: its abilities plus the unit's leader and enhancement effects."""
+def _attacker(unit, part_index, weapon_index, models, afflicted=(None, None)):
+    """A weapon's AttackerProfile: its abilities plus the unit's leader, enhancement and datasheet effects.
+    `afflicted`: the unit's and the target's afflictions (Death Guard; afflictions)."""
     part = unit['parts'][part_index]
     weapon = part['weapons'][weapon_index]
     kind = weapon['type']
-    extra = _leader_effects(unit, 'Attacker', kind) + effects.enhancement_modifiers(
-        _carried(unit), 'Attacker', kind, leader_weapon=part['role'] == 'leader') + _effect_modifiers(unit, 'Attacker', kind)
+    met = contagion.conditions(afflicted[1])
+    extra = (_leader_effects(unit, 'Attacker', kind, met)
+             + effects.enhancement_modifiers(_carried(unit), 'Attacker', kind, leader_weapon=part['role'] == 'leader',
+                                             conditions=met)
+             + _effect_modifiers(unit, 'Attacker', kind)
+             + effects.leader_modifiers(part.get('ability_buffs'), 'Attacker', kind, met)  # Its datasheet's own
+             + contagion.modifiers(afflicted[0], afflicted[1], kind)[0])
     return AttackerProfile(weapon['attacks'], weapon['skill'], weapon['strength'], weapon['ap'], weapon['damage'],
                            list(weapon['abilities'] or []) + extra, models, kind)
 
 
-def _defender(unit, part_index, kind='ranged'):
-    """The DefenderProfile of one part of a unit, with the unit's leader and enhancement effects as a target."""
+def _defender(unit, part_index, kind='ranged', afflicted=(None, None)):
+    """The DefenderProfile of one part of a unit, with the unit's leader and enhancement effects as a target.
+    `afflicted`: the attacking unit's and this unit's afflictions (Death Guard; afflictions)."""
     part = unit['parts'][part_index]
     stats = part['stats']
     extra = (_leader_effects(unit, 'Target', kind) + effects.enhancement_modifiers(_carried(unit), 'Target', kind)
-             + _effect_modifiers(unit, 'Target', kind))
+             + _effect_modifiers(unit, 'Target', kind) + contagion.modifiers(afflicted[0], afflicted[1], kind)[1])
     alive = sum(m['alive'] for m in unit['models'])
     return DefenderProfile(stats['toughness'], stats['save'], stats['wounds'], stats['invulnerable_save'],
                            stats['feel_no_pain'], list(part['keywords']) + extra, alive)
 
 
-def _leader_effects(unit, side, kind):
-    """Effects a unit's living leaders grant it."""
+def _leader_effects(unit, side, kind, conditions=()):
+    """Effects a unit's living leaders grant it (those with a condition only when the attack meets it)."""
     alive_parts = {m['part'] for m in unit['models'] if m['alive']}
     return [m for i, part in enumerate(unit['parts']) if part['role'] == 'leader' and i in alive_parts
-            for m in effects.leader_modifiers(part['leader_buffs'], side, kind)]
+            for m in effects.leader_modifiers(part['leader_buffs'], side, kind, conditions)]
 
 
 def _carried(unit):
     """[(buffs, bearer)] for enhancements carried by the unit itself or by a leader in it."""
     return [(part['enhancement']['buffs'], 'leader' if part['role'] == 'leader' else 'unit')
             for part in unit['parts'] if part.get('enhancement')]
+
+
+# --- Death Guard: Nurgle's Gift (contagion.py) --------------------------------------------------------------------
+
+def has_contagion(state, player):
+    """Whether a player's army has Nurgle's Gift (models with the ability, in an army of their faction)."""
+    return any(p.get('contagion') for u in state['units'] if u['player'] == player for p in u['parts'])
+
+
+def _has_keywords(state, unit, phrase):
+    """Whether a unit has every keyword a phrase names ('DEATH GUARD CHARACTER' names Character), counting the keywords
+    of all its living models (an attached unit led by a Character is a Character unit), or the phrase is its name."""
+    if phrase.strip().lower() in (unit['name'].lower(), unit['parts'][0]['name'].lower()):
+        return True
+    universe = {k.lower() for u in state['units'] for p in u['parts'] for k in p['keywords']}
+    needed = _phrase_keywords(phrase, universe)
+    mine = {k.lower() for m in unit['models'] if m['alive'] for k in unit['parts'][m['part']]['keywords']}
+    return bool(needed) and all(k in mine for k in needed)
+
+
+def contagion_ranges(state, unit):
+    """{model id: Contagion Range in inches} for a unit's models on the battlefield that have Nurgle's Gift: by battle
+    round, plus the model's own bonus (Gift of Poxes) and its army's rules for units like it (Hypervirulent Strains)."""
+    if not any(p.get('contagion') for p in unit['parts']):
+        return {}
+    bonus = sum(rule['inches'] for rule in state['players'][unit['player']].get('contagion_bonuses') or []
+                if _has_keywords(state, unit, rule['keywords']))
+    return {m['id']: contagion.contagion_range(state['turn'].get('round'), bonus + (part.get('contagion_bonus') or 0))
+            for m, _ in _placed_models(unit) if (part := unit['parts'][m['part']]).get('contagion')}
+
+
+def _auras(state, player):
+    """[(shape, Contagion Range)] for a player's models with Nurgle's Gift on the battlefield."""
+    found = []
+    for unit in state['units']:
+        if unit['player'] == player:
+            ranges = contagion_ranges(state, unit)
+            found += [(shape, ranges[m['id']]) for m, shape in _placed_models(unit) if m['id'] in ranges]
+    return found
+
+
+def _within_auras(shapes, auras):
+    return any(not farther_than(source, shape, reach + 1e-9) and base_distance(source, shape) <= reach + 1e-9
+               for source, reach in auras for shape in shapes)
+
+
+def affliction_of(state, unit, shapes=None):
+    """
+    A unit's affliction (contagion.py): None, or the other player's Plague (contagion.NO_PLAGUE before one is
+    chosen) while it is within Contagion Range of one of their Death Guard models, or an ability made it Afflicted
+    (status 'afflicted'). `shapes`: where its models count as being (where they stand, if not given).
+    """
+    other = 1 - unit['player']
+    if not has_contagion(state, other) or not any(m['alive'] for m in unit['models']):
+        return None
+    shapes = [shape for _, shape in _placed_models(unit)] if shapes is None else shapes
+    if (unit.get('status') or {}).get('afflicted') or (shapes and _within_auras(shapes, _auras(state, other))):
+        return state['players'][other].get('plague') or contagion.NO_PLAGUE
+    return None
+
+
+def afflictions(state):
+    """{unit id: affliction} for every Afflicted unit (affliction_of)."""
+    found = {}
+    for player in (0, 1):
+        if not has_contagion(state, player):
+            continue
+        auras = _auras(state, player)
+        plague = state['players'][player].get('plague') or contagion.NO_PLAGUE
+        for unit in state['units']:
+            if unit['player'] == player or not any(m['alive'] for m in unit['models']):
+                continue
+            shapes = [shape for _, shape in _placed_models(unit)]
+            if (unit.get('status') or {}).get('afflicted') or (shapes and _within_auras(shapes, auras)):
+                found[unit['id']] = plague
+    return found
+
+
+def _plague(state, action):
+    """Nurgle's Gift: the Death Guard player chooses the army's Plague in the Declare Battle Formations step (here,
+    during deployment)."""
+    if state['turn']['phase'] != 'deployment':
+        raise ActionError('The Plague is chosen in the Declare Battle Formations step, during deployment.')
+    try:
+        player = int(action.get('player'))
+        owner = state['players'][player]
+    except (TypeError, ValueError, IndexError):
+        raise ActionError('Say which player chooses the Plague.')
+    if not has_contagion(state, player):
+        raise ActionError(f'{owner["name"]}\'s army doesn\'t have Nurgle\'s Gift.')
+    if action.get('plague') not in contagion.PLAGUES:
+        raise ActionError('Choose one of the Plagues.')
+    owner['plague'] = action['plague']
+    return {'plague': action['plague'], 'player': player}
+
+
+def grant_options(state, player):
+    """[{'ability', 'rule', 'count', 'units': [ids it can go to], 'chosen': [ids]}] for the rules that let a player
+    pick units to gain an ability in the Declare Battle Formations step (Verminous Haze)."""
+    options = []
+    for grant in state['players'][player].get('grants') or []:
+        units = [u for u in state['units'] if u['player'] == player and any(m['alive'] for m in u['models'])
+                 and _has_keywords(state, u, grant['keywords'])]
+        options.append(dict(grant, units=[u['id'] for u in units],
+                            chosen=[u['id'] for u in units if grant['ability'] in (u['status'].get('granted') or [])]))
+    return options
+
+
+def _grant(state, action):
+    """
+    Pick a unit for a rule that grants an ability (Verminous Haze: up to two Plague Marines units have
+    Infiltrators), or take the pick back: in deployment, before the unit is set up.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    if state['turn']['phase'] != 'deployment':
+        raise ActionError('Units are picked for it in the Declare Battle Formations step, during deployment.')
+    grant = next((g for g in grant_options(state, unit['player']) if g['ability'] == action.get('ability')), None)
+    if grant is None:
+        raise ActionError(f'No rule of {state["players"][unit["player"]]["name"]}\'s gives units {action.get("ability")}.')
+    if unit['id'] not in grant['units']:
+        raise ActionError(f'{grant["rule"]} is for {grant["keywords"].title()} units.')
+    status = unit['status']
+    if any(m['position'] for m in unit['models']) or in_reserve(unit) or is_embarked(unit):
+        raise ActionError(f'{unit["name"]} has been set up: pick units for {grant["rule"]} before setting them up.')
+    granted = list(status.get('granted') or [])
+    on = grant['ability'] not in granted
+    if on and len(grant['chosen']) >= grant['count']:
+        raise ActionError(f'{grant["rule"]}: up to {grant["count"]} units (take one back first).')
+    granted = granted + [grant['ability']] if on else [a for a in granted if a != grant['ability']]
+    if granted:
+        status['granted'] = granted
+    else:
+        status.pop('granted', None)
+    return {'grant': grant['ability'], 'rule': grant['rule'], 'unit': unit['id'], 'on': on}
+
+
+def _afflict(state, unit, target):
+    target['status']['afflicted'] = {'by': unit['player'], 'source': unit['name']}  # Until the start of their turn
+
+
+def _afflict_after_shooting(state, shooter, attacks):
+    """
+    Infused with the Blessings of Nurgle (Plague Marines): in its own Shooting phase, after the unit has shot, one enemy
+    unit its attacks hit is Afflicted until the start of its next turn. With one unit hit, that one; with several,
+    the player picks (activity 'afflict_options', the afflict action).
+    """
+    turn = state['turn']
+    if turn['phase'] != 'shooting' or turn['player'] != shooter['player'] or \
+            not any(shooter['parts'][m['part']].get('afflicts') for m in shooter['models'] if m['alive']):
+        return {}
+    hit = []
+    for attack in attacks:
+        target = attack.get('target')
+        if target != shooter['id'] and target not in hit and (attack.get('hits') or attack.get('wounds') or attack.get('mortal')):
+            hit.append(target)
+    hit = [t for t in hit if any(m['alive'] for m in unit_by_id(state, t)['models'])]
+    if len(hit) == 1:
+        _afflict(state, shooter, unit_by_id(state, hit[0]))
+        return {'afflicted': hit[0]}
+    if hit:
+        shooter['activity']['afflict_options'] = hit
+    return {}
+
+
+def _afflict_choice(state, action):
+    """Pick which of the enemy units a unit hit is Afflicted (Infused with the Blessings of Nurgle, several hit)."""
+    unit = _unit_or_error(state, action.get('unit'))
+    options = unit['activity'].get('afflict_options') or []
+    if state['turn']['phase'] != 'shooting' or not options:
+        raise ActionError(f'{unit["name"]} has no enemy unit to make Afflicted now.')
+    if action.get('target') not in options:
+        raise ActionError('Choose one of the enemy units it hit.')
+    target = unit_by_id(state, action['target'])
+    _afflict(state, unit, target)
+    del unit['activity']['afflict_options']
+    return {'afflicted': target['id'], 'unit': unit['id']}
 
 
 def replay(armies, events, battlefield=None, setup=False, twist=None):
@@ -1895,9 +2105,10 @@ def _place(state, action):
 
 
 def infiltrators(unit):
-    """Whether every model in the unit has Infiltrators."""
+    """Whether every model in the unit has Infiltrators (its datasheets, or a rule granting it: _grant)."""
     living = {m['part'] for m in unit['models'] if m['alive']}
-    return bool(living) and all(unit['parts'][p].get('infiltrators') for p in living)
+    granted = 'Infiltrators' in ((unit.get('status') or {}).get('granted') or [])
+    return bool(living) and (granted or all(unit['parts'][p].get('infiltrators') for p in living))
 
 
 def _zone_distance(shape, polygon):
@@ -2027,10 +2238,10 @@ def _engaged(shapes, enemies):
                for a in shapes for b in enemies)
 
 
-def move_characteristic(part):
-    """A part's Move in inches ('6', '20+' -> 20; none -> 0)."""
+def move_characteristic(part, affliction=None):
+    """A part's Move in inches ('6', '20+' -> 20; none -> 0), worse while Afflicted by Scabrous Soulrot."""
     found = re.match(r'\s*(\d+)', str(part['stats'].get('move') or ''))
-    return int(found.group(1)) if found else 0
+    return contagion.worsen_move(int(found.group(1)) if found else 0, affliction)
 
 
 # Where a unit started each kind of move this turn: moves can be redone until their phase (or step) ends
@@ -2852,6 +3063,7 @@ def _move(state, action):
         raise ActionError('Choose a Normal move, Advance or Fall Back.')
     enemies = _enemy_shapes(state, unit)
     engaged = _engaged(_start_shapes(unit), enemies)  # Where it started the phase decides
+    affliction = affliction_of(state, unit, _start_shapes(unit))  # Where it started too, so redoing it is the same
     skies = _skies(unit, action)
     desperate = mode == 'fall_back' and unit.get('status', {}).get('shocked')  # Desperate Escape: through enemy models
     blocking = _blocking(state, unit, through_all=skies or desperate)
@@ -2878,7 +3090,7 @@ def _move(state, action):
                 via[mid].append(dict(here))
         via[mid] += _route(action, mid, spot)  # The bends it was dragged along, kept as waypoints
         path = [start, *via[mid], spot]
-        allowance = move_characteristic(part) + (activity.get('advance_roll', 0) if mode == 'advance' else 0) - (SKIES if skies else 0)
+        allowance = move_characteristic(part, affliction) + (activity.get('advance_roll', 0) if mode == 'advance' else 0) - (SKIES if skies else 0)
         distance = path_length(path)
         mobile = twist_is(state, 'ruinscape') and mode in ('normal', 'advance')  # Ruinscape: Mobile while moving
         climb = 0 if skies or mobile else _climb(state, part, path)
@@ -3157,10 +3369,11 @@ def _fight_with(state, unit, picks, explicit, default_target, engaged_with, figh
         if not any(m['alive'] for m in target['models']):
             continue
         weapon = unit['parts'][p]['weapons'][w]
-        attacker = _attacker(unit, p, w, len(models))
+        pair = (affliction_of(state, unit), affliction_of(state, target))
+        attacker = _attacker(unit, p, w, len(models), pair)
         first = len(dice.log)
-        pool = roll_attack(attacker, _defender(target, _first_alive(target)['part'], 'melee'), conditions, dice)
-        killed = _resolve_wounds(state, unit, target, attacker, conditions, pool, dice)
+        pool = roll_attack(attacker, _defender(target, _first_alive(target)['part'], 'melee', pair), conditions, dice)
+        killed = _resolve_wounds(state, unit, target, attacker, conditions, pool, dice, pair)
         attacks.append({'part': p, 'weapon': w, 'name': weapon['name'], 'target': target['id'], 'models': len(models),
                         'half_range': False, **asdict(pool), 'killed': killed, 'rolls': [first, len(dice.log)]})
         if _has(weapon['abilities'], 'Hazardous'):
@@ -3502,12 +3715,14 @@ def in_range(model_shape_, objective, state=None):
 def objective_control(state, objective):
     """[player 0's, player 1's] Objective Control within range of an objective (battle-shocked units add nothing)."""
     totals = [0, 0]
+    afflicted = afflictions(state)  # Scabrous Soulrot worsens OC
     for unit in state['units']:
         if unit.get('status', {}).get('shocked'):
             continue
         for model, shape in _placed_models(unit):
             if in_range(shape, objective, state):
-                totals[unit['player']] += unit['parts'][model['part']]['stats'].get('oc') or 0
+                totals[unit['player']] += contagion.worsen_oc(unit['parts'][model['part']]['stats'].get('oc') or 0,
+                                                              afflicted.get(unit['id']))
     return totals
 
 

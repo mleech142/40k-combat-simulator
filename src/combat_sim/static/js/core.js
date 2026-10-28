@@ -185,11 +185,13 @@
     // -------------------------------------------------------------------------
 
     const PHASE_LABEL = { Shooting: 'shooting', Fighting: 'melee', Both: '' };
+    const WHEN_LABEL = { afflicted: 'vs Afflicted' };  // Conditions a buff can have (app.BUFF_CONDITIONS)
 
     /** "Lethal Hits (shooting), Hit Modifier +1 · as a target: Invulnerable Save 4+" ('' if nothing). */
     function leaderBuffSummary(buffs) {
+        const note = b => [PHASE_LABEL[b.phase], WHEN_LABEL[b.when]].filter(Boolean).join(', ');
         const text = side => (buffs || []).filter(b => b.applies_to === side)
-            .map(b => PHASE_LABEL[b.phase] ? `${b.modifier} (${PHASE_LABEL[b.phase]})` : b.modifier).join(', ');
+            .map(b => note(b) ? `${b.modifier} (${note(b)})` : b.modifier).join(', ');
         const attacker = text('Attacker'), target = text('Target');
         return [attacker, target && `as a target: ${target}`].filter(Boolean).join(' · ');
     }
@@ -513,7 +515,8 @@
     /**
      * The /api/matrix/simulate request for the Analytics page's state:
      * {attackers, defenders, conditions, weaponTypeFilter, defenderMode, includedProfiles,
-     *  attackerTicked, defenderTicked}
+     *  attackerTicked, defenderTicked}. conditions.attackers_afflicted / defenders_afflicted (Death Guard's
+     *  Nurgle's Gift) go in the request's `afflicted`.
      */
     /** An Analytics entry's enhancements that apply: its own, and its leader's while that leader leads it. */
     function activeEnhancements(entry) {
@@ -556,6 +559,8 @@
             attackers,
             defenders,
             conditions: { ...(page.conditions || {}) },
+            afflicted: { attackers: page.conditions?.attackers_afflicted || null,
+                         defenders: page.conditions?.defenders_afflicted || null },
             weapon_filter: filter,
             attacker_rules: rulesSelection(page.attackerTicked),
             defender_rules: rulesSelection(page.defenderTicked),
@@ -1125,12 +1130,16 @@
      * nothing else), else Ready, Battle-shocked, the objectives it's in range of (the board's letters) and
      * how many effects it has. `inRange` comes from the server (game rules stay in Python).
      */
-    function playUnitTags(unit, { ready = false, inRange = [], objectives = [], players = [] } = {}) {
+    function playUnitTags(unit, { ready = false, inRange = [], objectives = [], players = [], afflicted = null } = {}) {
         if (!unit.models.some(m => m.alive)) return [{ kind: 'destroyed', icon: 'fa-solid fa-skull', label: 'Destroyed', title: 'Every model destroyed' }];
         const tags = [];
         if (ready) tags.push({ kind: 'ready', icon: '', label: 'Ready', title: 'Can act now' });
         if (unit.status && unit.status.shocked) {
             tags.push({ kind: 'shocked', icon: 'fa-solid fa-triangle-exclamation', label: 'Shocked', title: 'Battle-shocked: Objective Control 0, no stratagems' });
+        }
+        if (afflicted) {  // Death Guard's Nurgle's Gift: {name: the Plague's name or '', summary}
+            tags.push({ kind: 'afflicted', icon: 'fa-solid fa-biohazard', label: 'Afflicted',
+                        title: `Afflicted${afflicted.name ? ` (${afflicted.name})` : ''}: -1 Toughness${afflicted.summary ? '; ' + afflicted.summary : ''}` });
         }
         const held = inRange.map(id => objectives.find(o => o.id === id)).filter(Boolean);
         if (held.length) {

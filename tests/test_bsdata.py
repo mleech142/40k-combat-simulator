@@ -466,8 +466,7 @@ def test_leader_buffs_parsed(text, expected):
 
 @pytest.mark.parametrize('text', [
     'models in that unit have the Feel No Pain 4+ ability against Psychic Attacks.',  # Conditional
-    'each time a model in that unit makes an attack which targets a unit which is Afflicted, that attack has the '
-    '[Sustained Hits 1] ability.',
+    'each time a model in that unit makes an attack which targets a unit which is Vehicle, add 1 to the Hit roll.',
     'you can re-roll Charge rolls made for that unit.',  # Not damage maths
     'models in that unit have the Fights First ability.',
 ])

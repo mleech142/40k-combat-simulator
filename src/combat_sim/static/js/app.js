@@ -71,6 +71,8 @@ const state = {
         damaged: false,
         reroll_hits: 'none',
         reroll_wounds: 'none',
+        attacker_afflicted: '',  // Death Guard's Nurgle's Gift: '' (not Afflicted), 'none' (no Plague) or a Plague
+        defender_afflicted: '',
     },
     simulation: {
         method: 'analytical',
@@ -96,6 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initWeaponTypeToggle();
     initToggles();
     initRerollButtons();
+    initAfflictionSelects();
     initSimulationOptions();
     initSimulateButton();
     initSaveButton();
@@ -367,6 +370,13 @@ function applyConditions(conditions) {
             });
         }
         state.conditions[`reroll_${type}`] = value;
+    });
+
+    document.querySelectorAll('[data-affliction]').forEach(select => {
+        const key = select.dataset.affliction;
+        select.value = conditions[key] || '';
+        if (select.selectedIndex < 0) select.value = '';  // A choice this version doesn't have
+        state.conditions[key] = select.value;
     });
 }
 
@@ -713,6 +723,13 @@ function initToggles() {
     });
 }
 
+/** Death Guard's Afflicted choices (one per side) */
+function initAfflictionSelects() {
+    document.querySelectorAll('[data-affliction]').forEach(select => {
+        select.addEventListener('change', () => { state.conditions[select.dataset.affliction] = select.value; });
+    });
+}
+
 /**
  * Initialize re-roll button groups
  */
@@ -782,8 +799,10 @@ async function runSimulation() {
     const payload = {
         attacker: {
             faction_id: state.attacker.unit?.faction_id ?? null,
+            unit_id: state.attacker.unit?.id ?? null,
             leader_id: state.attacker.leader?.id ?? null,
             weapons: weapons.map(weaponPayload),
+            afflicted: state.conditions.attacker_afflicted || null,
         },
         defender: {
             toughness: defender.toughness,
@@ -796,6 +815,7 @@ async function runSimulation() {
             model_count: modelCount,
             extra_modifiers: state.defender.extraModifiers,
             leader_id: state.defender.leader?.id ?? null,
+            afflicted: state.conditions.defender_afflicted || null,
         },
         conditions: state.conditions,
         method: state.simulation.method,

@@ -15,8 +15,9 @@ from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
                          rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
-from . import armies, army_share, bsdata_download, effects, folder_dialog, match_view, wahapedia, wahapedia_download
+from . import armies, army_share, bsdata_download, contagion, effects, folder_dialog, match_view, wahapedia, wahapedia_download
 from .effects import RULE_PHASES
+from .rules_text import ability_buffs
 from .play.routes import register_play_routes
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
@@ -175,6 +176,7 @@ def rule_modifiers(records, side, faction_id, weapon_type):
 
 BUFF_SIDES = ('Attacker', 'Target')
 BUFF_PHASES = ('Shooting', 'Fighting', 'Both')
+BUFF_CONDITIONS = (contagion.AFFLICTED,)  # Conditions a buff row can name ('when')
 
 
 def load_leader(leader_id):
@@ -185,11 +187,26 @@ def load_leader(leader_id):
         return None
 
 
-def leader_modifiers(leader, side, weapon_type):
-    """Modifier text a leader grants the unit it leads, for one side and the attacking weapon's phase."""
+def leader_modifiers(leader, side, weapon_type, conditions=()):
+    """Modifier text a leader grants the unit it leads, for one side, the attacking weapon's phase and the
+    conditions the attack meets (contagion.conditions)."""
     if leader is None:
         return []
-    return effects.leader_modifiers(leader.effective_leader_buffs, side, weapon_type)
+    return effects.leader_modifiers(leader.effective_leader_buffs, side, weapon_type, conditions)
+
+
+def ability_modifiers(unit, side, weapon_type, conditions=()):
+    """Modifier text from a unit's own datasheet abilities (rules_text.ability_buffs: so far only bonuses against
+    Afflicted targets), for its own weapons."""
+    if unit is None:
+        return []
+    return effects.leader_modifiers(ability_buffs(unit.abilities), side, weapon_type, conditions)
+
+
+def afflictions(data):
+    """(attackers' affliction, defenders' affliction) from a matrix request's {'afflicted': {'attackers', 'defenders'}}."""
+    found = data.get('afflicted') or {}
+    return contagion.affliction(found.get('attackers')), contagion.affliction(found.get('defenders'))
 
 
 def load_enhancements(items):
@@ -205,14 +222,15 @@ def load_enhancements(items):
     return carried
 
 
-def enhancement_modifiers(carried, side, weapon_type, leader_weapon=False):
+def enhancement_modifiers(carried, side, weapon_type, leader_weapon=False, conditions=()):
     """
-    Modifier text from the enhancements a unit carries (load_enhancements), for one side and the
-    attacking weapon's phase. An effect for the bearer only applies to the bearer's own weapons
-    (the leader's when the leader carries it) and, as a target, only when the unit is the bearer.
+    Modifier text from the enhancements a unit carries (load_enhancements), for one side, the
+    attacking weapon's phase and the conditions the attack meets. An effect for the bearer only applies
+    to the bearer's own weapons (the leader's when the leader carries it) and, as a target, only when
+    the unit is the bearer.
     """
     return effects.enhancement_modifiers([(enhancement.buffs, bearer) for enhancement, bearer in carried],
-                                         side, weapon_type, leader_weapon)
+                                         side, weapon_type, leader_weapon, conditions)
 
 
 def enhancement_points(carried):
@@ -233,17 +251,20 @@ def leader_target(leader, extra_keywords=()):
 
 
 def clean_buffs(rows):
-    """Leader buff rows from a request: side and phase checked, empty modifiers dropped."""
+    """Leader buff rows from a request: side and phase checked, empty modifiers dropped, a known condition kept."""
     cleaned = []
     for row in rows or []:
         modifier = str(row.get('modifier') or '').strip()
         if not modifier:
             continue
-        cleaned.append({
+        buff = {
             'applies_to': row.get('applies_to') if row.get('applies_to') in BUFF_SIDES else 'Attacker',
             'phase': row.get('phase') if row.get('phase') in BUFF_PHASES else 'Both',
             'modifier': modifier,
-        })
+        }
+        if row.get('when') in BUFF_CONDITIONS:
+            buff['when'] = row['when']
+        cleaned.append(buff)
     return cleaned
 
 
@@ -277,7 +298,7 @@ def register_routes(app):
             return redirect('/setup')
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
-        return render_template('index.html', factions=factions_list)
+        return render_template('index.html', factions=factions_list, afflictions=contagion.choices())
 
     @app.route('/api/units')
     def api_units():
@@ -417,6 +438,11 @@ def register_routes(app):
             "conditions": {...}, "method": "analytical" | "monte_carlo", "iterations": 1000,
             "attacker_rules": {"rule_ids": [], "stratagem_ids": []}, "target_rules": {...}
         }
+        Each side can say it is "afflicted" (Death Guard's Nurgle's Gift, contagion.py: "none" for no Plague,
+        or a Plague's key): an Afflicted defender has -1 Toughness, its Plague's effect applies, and attacks
+        with bonuses against Afflicted units get them. "attacker" can name its "unit_id" (its datasheet's
+        own abilities then count).
+
         "attacker" and "defender" can name a "leader_id": a leader attached to that unit, whose
         buffs apply to its side (the leader's own weapons are sent as weapons like the others). A
         defender with a leader is an attached unit: attacks go to the bodyguard models, then to the
@@ -443,6 +469,10 @@ def register_routes(app):
         defender_leader = load_leader(defender_data.get('leader_id'))
         attacker_enhancements = load_enhancements(attacker_data.get('enhancements'))
         defender_enhancements = load_enhancements(defender_data.get('enhancements'))
+        attacker_unit = load_leader(attacker_data.get('unit_id'))
+        attacker_affliction = contagion.affliction(attacker_data.get('afflicted'))
+        target_affliction = contagion.affliction(defender_data.get('afflicted'))
+        met = contagion.conditions(target_affliction)
 
         def target_profile(extra_keywords=()):
             return DefenderProfile(
@@ -460,12 +490,15 @@ def register_routes(app):
         for w in weapons_data:
             w_type = 'melee' if w.get('type') == 'melee' else 'ranged'
             # Ticked rules and stratagems add modifier text to the weapon (attacker) or the target
+            afflicted_attacker, afflicted_target = contagion.modifiers(attacker_affliction, target_affliction, w_type)
             attacker_modifiers = (rule_modifiers(attacker_rules, 'Attacker', w.get('faction_id', attacker_data.get('faction_id')), w_type)
-                                  + leader_modifiers(attacker_leader, 'Attacker', w_type)
-                                  + enhancement_modifiers(attacker_enhancements, 'Attacker', w_type, w.get('leader')))
+                                  + leader_modifiers(attacker_leader, 'Attacker', w_type, met)
+                                  + enhancement_modifiers(attacker_enhancements, 'Attacker', w_type, w.get('leader'), met)
+                                  + ability_modifiers(attacker_leader if w.get('leader') else attacker_unit, 'Attacker', w_type, met)
+                                  + afflicted_attacker)
             target_modifiers = (rule_modifiers(target_rules, 'Target', defender_data.get('faction_id'), w_type)
                                 + leader_modifiers(defender_leader, 'Target', w_type)
-                                + enhancement_modifiers(defender_enhancements, 'Target', w_type))
+                                + enhancement_modifiers(defender_enhancements, 'Target', w_type) + afflicted_target)
             for side, side_modifiers in (('attacker', attacker_modifiers), ('target', target_modifiers)):
                 applied[side] += [m for m in side_modifiers if m not in applied[side]]
 
@@ -1321,7 +1354,7 @@ def register_routes(app):
         """Matrix comparison page for army analysis."""
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
-        return render_template('analytics.html', factions=factions_list)
+        return render_template('analytics.html', factions=factions_list, afflictions=contagion.choices())
 
     # Units without a points cost count as this many points per unit (placeholder until costs are entered)
     DEFAULT_UNIT_POINTS = 1
@@ -1406,10 +1439,13 @@ def register_routes(app):
         Each attacker unit's row adds up its weapons' average damage. A per-weapon
         breakdown and an "All attackers" total row are returned alongside. An attacker or
         defender can name a "leader_id": its buffs apply to that unit, and an attacker's leader
-        adds its points (its weapons come in the weapons list).
+        adds its points (its weapons come in the weapons list). "afflicted": {"attackers", "defenders"}
+        says either side is Afflicted (contagion.py; as in /api/simulate).
         """
         data = request.get_json()
         conditions = conditions_from_request(data.get('conditions', {}))
+        attacker_affliction, defender_affliction = afflictions(data)
+        met = contagion.conditions(defender_affliction)
 
         # Army-wide rules and stratagems ticked for each side
         attacker_rules = selected_rules(data.get('attacker_rules'))
@@ -1425,8 +1461,10 @@ def register_routes(app):
             for w in atk.get('weapons', []):
                 w_type = 'melee' if w.get('weapon_type') == 'melee' else 'ranged'
                 weapon_modifiers = (rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
-                                    + leader_modifiers(atk_leader, 'Attacker', w_type)
-                                    + enhancement_modifiers(atk_enhancements, 'Attacker', w_type, w.get('leader')))
+                                    + leader_modifiers(atk_leader, 'Attacker', w_type, met)
+                                    + enhancement_modifiers(atk_enhancements, 'Attacker', w_type, w.get('leader'), met)
+                                    + ability_modifiers(atk_leader if w.get('leader') else atk_unit, 'Attacker', w_type, met)
+                                    + contagion.modifiers(attacker_affliction, defender_affliction, w_type)[0])
                 weapon, profile = attacker_profile(w_type, w.get('weapon_id'), w.get('models', 1), weapon_modifiers)
                 if profile:
                     models = profile.models
@@ -1479,7 +1517,8 @@ def register_routes(app):
             target_modifiers = {
                 w_type: (rule_modifiers(defender_rules, 'Target', d['unit'].faction_id, w_type)
                          + leader_modifiers(d['leader'], 'Target', w_type)
-                         + enhancement_modifiers(d['enhancements'], 'Target', w_type) + d['extra_modifiers'])
+                         + enhancement_modifiers(d['enhancements'], 'Target', w_type) + d['extra_modifiers']
+                         + contagion.modifiers(attacker_affliction, defender_affliction, w_type)[1])
                 for w_type in ('ranged', 'melee')
             }
             d['profiles'] = {w_type: defender_profile(d['unit'], d['model_count'], mods)
@@ -1573,10 +1612,12 @@ def register_routes(app):
             total_cells[def_idx]['wiped'] = total_cells[def_idx]['kills_uncapped'] >= d['total_models'] - 1e-9
 
         results['analysis'] = army_analysis(attackers, defenders, matrix, total_cells, total_points,
-                                            conditions, data.get('weapon_filter', 'both'))
+                                            conditions, data.get('weapon_filter', 'both'),
+                                            (attacker_affliction, defender_affliction))
         return jsonify(results)
 
-    def army_analysis(attackers, defenders, matrix, total_cells, total_points, conditions, weapon_filter):
+    def army_analysis(attackers, defenders, matrix, total_cells, total_points, conditions, weapon_filter,
+                      afflicted=(None, None)):
         """Excel's Results tab: summary, gaps, role scores, T/Sv coverage and reverse durability."""
         weights = [d['weight'] if d['weight'] is not None else 1 for d in defenders]
         army_pcts = [cell['pct_destroyed'] for cell in total_cells]
@@ -1641,14 +1682,16 @@ def register_routes(app):
             'gaps': gaps,
             'roles': roles,
             'coverage': {'toughness': COVERAGE_TOUGHNESS, 'saves': COVERAGE_SAVES, 'damage': coverage},
-            'reverse': reverse_durability(attackers, defenders, conditions, weapon_filter),
+            'reverse': reverse_durability(attackers, defenders, conditions, weapon_filter, afflicted),
         }
 
-    def reverse_durability(attackers, defenders, conditions, weapon_filter):
+    def reverse_durability(attackers, defenders, conditions, weapon_filter, afflicted=(None, None)):
         """
         The opponent's real units attacking mine (Excel's Reverse Durability): their loadouts with the
         default ticks, quantities scaled to their model counts, same conditions, no opponent rules.
+        `afflicted`: (my units' affliction, theirs), as the matrix request says (contagion.py).
         """
+        mine, theirs = afflicted
         if not defenders or any(not isinstance(d['unit'], Unit) for d in defenders):
             return None  # Real units mode only
 
@@ -1662,7 +1705,8 @@ def register_routes(app):
                 loadout = unit.loadout(weapon_type)
                 for (weapon, qty), used in zip(loadout, default_used([w.name for w, _ in loadout])):
                     if used:
-                        _, profile = attacker_profile(weapon_type, weapon.id, max(1, round(qty * scale)))
+                        _, profile = attacker_profile(weapon_type, weapon.id, max(1, round(qty * scale)),
+                                                      contagion.modifiers(theirs, mine, weapon_type)[0])
                         if profile:
                             profiles.append(profile)
             enemies.append({'label': d['label'], 'profiles': profiles, 'points': d['points']})
@@ -1673,16 +1717,22 @@ def register_routes(app):
             if unit is None:
                 continue
             models = atk['size'] or unit.default_models or 1
-            target = defender_profile(unit, models)
-            leader = leader_target(atk['leader']) if atk['leader'] is not None else None
-            total_models = models + (leader.model_count if leader else 0)
+            extra = {w_type: contagion.modifiers(theirs, mine, w_type)[1] for w_type in ('ranged', 'melee')}
+            targets = {w_type: defender_profile(unit, models, mods) for w_type, mods in extra.items()}
+            leaders = {w_type: leader_target(atk['leader'], mods) for w_type, mods in extra.items()} \
+                if atk['leader'] is not None else None
+            total_models = models + (leaders['ranged'].model_count if leaders else 0)
             cells = []
             for enemy in enemies:
-                if leader is not None:  # My unit with its leader: bodyguard models first, then the leader
-                    kills = simulate_attached_analytical(enemy['profiles'], target, leader, conditions)[0].models_killed \
-                        if enemy['profiles'] else 0
+                types = ['melee' if p.is_melee else 'ranged' for p in enemy['profiles']]
+                if leaders is not None:  # My unit with its leader: bodyguard models first, then the leader
+                    kills = simulate_attached_analytical(
+                        enemy['profiles'], targets['ranged'], leaders['ranged'], conditions,
+                        bodyguard_targets=[targets[t] for t in types],
+                        leader_targets=[leaders[t] for t in types])[0].models_killed if enemy['profiles'] else 0
                 else:
-                    kills = sum(simulate_analytical(profile, target, conditions).models_killed for profile in enemy['profiles'])
+                    kills = sum(simulate_analytical(profile, targets[t], conditions).models_killed
+                                for profile, t in zip(enemy['profiles'], types))
                 cells.append(round(min(1.0, kills / total_models) * 100, 1))
             rows.append({'label': atk['label'], 'models': total_models, 'cells': cells,
                          'total': round(min(100.0, sum(cells)), 1)})
@@ -1732,22 +1782,29 @@ def register_routes(app):
         extra_modifiers = text_list(data.get('extra_modifiers')) if isinstance(unit, Unit) else []
         defender_leader = load_leader(data.get('leader_id')) if isinstance(unit, Unit) else None
         defender_enhancements = load_enhancements(data.get('enhancements')) if isinstance(unit, Unit) else []
+        attacker_affliction, defender_affliction = afflictions(data)
+        met = contagion.conditions(defender_affliction)
 
         # Each weapon with its own unit's attacker rules, against the target as its phase sees it
         profiles, targets, leader_targets = [], [], []
         for w in data.get('weapons', []):
             w_type = 'melee' if w.get('weapon_type') == 'melee' else 'ranged'
             atk_unit = db.session.get(Unit, w['unit_id']) if w.get('unit_id') else None
+            atk_leader = load_leader(w.get('leader_id'))
+            afflicted_attacker, afflicted_target = contagion.modifiers(attacker_affliction, defender_affliction, w_type)
             weapon_modifiers = (rule_modifiers(attacker_rules, 'Attacker', atk_unit.faction_id if atk_unit else None, w_type)
-                                + leader_modifiers(load_leader(w.get('leader_id')), 'Attacker', w_type)
+                                + leader_modifiers(atk_leader, 'Attacker', w_type, met)
                                 + enhancement_modifiers(load_enhancements(w.get('enhancements')), 'Attacker', w_type,
-                                                        w.get('leader')))
+                                                        w.get('leader'), met)
+                                + ability_modifiers(atk_leader if w.get('leader') else atk_unit, 'Attacker', w_type, met)
+                                + afflicted_attacker)
             _, profile = attacker_profile(w_type, w.get('weapon_id'), w.get('models', 1), weapon_modifiers)
             if profile:
                 profiles.append(profile)
                 target_modifiers = (rule_modifiers(defender_rules, 'Target', unit.faction_id, w_type)
                                     + leader_modifiers(defender_leader, 'Target', w_type)
-                                    + enhancement_modifiers(defender_enhancements, 'Target', w_type) + extra_modifiers)
+                                    + enhancement_modifiers(defender_enhancements, 'Target', w_type) + extra_modifiers
+                                    + afflicted_target)
                 targets.append(defender_profile(unit, model_count, target_modifiers))
                 if defender_leader is not None:
                     leader_targets.append(leader_target(defender_leader, target_modifiers))

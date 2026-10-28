@@ -141,6 +141,65 @@ def has_core_ability(text, name):
     return any(line.strip().rstrip('.').lower() == name for line in plain_text(text).split('\n'))
 
 
+# Death Guard (contagion.py): what datasheets and detachment rules say about Contagion Range and Afflicted units
+CONTAGION_BONUS = re.compile(r"add (\d+)\" to the range of this model's contagion range", re.I)
+UNITS_CONTAGION_BONUS = re.compile(r"friendly ((?:[A-Z][A-Z'-]* )+)units have \+(\d+)\" to their contagion range", re.I)
+AFFLICTS_AFTER_SHOOTING = re.compile(r'after this unit has shot, select one enemy unit hit by one or more of those attacks\. '
+                                     r'until the start of your next turn, that unit is afflicted', re.I)
+GRANTS = re.compile(r"select up to (one|two|three|\d+) friendly ((?:[A-Z][A-Z'-]* )+)units\. those units have (infiltrators)", re.I)
+NUMBERS = {'one': 1, 'two': 2, 'three': 3}
+
+
+def contagion_bonus(text):
+    """Inches a datasheet adds to its models' Contagion Range ("Add 3\" to the range of this model's Contagion
+    Range"), else 0."""
+    found = CONTAGION_BONUS.search(plain_text(text))
+    return int(found.group(1)) if found else 0
+
+
+def units_contagion_bonus(text):
+    """(keywords, inches) from a rule giving units +X" Contagion Range ("Friendly DEATH GUARD CHARACTER units have
+    +3\" to their Contagion Range"): the keyword words in capitals, as written. None without one."""
+    found = UNITS_CONTAGION_BONUS.search(plain_text(text))
+    return (found.group(1).strip(), int(found.group(2))) if found else None
+
+
+def afflicts_after_shooting(text):
+    """Whether a datasheet makes a unit it hits Afflicted until the start of its next turn, after it has shot
+    (Plague Marines' Infused with the Blessings of Nurgle)."""
+    return bool(AFFLICTS_AFTER_SHOOTING.search(' '.join(plain_text(text).split())))
+
+
+def granted_ability(text):
+    """{'ability', 'keywords', 'count'} from a rule that lets the player pick units to gain an ability in the Declare
+    Battle Formations step ("select up to two friendly PLAGUE MARINES units. Those units have Infiltrators"), else
+    None. Only Infiltrators so far."""
+    found = GRANTS.search(' '.join(plain_text(text).split()))
+    if not found:
+        return None
+    count = found.group(1).lower()
+    return {'ability': found.group(3).title(), 'keywords': found.group(2).strip(),
+            'count': NUMBERS.get(count) or int(count)}
+
+
+def ability_buffs(text):
+    """
+    Effect rows from a datasheet's own abilities ("Name: what it does" lines), for its attacks: so far only those
+    with a condition the Simulator and Play check ("Each time this model makes an attack that targets an
+    Afflicted unit, add 1 to the Wound roll"), each with its 'when'. Leader abilities are parse_leader_buffs'.
+    """
+    buffs = []
+    for line in plain_text(text).split('\n'):
+        _, colon, body = line.partition(':')
+        if not colon or LEADING.search(body):
+            continue
+        for sentence in re.split(r'(?<=\.)\s+(?=[A-Z])', body.strip()):
+            reworded = re.sub(r'^each time (?:this model|a model in this unit) makes', 'each time a model in that unit makes',
+                              sentence.strip(), flags=re.I)
+            buffs += [b for b in _sentence_buffs(reworded) if b.get('when') and b not in buffs]
+    return buffs
+
+
 # ---------------------------------------------------------------------------
 # Leader buffs: "While this model is leading a unit, ..." as modifier rows
 # ---------------------------------------------------------------------------
@@ -148,6 +207,7 @@ def has_core_ability(text, name):
 LEADING = re.compile(r'while this model is leading a unit,?\s*', re.I)
 PHASE_OF = {'ranged': 'Shooting', 'melee': 'Fighting', None: 'Both'}
 UNIT = r"(?:models in )?(?:that|this model's) unit"
+AFFLICTED_TARGET = r'(?:that|which) targets (?:an afflicted unit|a unit (?:that|which) is afflicted)'
 
 
 def _ability_name(text):
@@ -213,6 +273,11 @@ def _sentence_buffs(sentence):
     m = re.match(r'^each time a model in ' + UNIT.replace('(?:models in )?', '') + r' makes an? (?:(ranged|melee) )?attack, (.+)$', text, re.I)
     if m:
         return _attack_effects(m.group(1), m.group(2))
+    # ... "attack that targets an Afflicted unit, ...": only against Afflicted targets (contagion.AFFLICTED)
+    m = re.match(r'^each time a model in ' + UNIT.replace('(?:models in )?', '') + r' makes an? (?:(ranged|melee) )?attack '
+                 + AFFLICTED_TARGET + r', (.+)$', text, re.I)
+    if m:
+        return [dict(buff, when='afflicted') for buff in _attack_effects(m.group(1), m.group(2))]
 
     # Defensive: invulnerable save, Feel No Pain (unconditional only), Stealth, -1 to be hit or wounded
     m = re.match(r'^models in that unit have an? (\d)\+ invulnerable save$', text, re.I)
@@ -447,6 +512,9 @@ def parse_effects(text):
         reworded = re.sub(r'\beach time (?:that unit|a model from that unit) makes', 'each time a model in that unit makes',
                           reworded, flags=re.I)
         found, inner = _effect_buffs(reworded[:1].upper() + reworded[1:])
+        if any(b.get('when') for b in found):  # A rule's record keeps no condition: noted, like the lead-ins
+            inner = inner or 'attacks that target an Afflicted unit'
+            found = [{k: v for k, v in b.items() if k != 'when'} for b in found]
         if found:
             buffs.extend(b for b in found if b not in buffs)
             conditions += [c for c in (condition, inner) if c]

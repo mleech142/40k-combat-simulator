@@ -3708,6 +3708,11 @@ h4 .fa-solid,
 .play-zone.play-p2 { fill: var(--play-p2); }
 .play-log-aftermath { margin-top: 0.4rem; font-size: 0.85em; color: var(--text-muted, #aaa); }  /* Emergency disembarks, Deadly Demise */
 .play-ingress { fill: var(--success, #3c9a5f); opacity: 0.22; pointer-events: none; }  /* Where a unit from reserves can arrive */
+/* Death Guard: a selected unit's Contagion Range, and Afflicted units */
+.play-contagion-ring { fill: #7a9a2e; fill-opacity: 0.07; stroke: #7a9a2e; stroke-opacity: 0.6; stroke-width: 0.06;
+    stroke-dasharray: 0.35 0.25; pointer-events: none; }
+.play-unit-group.afflicted .play-label { fill: #9cbf45; }
+.play-afflicted i { color: #7a9a2e; }
 .play-grid line { stroke: #ffffff; stroke-opacity: 0.05; stroke-width: 0.03; }
 .play-grid line.major { stroke-opacity: 0.12; }
 
@@ -4644,3 +4649,4 @@ h4 .fa-solid,
         display: none !important;
     }
 }
+.afflicted-group { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.5rem; align-items: center; }

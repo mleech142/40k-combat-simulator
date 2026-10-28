@@ -38,6 +38,18 @@
                     <option value="all">All</option>
                 </select>
             </div>
+            <div class="condition-rerolls" title="Death Guard's Nurgle's Gift: an Afflicted unit has -1 Toughness and the effect of the Death Guard player's Plague, and some attacks are better against it">
+                <label class="reroll-label" for="mat-attackers-afflicted">Attackers:</label>
+                <select id="mat-attackers-afflicted" class="select-small">
+                    <option value="">Not Afflicted</option>
+                    {% for choice in afflictions %}<option value="{{ choice.key }}" title="{{ choice.summary }}">{{ choice.name }}</option>{% endfor %}
+                </select>
+                <label class="reroll-label" for="mat-defenders-afflicted">Defenders:</label>
+                <select id="mat-defenders-afflicted" class="select-small">
+                    <option value="">Not Afflicted</option>
+                    {% for choice in afflictions %}<option value="{{ choice.key }}" title="{{ choice.summary }}">{{ choice.name }}</option>{% endfor %}
+                </select>
+            </div>
             <div class="metric-selector">
                 <label for="mat-metric">Display:</label>
                 <select id="mat-metric" class="select-small">

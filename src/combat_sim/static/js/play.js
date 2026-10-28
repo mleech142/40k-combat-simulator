@@ -1090,9 +1090,16 @@
         game.state.players.forEach((player, p) => {
             const units = game.state.units.filter(u => u.player === p);
             const orders = (player.orders || {}).casualties || 'farthest';
+            const plagues = game.plagues || { players: [], choices: [] };
+            const choosing = game.state.turn.phase === 'deployment';
+            const plague = plagues.players.includes(p) ? `<label class="play-orders" title="Nurgle's Gift: enemy units within Contagion Range of your Death Guard models are Afflicted: -1 Toughness and this Plague's effect. Chosen in deployment.">Plague
+                    <select data-plague="${p}" class="filter-select" ${choosing ? '' : 'disabled'}>
+                        ${player.plague ? '' : '<option value="" selected>choose one</option>'}
+                        ${plagues.choices.map(c => `<option value="${c.key}" title="${escapeHtml(c.summary)}" ${player.plague === c.key ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+                    </select></label>` : '';
             const standing = units.filter(u => u.models.some(m => m.alive)).length;
             $(`army-units-count-${p}`).textContent = `${standing}/${units.length}`;
-            $(`army-units-${p}`).innerHTML = `<div class="play-player ${PLAYER_CLASSES[p]}">
+            $(`army-units-${p}`).innerHTML = `<div class="play-player ${PLAYER_CLASSES[p]}">${plague}
                 <label class="play-orders">Casualties
                     <select data-orders="${p}" class="filter-select">
                         <option value="farthest" ${orders === 'farthest' ? 'selected' : ''}>farthest from the attacker first</option>
@@ -1122,7 +1129,8 @@
                         .filter(Boolean).join(' · '))) + (aboard ? ` · carrying ${aboard} unit${aboard === 1 ? '' : 's'}` : '');
                 const ready = game.ready.includes(u.id);
                 const acted = actedThisPhase(u, game.state.turn);
-                const tags = Core.playUnitTags(u, { ready, inRange: (game.unit_objectives || {})[u.id], objectives: game.state.objectives, players: game.state.players });
+                const tags = Core.playUnitTags(u, { ready, inRange: (game.unit_objectives || {})[u.id], objectives: game.state.objectives,
+                                                    players: game.state.players, afflicted: afflictionOf(u) });
                 return `<button class="play-unit ${state.selected === u.id ? 'selected' : ''} ${ready ? 'ready' : ''} ${acted ? 'acted' : ''} ${living.length ? '' : 'destroyed'}" data-unit="${escapeHtml(u.id)}">
                     <span class="play-unit-name">${escapeHtml(u.name)}</span>${tags.length ? `<span class="play-tags">${tags.map(t =>
                         `<span class="play-tag ${t.kind}" title="${escapeHtml(t.title)}">${t.icon ? `<i class="${t.icon}" aria-hidden="true"></i> ` : ''}${escapeHtml(t.label)}</span>`).join('')}</span>` : ''}
@@ -1132,6 +1140,9 @@
             $(`army-units-${p}`).querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => select(b.dataset.unit)));
             $(`army-units-${p}`).querySelectorAll('[data-orders]').forEach(s => s.addEventListener('change', () =>
                 send({ type: 'orders', player: Number(s.dataset.orders), casualties: s.value })));
+            $(`army-units-${p}`).querySelectorAll('[data-plague]').forEach(s => s.addEventListener('change', () => {
+                if (s.value) send({ type: 'plague', player: Number(s.dataset.plague), plague: s.value });
+            }));
             $(`army-units-${p}`).querySelectorAll('[data-reaction]').forEach(s => s.addEventListener('change', () => {
                 const [who, kind] = s.dataset.reaction.split('|');
                 send({ type: 'orders', player: Number(who), reactions: { [kind]: { mode: s.value } } });
@@ -1142,6 +1153,51 @@
             }));
         });
         renderDetail();
+    }
+
+    /** A unit's affliction (Death Guard) as {key, name, summary}, or null when it isn't Afflicted. */
+    function afflictionOf(unit) {
+        const key = ((state.game && state.game.afflicted) || {})[unit.id];
+        if (!key) return null;
+        const plague = ((state.game.plagues || {}).choices || []).find(c => c.key === key);
+        return { key, name: plague ? plague.name : '', summary: plague ? plague.summary : '' };
+    }
+
+    /** The Death Guard lines at the top of a unit's detail: Afflicted, Contagion Range, Verminous Haze picks and the
+     * Afflicted pick after Infused with the Blessings of Nurgle. */
+    function contagionControls(unit) {
+        const game = state.game, turn = game.state.turn;
+        const lines = [];
+        const afflicted = afflictionOf(unit);
+        if (afflicted) {
+            const by = unit.status && unit.status.afflicted;
+            lines.push(`<p class="play-hint play-afflicted"><i class="fa-solid fa-biohazard" aria-hidden="true"></i>
+                <strong>Afflicted</strong>${afflicted.name ? ` (${escapeHtml(afflicted.name)})` : ''}: -1 Toughness${afflicted.summary
+                    ? '; ' + escapeHtml(afflicted.summary) : ''}.${by ? ` ${escapeHtml(by.source)} made it Afflicted until the start of
+                    ${escapeHtml(game.state.players[by.by].name)}'s next turn.` : ''}</p>`);
+        }
+        const ranges = Object.values((game.contagion || {})[unit.id] || {});
+        if (ranges.length) {
+            const most = Math.max(...ranges), least = Math.min(...ranges);
+            lines.push(`<p class="play-hint play-afflicted"><i class="fa-solid fa-biohazard" aria-hidden="true"></i>
+                Contagion Range ${least === most ? `${most}"` : `${least}-${most}"`} (shown round it): enemy units within it are Afflicted.</p>`);
+        }
+        if (turn.phase === 'deployment') {
+            for (const grant of (game.grants || [])[unit.player] || []) {
+                if (!grant.units.includes(unit.id) || unit.models.some(m => m.position) || (unit.status || {}).reserve || (unit.status || {}).embarked) continue;
+                const on = grant.chosen.includes(unit.id);
+                lines.push(`<div class="play-move-modes"><button class="btn-small ${on ? 'active' : ''}" data-grant="${escapeHtml(grant.ability)}"
+                    title="${escapeHtml(grant.rule)}: up to ${grant.count} ${escapeHtml(grant.keywords)} units have ${escapeHtml(grant.ability)} (${grant.chosen.length} picked)">
+                    <i class="fa-solid fa-smog" aria-hidden="true"></i> ${escapeHtml(grant.rule)}: ${on ? 'has' : 'give it'} ${escapeHtml(grant.ability)}</button></div>`);
+            }
+        }
+        const options = unit.activity.afflict_options || [];
+        if (turn.phase === 'shooting' && options.length) {
+            lines.push(`<p class="play-hint">Infused with the Blessings of Nurgle: choose the unit it hit that is Afflicted until the start of your next turn.</p>
+                <div class="play-move-modes">${options.map(id => `<button class="btn-small" data-afflict="${escapeHtml(id)}">
+                    <i class="fa-solid fa-biohazard" aria-hidden="true"></i> ${escapeHtml(unitById(id).name)}</button>`).join('')}</div>`);
+        }
+        return lines.join('');
     }
 
     /** Whether a unit has already done this phase's (or step's) thing: moved, shot, charged, piled in, fought... */
@@ -1299,6 +1355,7 @@
                 ${moved ? '<div class="play-move-modes"><button class="btn-small" data-reset>Reset move</button></div>' : ''}`;
         }
         if (turn.phase !== 'deployment' && turn.phase !== 'ended') controls += effectsControls(unit);
+        controls = contagionControls(unit) + controls;
         $('unit-detail').innerHTML = controls + allocationControl(unit) + unit.parts.map((part, i) => {
             const s = part.stats;
             const outline = state.game.outlines[unit.id][i];
@@ -1325,6 +1382,11 @@
             }
         }));
         $('unit-detail').querySelectorAll('[data-disembark]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'disembark', unit.player)));
+        $('unit-detail').querySelectorAll('[data-grant]').forEach(b => b.addEventListener('click', () =>
+            send({ type: 'grant', unit: unit.id, ability: b.dataset.grant })));
+        $('unit-detail').querySelectorAll('[data-afflict]').forEach(b => b.addEventListener('click', async () => {
+            if (await send({ type: 'afflict', unit: unit.id, target: b.dataset.afflict })) message(`${unitById(b.dataset.afflict).name} is Afflicted.`);
+        }));
         $('unit-detail').querySelectorAll('[data-scout-setup]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'scout', unit.player)));
         $('unit-detail').querySelectorAll('[data-arrive]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'ingress', unit.player)));
         $('unit-detail').querySelectorAll('[data-turn]').forEach(b => b.addEventListener('click', () => turnUnit(unit, Number(b.dataset.turn))));
@@ -1894,7 +1956,7 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['heroic', 'rapid_ingress', 'scout', 'embark', 'disembark', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['plague', 'grant', 'afflict', 'heroic', 'rapid_ingress', 'scout', 'embark', 'disembark', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || e.passed || ONE_LINE.includes(e.action.type)
                 || (e.demise && e.demise.length) || (e.emergency && e.emergency.length)
@@ -1977,12 +2039,16 @@
 
     /** What models destroyed in an event set off: emergency disembarks and Deadly Demise. */
     function aftermath(event, name) {
+        const shooter = state.game.state.units.find(u => u.id === (event.action || {}).unit);
+        const infused = event.afflicted && shooter ? [`<strong>${escapeHtml(name(event.afflicted))}</strong> is Afflicted until the start of
+            ${escapeHtml(state.game.state.players[shooter.player].name)}'s next turn (Infused with the Blessings of Nurgle)`] : [];
         const lines = (event.emergency || []).map(e => `<strong>${escapeHtml(e.name)}</strong> made an emergency disembark from
             ${escapeHtml(name(e.transport))}: ${e.hazard.fails} hazard roll${e.hazard.fails === 1 ? '' : 's'} failed,
             ${e.hazard.killed.length + e.lost.length} model${e.hazard.killed.length + e.lost.length === 1 ? '' : 's'} lost; battle-shocked`)
             .concat((event.demise || []).map(d => `<strong>${escapeHtml(d.name)}</strong> Deadly Demise: rolled ${d.roll}${d.roll === 6
                 ? ': ' + (d.hits.map(h => `${escapeHtml(h.name)} ${h.mortal_wounds} mortal wound${h.mortal_wounds === 1 ? '' : 's'}${h.killed.length ? ` (${h.killed.length} killed)` : ''}`).join(', ') || 'nothing within 6"')
                 : ' (needs a 6)'}`));
+        lines.unshift(...infused);
         return lines.length ? `<div class="play-log-aftermath">${lines.map(l => `<div>${l}</div>`).join('')}</div>` : '';
     }
 
@@ -2055,7 +2121,7 @@
 
     /** The icon for a battle log line that isn't an attack. */
     function logIcon(event) {
-        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', rapid_ingress: 'fa-parachute-box', scout: 'fa-person-running',
+        const icons = { plague: 'fa-biohazard', grant: 'fa-smog', afflict: 'fa-biohazard', command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', rapid_ingress: 'fa-parachute-box', scout: 'fa-person-running',
             embark: 'fa-truck-moving', disembark: 'fa-door-open', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
             effect: 'fa-wand-magic-sparkles', roll_off: 'fa-dice', roll_objectives: 'fa-dice', roll_mirrored: 'fa-dice',
             choose_role: 'fa-chess-board', choose_secondaries: 'fa-layer-group', tactical: 'fa-layer-group', condemn: 'fa-gavel',
@@ -2119,6 +2185,15 @@
                     ${escapeHtml(name(event.unit))} charge roll ${dice(event.rolls[0])} = <strong>${event.roll}"</strong>${event.failed ? ': nothing in reach, it fails' : ''}`;
             case 'embark':
                 return `${escapeHtml(name(a.unit))} embarked in ${escapeHtml(name(a.transport))}`;
+            case 'plague': {
+                const plague = ((state.game.plagues || {}).choices || []).find(c => c.key === event.plague);
+                return `<strong>${player(event.player)}</strong> chose the Plague: <strong>${escapeHtml(plague ? plague.name : event.plague)}</strong> (Nurgle's Gift)`;
+            }
+            case 'grant':
+                return `${escapeHtml(event.rule)}: ${escapeHtml(name(event.unit))} ${event.on ? 'has' : 'no longer has'} ${escapeHtml(event.grant)}`;
+            case 'afflict':
+                return `${escapeHtml(name(event.afflicted))} is Afflicted until the start of ${player(state.game.state.units.find(u => u.id === event.unit).player)}'s
+                    next turn (${escapeHtml(name(event.unit))}: Infused with the Blessings of Nurgle)`;
             case 'disembark': {
                 const hz = (event.hazards || [])[0];
                 return `${escapeHtml(name(a.unit))} disembarked from ${escapeHtml(name(event.transport))} (${escapeHtml(DISEMBARK_NAMES[event.mode])})`
@@ -2267,10 +2342,11 @@
                 && Object.entries(state.targets).some(([key, id]) => id === unit.id && state.fire[key]))
                 || (game.state.turn.phase === 'charge' && state.charge && state.chargeTargets.includes(unit.id));
             const shocked = unit.status && unit.status.shocked ? 'shocked' : '';
+            const afflicted = (game.afflicted || {})[unit.id] ? 'afflicted' : '';
             const condemned = game.mission && Object.values(game.mission.condemned).some(ids => ids.includes(unit.id)) ? 'condemned' : '';
             const provisional = state.placing && state.placing.unitId === unit.id ? 'provisional' : '';
             const ready = game.ready.includes(unit.id) ? 'ready' : '';
-            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked} ${ready} ${condemned} ${provisional}`,
+            const g = svgEl('g', { class: `play-unit-group ${PLAYER_CLASSES[unit.player]} ${state.selected === unit.id ? 'selected' : ''} ${targeted ? 'targeted' : ''} ${shocked} ${afflicted} ${ready} ${condemned} ${provisional}`,
                                    'data-unit': unit.id }, svg);
             // The unit's outline: around every model's whole base, 0.4" out
             const reach = m => Math.max(game.outlines[unit.id][m.part].length, game.outlines[unit.id][m.part].width) / 2 + 0.4;
@@ -2288,6 +2364,12 @@
                     if (game.state.turn.phase === 'movement' && (unit.activity.via || {})[model.id]) {  // Its route by way of waypoints
                         svgEl('polyline', { points: pathOf(unit, model).map(p => `${p.x},${D - p.y}`).join(' '), class: 'play-path' }, g);
                     }
+                }
+            }
+            const contagion = (game.contagion || {})[unit.id];
+            if (state.selected === unit.id && contagion) {  // Its Contagion Range, round each model's base
+                for (const model of placed.filter(m => contagion[m.id] != null)) {
+                    padded(g, unit, model, D, contagion[model.id], { class: 'play-contagion-ring' });
                 }
             }
             if (state.selected === unit.id) {
@@ -2310,7 +2392,7 @@
             for (const model of placed) drawModel(g, unit, model, D);
             const label = svgEl('text', { x: (left + right) / 2, y: top - 0.3, class: 'play-label' }, g);
             const carrying = game.state.units.filter(o => o.status && o.status.embarked === unit.id).length;
-            label.textContent = unit.name + (carrying ? ` (${carrying} unit${carrying === 1 ? '' : 's'} aboard)` : '');
+            label.textContent = unit.name + (carrying ? ` (${carrying} unit${carrying === 1 ? '' : 's'} aboard)` : '') + (afflicted ? ' · Afflicted' : '');
         }
         // Wounds badges on top of every model, so a neighbouring base never hides one
         const badges = svgEl('g', { class: 'play-badges' }, svg);

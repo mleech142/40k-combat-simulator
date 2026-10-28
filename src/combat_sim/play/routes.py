@@ -11,7 +11,7 @@ import uuid
 
 from flask import Response, current_app, jsonify, render_template, request
 
-from .. import __version__, armies
+from .. import __version__, armies, contagion
 from ..match_view import split_abilities
 from ..models import SavedArmy, SavedBattlefield, SavedGame, Unit, db
 from . import battlefields, game_file, mission_state, missions, relay_client, tactical
@@ -20,7 +20,8 @@ from .seats import actor, check_seat, waiting_on
 from ..settings import load_settings, update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, apply_event, can_fly, charge_options,
                    deployment_zone, fight_options, measure, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
-                   disembark_options, embark_options, infiltrators, ingress_rules, redo_history, scouts, rerollable, score, shooting_options, terrain_areas, window_options)
+                   disembark_options, embark_options, infiltrators, ingress_rules, redo_history, scouts, rerollable, score, shooting_options, terrain_areas, window_options,
+                   afflictions, contagion_ranges, grant_options, has_contagion)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army, rule_texts
 
@@ -45,6 +46,7 @@ def game_response(saved, state=None):
                         'options': pending_summary(saved.pending)})
     if state is None:
         state = replay(saved.armies, saved.events or [], saved.battlefield, bool(saved.setup), saved.twist)
+    afflicted = afflictions(state)
     return jsonify({'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
                     'uid': saved.uid, 'seat': saved.seat, 'waiting_on': waiting_on(state),
                     'online': online_response(saved),
@@ -53,7 +55,8 @@ def game_response(saved, state=None):
                     'zones': [deployment_zone(state, p) for p in (0, 1)],
                     'terrain': [{**piece, 'points': [list(pt) for pt in shape.points]} for piece, shape in terrain_areas(state)],
                     'outlines': {u['id']: [outline(p) for p in u['parts']] for u in state['units']},
-                    'moves': {u['id']: [move_characteristic(p) for p in u['parts']] for u in state['units']},
+                    'moves': {u['id']: [move_characteristic(p, afflicted.get(u['id'])) for p in u['parts']]
+                              for u in state['units']},
                     'fly': [u['id'] for u in state['units'] if can_fly(u)],
                     'allocation': {u['id']: allocation_groups(u) for u in state['units'] if len(allocation_groups(u)) > 1},
                     'score': score(state),
@@ -63,6 +66,12 @@ def game_response(saved, state=None):
                     'scouts': {u['id']: scouts(u, state) for u in state['units'] if scouts(u, state)},
                     'embark': embark_options(state), 'disembark': disembark_options(state),
                     'infiltrators': [u['id'] for u in state['units'] if infiltrators(u)],
+                    # Death Guard's Nurgle's Gift: Afflicted units, Contagion Ranges, the Plagues; Verminous Haze
+                    'afflicted': afflicted,
+                    'contagion': {u['id']: ranges for u in state['units'] if (ranges := contagion_ranges(state, u))},
+                    'plagues': {'players': [p for p in (0, 1) if has_contagion(state, p)],
+                                'choices': [{'key': k, **v} for k, v in contagion.PLAGUES.items()]},
+                    'grants': [grant_options(state, p) for p in (0, 1)],
                     'rerollable': rerollable(state, (saved.events or [None])[-1]),
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
                     'unit_objectives': {u['id']: objectives_in_range(state, u) for u in state['units']},
