@@ -1023,10 +1023,10 @@
     function playSeatNotice(game) {
         if (!game || game.seat == null) return null;
         const players = game.state.players;
-        const online = game.online || null;
+        const online = playOnline(game);
         const theirName = online && online.joined && (online.names || [])[1 - game.seat];  // As they named themselves
         const other = players[1 - game.seat].name + (theirName ? ` (${theirName})` : '');
-        const you = `You play ${players[game.seat].name}${online && !online.local ? ' online' : ''}`;  // local: both on this copy
+        const you = `You play ${players[game.seat].name}${online && online.kind === 'relay' ? ' online' : ''}`;  // same copy: both here
         const notice = (text, mine = false, send = false) => ({ text: `${you} · ${text}`, mine, send, invite: null });
         if (game.needs_update) return notice(`this game has been played on version ${game.app_version}: update the app to carry on`);
         if (online && !online.joined) {
@@ -1039,12 +1039,20 @@
     }
 
     /**
+     * Play: a game's connection (play/connections.py: {kind, online, joined, names, code}) when the other player's
+     * moves can arrive while the page is open (a relay or same-copy game), else null.
+     */
+    function playOnline(game) {
+        return game && game.connection && game.connection.online ? game.connection : null;
+    }
+
+    /**
      * Play: what the seat bar says while an online game waits for the other player to join with their army
      * (the server's `waiting_for_army` game): {text, detail} (detail: the choices made once they join).
      */
     function playWaitingNotice(game) {
         const mine = game.players[game.seat];
-        const code = playInviteCode(game.online.code);
+        const code = playInviteCode(game.connection.code);
         const options = game.options || {};
         const detail = [options.battlefield && `Battlefield: ${options.battlefield}.`, options.twist && `Twist: ${options.twist}.`]
             .filter(Boolean).join(' ');
@@ -1285,7 +1293,7 @@
 
     return {
         safeNextPath,
-        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playInside, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playOnline, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playInside, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

@@ -33,7 +33,9 @@ def make_client(tmp_path, monkeypatch):
         monkeypatch.setenv('DATABASE_URL', 'sqlite:///' + str(tmp_path / 'test.db').replace('\\', '/'))
         monkeypatch.setenv('BSDATA_DIR', str(bsdata or tmp_path / 'no-bsdata'))
         monkeypatch.setenv('WAHAPEDIA_DIR', str(wahapedia or tmp_path / 'no-wahapedia'))
-        return create_app().test_client(), data_file
+        app = create_app()
+        app.config['PLAY_STATE_CHECK'] = True  # every cached Play state checked against a full replay (session.py)
+        return app.test_client(), data_file
     return _make
 
 

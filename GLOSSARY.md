@@ -50,3 +50,27 @@ _Avoid_: User, account, member
 A player's change to the copy's shared data (custom factions, units, weapons, rules, stratagems) that waits for
 the host to approve or reject it.
 _Avoid_: Request, suggestion, pending edit
+
+### Play: how the two sides reach each other
+
+**Connection**:
+How a game's two sides reach each other, one of four kinds: hot-seat, game file, relay or same copy. It decides
+which side a player plays, how the other player's moves arrive and how Undo works.
+_Avoid_: Transport, channel, mode
+
+**Hot-seat**:
+A connection where one app plays both sides, the players taking turns at the same screen.
+_Avoid_: Local game, single-PC game
+
+**Game file**:
+A connection where each player's app plays one side and they swap the game as a file by hand.
+_Avoid_: Play by email, save file
+
+**Relay**:
+A connection where each player's app plays one side and moves pass through the relay server; a game started with
+one army waits there until the other player joins with theirs.
+_Avoid_: Online server, cloud game
+
+**Same copy**:
+A connection where both players use one self-hosted copy, each in their own browser, with no relay.
+_Avoid_: Local online, shared server game

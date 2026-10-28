@@ -110,10 +110,11 @@ def test_battlefields_are_private(copy):
 # --- Games between two players of the copy ----------------------------------------------
 
 def test_a_game_against_another_player_gives_each_their_seat(copy, match):
-    assert match['seat'] == 0 and match['online'] == {'code': None, 'joined': True, 'local': True, 'names': ['Pat', 'Sam']}
+    assert match['seat'] == 0 and match['connection'] == {'kind': 'same_copy', 'online': True, 'joined': True, 'code': None,
+                                                          'names': ['Pat', 'Sam']}
     theirs = copy['sam'].get(f'/api/play/games/{match["id"]}').get_json()
     assert theirs['seat'] == 1
-    assert [(g['name'], g['seat'], g['online']) for g in copy['sam'].get('/api/play/games').get_json()] == [('Grudge', 1, True)]
+    assert [(g['name'], g['seat'], g['connection']) for g in copy['sam'].get('/api/play/games').get_json()] == [('Grudge', 1, 'same_copy')]
     # Nobody else's
     assert copy['host'].get('/api/play/games').get_json() == []
     assert copy['host'].get(f'/api/play/games/{match["id"]}').status_code == 404

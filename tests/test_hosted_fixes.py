@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from combat_sim import accounts, data_store, mail, paths
-from combat_sim.play import routes as play_routes
+from combat_sim.play import session as play_session
 from conftest import BSDATA_FIXTURES, welcome
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -209,13 +209,13 @@ def place_body(game, unit, spots):
 
 def test_two_actions_at_once_on_one_game_are_both_kept_or_refused(match, monkeypatch):
     host, _, game = match
-    real = play_routes.resolve_action
+    real = play_session.resolve_action
 
     def slow(*args, **kwargs):  # widen the window between reading the log and saving it
         time.sleep(0.2)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(play_routes, 'resolve_action', slow)
+    monkeypatch.setattr(play_session, 'resolve_action', slow)
     cookie = host.get_cookie('combat_sim_session').value
     answers = {}
 
@@ -230,13 +230,14 @@ def test_two_actions_at_once_on_one_game_are_both_kept_or_refused(match, monkeyp
     [t.join() for t in threads]
     events = host.get(f'/api/play/games/{game["id"]}').get_json()['events']
     assert list(answers.values()).count(200) == len(events) >= 1  # nothing a player was told succeeded was lost
+    assert sorted(answers.values()) in ([200, 200], [200, 400], [200, 409])  # the other: refused, or 'moved on'
 
 
 def test_an_idle_poll_is_answered_without_the_game(match):
     host, sam, game = match
     quiet = sam.post(f'/api/play/games/{game["id"]}/sync?since=0').get_json()
     assert quiet == {'id': game['id'], 'moved': 0, 'unchanged': True, 'waiting_for_army': False,
-                     'online': quiet['online']}
+                     'connection': quiet['connection']}
     host.post(f'/api/play/games/{game["id"]}/actions', json=place_body(game, 'p1-w', ROW))
     moved = sam.post(f'/api/play/games/{game["id"]}/sync?since=0').get_json()
     assert moved['moved'] == 1 and moved['state']

@@ -1,6 +1,7 @@
 """
-Online play (play/relay_client.py and the routes): two installs play one game through the relay, run here by
-relay/dev-server.mjs (the same rules as the Worker, in memory). Skipped when Node isn't installed.
+Online play (the Relay connection, play/connections.py): two installs play one game through the relay. Most tests
+use the in-memory relay (tests/memory_relay.py, the same rules as relay/src/relay.js); one game goes through the
+real dev relay (relay/dev-server.mjs) to check the two agree, skipped when Node isn't installed.
 """
 
 import json
@@ -12,17 +13,28 @@ import pytest
 from combat_sim.models import SavedGame, db
 from combat_sim.play import relay_client
 from conftest import ROOT
+from memory_relay import MemoryRelay
 from test_play_api import saved_army
 from test_play_game_files import new_game, place, two_pcs  # noqa: F401 (fixture)
 from test_play_missions_api import saved_army as missions_army
 
 NODE = shutil.which('node')
-pytestmark = pytest.mark.skipif(NODE is None, reason='Node.js not installed')
 
 
 @pytest.fixture
-def relay(monkeypatch):
-    """The relay on a free port, for both installs (RELAY_URL)."""
+def relay(two_pcs):  # noqa: F811
+    """One in-memory relay for both installs."""
+    memory = MemoryRelay()
+    for client in two_pcs:
+        client.application.config['RELAY'] = memory
+    return memory
+
+
+@pytest.fixture
+def dev_relay(monkeypatch):
+    """The real dev relay on a free port, for both installs (RELAY_URL)."""
+    if NODE is None:
+        pytest.skip('Node.js not installed')
     server = subprocess.Popen([NODE, str(ROOT / 'relay' / 'dev-server.mjs'), '0'], stdout=subprocess.PIPE, text=True)
     try:
         line = server.stdout.readline()
@@ -42,8 +54,9 @@ def online(relay, two_pcs):  # noqa: F811
     mine.post('/api/play/relay', json={'name': 'Sam'})
     theirs.post('/api/play/relay', json={'name': 'Alex'})
     game = mine.post(f'/api/play/games/{new_game(mine, 0)["id"]}/online').get_json()
-    assert game['online'] == {'code': game['online']['code'], 'joined': False, 'names': ['Sam', None]} and 'token' not in str(game)
-    code = game['online']['code']
+    assert game['connection'] == {'kind': 'relay', 'online': True, 'code': game['connection']['code'], 'joined': False,
+                                  'names': ['Sam', None]} and 'token' not in str(game)
+    code = game['connection']['code']
     joined = theirs.post('/api/play/games/join', json={'code': f'{code[:5].lower()}-{code[5:]}'})  # As typed
     assert joined.status_code == 200, joined.get_json()
     return mine, theirs, game, joined.get_json()
@@ -55,11 +68,27 @@ def sync(client, game):
 
 def test_joining_takes_the_other_seat(online):
     mine, theirs, game, their_game = online
-    assert their_game['seat'] == 1 and their_game['online']['joined'] and their_game['uid'] == game['uid']
-    assert their_game['online']['names'] == ['Sam', 'Alex']
-    assert sync(mine, game)['online'] == {'code': game['online']['code'], 'joined': True, 'names': ['Sam', 'Alex']}  # Who joined
-    assert theirs.post('/api/play/games/join', json={'code': game['online']['code']}).status_code == 409  # Already here
+    assert their_game['seat'] == 1 and their_game['connection']['joined'] and their_game['uid'] == game['uid']
+    assert their_game['connection']['names'] == ['Sam', 'Alex']
+    assert sync(mine, game)['connection'] == {'kind': 'relay', 'online': True, 'code': game['connection']['code'], 'joined': True,
+                                             'names': ['Sam', 'Alex']}  # Who joined
+    assert theirs.post('/api/play/games/join', json={'code': game['connection']['code']}).status_code == 409  # Already here
     assert mine.post('/api/play/games/join', json={'code': 'ZZZZZZZZZZ'}).status_code == 400  # No such game
+
+
+def test_a_game_through_the_real_dev_relay(dev_relay, two_pcs):  # noqa: F811
+    """The in-memory relay and relay/src/relay.js agree: a game goes online, is joined, and moves both ways."""
+    mine, theirs = two_pcs
+    game = mine.post(f'/api/play/games/{new_game(mine, 0)["id"]}/online').get_json()
+    their_game = theirs.post('/api/play/games/join', json={'code': game['connection']['code']}).get_json()
+    assert their_game['seat'] == 1 and their_game['connection']['joined']
+    game = place(mine, game, 'p1-w', 10, 6).get_json()
+    their_game = sync(theirs, their_game)
+    assert their_game['moved'] == 1 and their_game['state'] == game['state']
+    their_game = place(theirs, their_game, 'p2-g', 10, 38).get_json()
+    assert sync(mine, game)['state'] == their_game['state']
+    refused = theirs.post(f'/api/play/games/{their_game["id"]}/undo')  # my last action isn't theirs to take back
+    assert refused.status_code in (200, 403)
 
 
 def test_moves_reach_the_other_player(online):
@@ -129,9 +158,9 @@ def test_only_your_own_last_action_and_only_by_undo(online):
     assert 'Press Undo' in mine.post(f'/api/play/games/{game["id"]}/actions', json=made_up).get_json()['error']
 
 
-def test_without_the_relay_an_online_move_is_refused(online, monkeypatch):
+def test_without_the_relay_an_online_move_is_refused(online, relay):
     mine, _, game, _ = online
-    monkeypatch.setenv('RELAY_URL', 'http://127.0.0.1:9')  # Nothing listens there
+    relay.down = True
     refused = place(mine, game, 'p1-w', 10, 6)
     assert refused.status_code == 503 and "Couldn't reach the relay" in refused.get_json()['error']
     assert mine.get(f'/api/play/games/{game["id"]}').get_json()['events'] == []
@@ -154,12 +183,12 @@ def test_a_new_invite_code_shuts_out_whoever_has_the_old_one(online):
     """Someone who saw the code first and joined (here: 'theirs') is cut off; the real friend joins with the new one."""
     mine, theirs, game, their_game = online
     place(mine, game, 'p1-w', 10, 6)
-    old = game['online']['code']
+    old = game['connection']['code']
     game = mine.post(f'/api/play/games/{game["id"]}/new-code').get_json()
-    assert game['online']['code'] != old and not game['online']['joined'] and len(game['events']) == 1
+    assert game['connection']['code'] != old and not game['connection']['joined'] and len(game['events']) == 1
     shut_out = theirs.post(f'/api/play/games/{their_game["id"]}/sync')
     assert shut_out.status_code == 410 and 'new invite code' in shut_out.get_json()['error']
-    rejoined = theirs.post('/api/play/games/join', json={'code': game['online']['code']}).get_json()
+    rejoined = theirs.post('/api/play/games/join', json={'code': game['connection']['code']}).get_json()
     assert rejoined['id'] == their_game['id'] and rejoined['seat'] == 1 and len(rejoined['events']) == 1
     assert theirs.post('/api/play/games/join', json={'code': old}).status_code == 400  # The old code is gone
 
@@ -171,13 +200,15 @@ def test_moves_the_other_app_sends_that_could_attack_the_page_are_refused(relay,
         token = db.session.get(SavedGame, their_game['id']).relay_token
     bad = {'action': {'type': 'orders', 'player': 1}, 'rolls': [], 'models': {}, 'units': {}, 'by': 1,
            'players': [{'cp': 0}, {'cp': '<img src=x onerror=alert(1)>'}]}
-    relay_client.append(relay, game['online']['code'], token, 0, [bad])
+    relay.append(game['connection']['code'], token, 0, [bad])
     refused = mine.post(f'/api/play/games/{game["id"]}/sync')
     assert refused.status_code == 502 and "can't be read here" in refused.get_json()['error']
     assert mine.get(f'/api/play/games/{game["id"]}').get_json()['events'] == []  # Nothing was added
 
 
-def test_the_relay_address_is_a_setting(relay, two_pcs):  # noqa: F811
+def test_the_relay_address_is_a_setting(two_pcs, monkeypatch):  # noqa: F811
+    relay = 'https://relay.example.test'
+    monkeypatch.setenv('RELAY_URL', relay)
     mine, _ = two_pcs
     assert mine.get('/api/play/relay').get_json()['url'] == relay
     assert mine.post('/api/play/relay', json={'url': 'ftp://nope'}).status_code == 400
@@ -203,7 +234,7 @@ def test_a_game_can_wait_for_the_other_players_army(relay, two_pcs):  # noqa: F8
     red = saved_army(mine, 'Red', {'uid': 'w', 'unit': 'Void Warriors'})
     game = open_game(mine, red)
     assert game['waiting_for_army'] and game['state'] is None and game['players'] == ['Red', None]
-    assert game['online']['code'] and not game['online']['joined'] and game['name'] == 'Red vs (joining online)'
+    assert game['connection']['code'] and not game['connection']['joined'] and game['name'] == 'Red vs (joining online)'
     assert [g['players'] for g in mine.get('/api/play/games').get_json()] == [['Red', 'joining online']]
     for refused in (mine.post(f'/api/play/games/{game["id"]}/actions', json={'type': 'next_phase'}),
                     mine.get(f'/api/play/games/{game["id"]}/file')):
@@ -211,14 +242,14 @@ def test_a_game_can_wait_for_the_other_players_army(relay, two_pcs):  # noqa: F8
     assert sync(mine, game)['waiting_for_army']  # Nobody yet
 
     # Their app asks for their army first, showing whose game it is
-    code = game['online']['code']
+    code = game['connection']['code']
     asked = theirs.post('/api/play/games/join', json={'code': code}).get_json()
     assert asked['needs_army'] and asked['opponent'] == {'army': 'Red', 'faction': 'Starfarers', 'disposition': None, 'player': 'Sam'}
     assert theirs.get('/api/play/games').get_json() == []  # Nothing joined yet
     blue = saved_army(theirs, 'Blue', {'uid': 'g', 'unit': 'Gun Crew'})
     their_game = theirs.post('/api/play/games/join', json={'code': code, 'army': blue}).get_json()
     assert their_game['seat'] == 1 and [p['name'] for p in their_game['state']['players']] == ['Red', 'Blue']
-    assert their_game['name'] == 'Red vs Blue' and their_game['online']['names'] == ['Sam', 'Alex']
+    assert their_game['name'] == 'Red vs Blue' and their_game['connection']['names'] == ['Sam', 'Alex']
 
     # My app picks up the game they completed, and play goes on as in any online game
     game = sync(mine, game)
@@ -233,10 +264,10 @@ def test_choices_that_need_both_armies_are_made_when_they_join(relay, two_pcs): 
     game = open_game(mine, red, battlefield='pairing:B', twist={'key': 'random'})
     assert game['options'] == {'battlefield': "Their pairing's Event Companion layout", 'twist': 'Random'}
     plain = missions_army(theirs, 'Plain', [])  # No force disposition: no pairing to play
-    refused = theirs.post('/api/play/games/join', json={'code': game['online']['code'], 'army': plain})
+    refused = theirs.post('/api/play/games/join', json={'code': game['connection']['code'], 'army': plain})
     assert refused.status_code == 400 and 'force disposition' in refused.get_json()['error']
     blue = missions_army(theirs, 'Blue', ['d-bastion'])  # Take and Hold
-    their_game = theirs.post('/api/play/games/join', json={'code': game['online']['code'], 'army': blue}).get_json()
+    their_game = theirs.post('/api/play/games/join', json={'code': game['connection']['code'], 'army': blue}).get_json()
     assert their_game['state']['battlefield']['name'] == 'Take and Hold vs Purge the Foe: Layout B'
     assert their_game['twist'] is not None
     assert sync(mine, game)['state'] == their_game['state']
@@ -246,13 +277,13 @@ def test_a_joiner_cant_change_the_creators_army(relay, two_pcs):  # noqa: F811
     """The relay only takes the completed game if my army is as I sent it; my app checks again on fetching."""
     mine, _ = two_pcs
     game = open_game(mine, saved_army(mine, 'Red', {'uid': 'w', 'unit': 'Void Warriors'}))
-    code = game['online']['code']
-    invited = relay_client.invite(relay, code)['game']
+    code = game['connection']['code']
+    invited = relay.invite(code)['game']
     changed = json.loads(json.dumps(invited))
     changed['armies'][0]['name'] = 'Pushover'
     changed['armies'][1] = dict(invited['armies'][0], name='Blue')
     with pytest.raises(relay_client.RelayError) as error:
-        relay_client.join(relay, code, 'Mallory', changed)
+        relay.join(code, 'Mallory', changed)
     assert error.value.status == 400
     assert sync(mine, game)['waiting_for_army']
 

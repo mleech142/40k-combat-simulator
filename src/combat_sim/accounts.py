@@ -20,7 +20,6 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from flask import g, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash, generate_password_hash

@@ -745,11 +745,11 @@ test('playSeatNotice says whose move it is when this app plays one side', () => 
     assert.equal(Core.playSeatNotice(game(null, [0])), null);  // Hot-seat
     assert.deepEqual(Core.playSeatNotice(game(0, [0])), { text: 'You play Red · your move', mine: true, send: false, invite: null });
     assert.deepEqual(Core.playSeatNotice(game(0, [1])), { text: 'You play Red · waiting for Blue: send them the game file', mine: false, send: true, invite: null });
-    const online = joined => ({ online: { code: 'ABCDEFGHJK', joined } });
+    const online = joined => ({ connection: { kind: 'relay', online: true, code: 'ABCDEFGHJK', joined } });
     assert.deepEqual(Core.playSeatNotice(game(0, [0], online(false))),
         { text: 'You play Red online · send Blue the invite code to join: ABCDE-FGHJK', mine: false, send: false, invite: 'ABCDEFGHJK' });
     assert.deepEqual(Core.playSeatNotice(game(0, [1], online(true))), { text: 'You play Red online · waiting for Blue', mine: false, send: false, invite: null });
-    const named = { online: { code: 'ABCDEFGHJK', joined: true, names: ['Sam', 'Alex'] } };
+    const named = { connection: { kind: 'relay', online: true, code: 'ABCDEFGHJK', joined: true, names: ['Sam', 'Alex'] } };
     assert.equal(Core.playSeatNotice(game(0, [1], named)).text, 'You play Red online · waiting for Blue (Alex)');
     assert.equal(Core.playSeatNotice(game(1, [0, 1])).mine, true);  // Both choosing secondaries
     assert.match(Core.playSeatNotice(game(1, [])).text, /battle is over/);
@@ -912,7 +912,7 @@ test('playPivot turns a formation about its centre, turning each base with it', 
 });
 
 test('playWaitingNotice gives the invite code and the choices made when they join', () => {
-    const game = { seat: 0, players: ['Red', null], online: { code: 'ABCDEFGHJK' },
+    const game = { seat: 0, players: ['Red', null], connection: { kind: 'relay', online: true, code: 'ABCDEFGHJK' },
                    options: { battlefield: "Their pairing's Event Companion layout", twist: 'Random' } };
     assert.deepEqual(Core.playWaitingNotice(game), {
         text: 'You play Red online · send the other player the invite code to join with their army: ABCDE-FGHJK',
@@ -982,4 +982,19 @@ test('safeNextPath keeps paths on this site and refuses other sites', () => {
     assert.equal(Core.safeNextPath('https://evil.example'), '/');
     assert.equal(Core.safeNextPath('/\tevil'), '/');
     assert.equal(Core.safeNextPath(null), '/');
+});
+
+test('playOnline is the connection of relay and same-copy games only', () => {
+    assert.equal(Core.playOnline({ connection: { kind: 'hot_seat', online: false } }), null);
+    assert.equal(Core.playOnline({ connection: { kind: 'game_file', online: false } }), null);
+    assert.equal(Core.playOnline({ connection: { kind: 'relay', online: true, code: 'X' } }).code, 'X');
+    const same = { connection: { kind: 'same_copy', online: true, joined: true, names: ['Pat', 'Sam'] } };
+    assert.equal(Core.playOnline(same).kind, 'same_copy');
+    assert.equal(Core.playOnline(null), null);
+});
+
+test('playSeatNotice: a same-copy game is not "online" and needs no game file', () => {
+    const game = { seat: 1, waiting_on: [0], state: { players: [{ name: 'Red' }, { name: 'Blue' }] },
+                   connection: { kind: 'same_copy', online: true, joined: true, names: ['Pat', 'Sam'] } };
+    assert.deepEqual(Core.playSeatNotice(game), { text: 'You play Blue · waiting for Red (Pat)', mine: false, send: false, invite: null });
 });

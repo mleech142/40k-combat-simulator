@@ -17,7 +17,7 @@ from werkzeug.exceptions import HTTPException
 
 from . import access
 from .access import host_only
-from .models import Faction, FactionRule, MeleeWeapon, Proposal, RangedWeapon, Stratagem, Unit, User, db
+from .models import Faction, FactionRule, MeleeWeapon, Proposal, RangedWeapon, Stratagem, Unit, db
 
 MAX_PENDING = 50  # a player's proposals waiting at once
 MAX_BODY = 200_000  # bytes

@@ -361,14 +361,14 @@
     function scheduleSync() {
         clearTimeout(state.syncTimer);
         const game = state.game || state.waiting;
-        if (!game || !game.online || !(game.waiting_for_army || (game.waiting_on || []).length)) return;
-        const mine = !game.waiting_for_army && game.online.joined && game.waiting_on.includes(game.seat);
+        if (!game || !Core.playOnline(game) || !(game.waiting_for_army || (game.waiting_on || []).length)) return;
+        const mine = !game.waiting_for_army && Core.playOnline(game).joined && game.waiting_on.includes(game.seat);
         state.syncTimer = setTimeout(syncGame, mine ? SYNC_MINE : SYNC_WAITING);
     }
 
     async function syncGame() {
         const game = state.game || state.waiting;
-        if (!game || !game.online) return;
+        if (!game || !Core.playOnline(game)) return;
         if (document.hidden || state.working || state.drag || state.placing || state.arriving) return scheduleSync();
         const since = game.events ? `?since=${game.events.length}` : '';
         const resp = await fetch(`/api/play/games/${game.id}/sync${since}`, { method: 'POST' }).catch(() => null);
@@ -380,7 +380,7 @@
             if (resp && resp.status === 410) return;  // Moved to a new invite code: nothing more comes from this one
             return scheduleSync();
         }
-        const joinedNow = data.online && data.online.joined && !game.online.joined;
+        const joinedNow = !!(Core.playOnline(data) && Core.playOnline(data).joined && !Core.playOnline(game).joined);
         if (game.waiting_for_army && !data.waiting_for_army) {  // They joined with their army: the game begins
             show(data);
             message(`The other player joined with ${data.state.players[1 - data.seat].name}: the game begins.`);
@@ -454,7 +454,7 @@
                 <button class="btn-small" id="seat-copy"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy code</button>
                 <button class="btn-small" id="seat-new-code" title="If someone else may have used the code: the old one stops working">
                     <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> New invite code</button></span>`;
-        $('seat-copy').addEventListener('click', () => navigator.clipboard.writeText(Core.playInviteCode(game.online.code))
+        $('seat-copy').addEventListener('click', () => navigator.clipboard.writeText(Core.playInviteCode(game.connection.code))
             .then(() => message('Invite code copied.'), () => message('Copy the code by hand.', true)));
         $('seat-new-code').addEventListener('click', newInviteCode);
         scheduleSync();
@@ -506,12 +506,9 @@
         return !!done;
     }
 
-    /** Hot-seat: the last action, unless dice were rolled. Online: your own last action, dice or not, with their OK. */
+    /** Whether Undo can be pressed: the server says (session.GameSession.can_undo). */
     function canUndo(game) {
-        const last = game && game.events.length && game.events[game.events.length - 1];
-        if (!last || (game.state && game.state.pending)) return false;
-        if (!game.online) return last.rolls.length === 0;
-        return !['correction', 'accept', 'decline'].includes(last.action.type) && (last.by == null || last.by === game.seat);
+        return !!(game && game.can_undo);
     }
 
     async function undo() {
@@ -765,7 +762,7 @@
             $('twist-chip').title = game.twist.text;
         }
         $('undo-btn').disabled = !canUndo(game);
-        $('undo-btn').title = game && game.online ? 'Undo: ask the other player to take back your last action' : 'Undo';
+        $('undo-btn').title = game && Core.playOnline(game) ? 'Undo: ask the other player to take back your last action' : 'Undo';
         const turn = game && game.state.turn;
         const allPlaced = game && game.state.units.every(u => (u.status && u.status.reserve) || u.models.every(m => !m.alive || m.position));
         let banner = '';
@@ -1533,7 +1530,7 @@
         if (game) $('file-btn').href = `/api/play/games/${game.id}/file`;
         const notice = Core.playSeatNotice(game);
         $('seat-bar').hidden = !notice;
-        document.title = `${notice && notice.mine && game.online ? '● Your move · ' : ''}Play - 40K Combat Simulator`;
+        document.title = `${notice && notice.mine && Core.playOnline(game) ? '● Your move · ' : ''}Play - 40K Combat Simulator`;
         scheduleSync();
         if (!notice) return;
         $('seat-bar').classList.toggle('play-seat-mine', notice.mine);
@@ -1541,9 +1538,9 @@
             notice.invite ? `<button class="btn-small" id="seat-copy"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy code</button>` : '',
             notice.send ? `<a class="btn-small" href="/api/play/games/${game.id}/file">
                 <i class="fa-solid fa-file-export" aria-hidden="true"></i> Save game file</a>` : '',
-            !game.online && !game.needs_update ? `<button class="btn-small" id="seat-online" title="Moves go to the other player as you make them">
+            !Core.playOnline(game) && !game.needs_update ? `<button class="btn-small" id="seat-online" title="Moves go to the other player as you make them">
                 <i class="fa-solid fa-globe" aria-hidden="true"></i> Play online</button>` : '',
-            game.online && !game.online.local ? `<button class="btn-small" id="seat-new-code" title="If someone else may have used the code: the old one stops working">
+            game.connection && game.connection.kind === 'relay' ? `<button class="btn-small" id="seat-new-code" title="If someone else may have used the code: the old one stops working">
                 <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> New invite code</button>` : '',
         ].filter(Boolean);
         $('seat-bar').innerHTML = `<strong>${escapeHtml(notice.text)}</strong>${buttons.length
