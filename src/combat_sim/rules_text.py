@@ -186,8 +186,13 @@ def parse_leader_buffs(text):
 
 # "your unit" (a stratagem's TARGET) reads as the leader parser's "that unit"
 # (keywords in capitals can come between: "your SMOKE unit")
-YOUR_UNIT = [(re.compile(r"\b[Yy]our (?:[A-Z][A-Z'-]+ )*(?:unit|model)'s|\b[Yy]our units'"), "that unit's"),
-             (re.compile(r"\b(?:[Yy]our|[Tt]he selected) (?:[A-Z][A-Z'-]+ )*(?:unit|model)\b"), 'that unit')]
+KW = r"(?:[A-Z][A-Z'/-]+ )*"  # Keywords in capitals before a noun ("your SMOKE unit", "a TYRANIDS model")
+YOUR_UNIT = [(re.compile(r"\b[Yy]our " + KW + r"(?:unit|model)'s|\b[Yy]our units'|\b[Tt]his unit's|\b[Ff]riendly " + KW + r"units'"),
+              "that unit's"),
+             # "each time a TYRANIDS model from your army makes an attack": an army rule, here for the unit it's used on
+             (re.compile(r"\b[Ee]ach time an? " + KW + r"model from your army makes\b"), 'each time a model in that unit makes'),
+             (re.compile(r"\b(?:[Yy]our|[Tt]he selected|[Tt]his) " + KW + r"(?:unit|model)\b|\ban? " + KW + r"unit from your army\b"),
+              'that unit')]
 # Lead-ins that only say how long an effect lasts
 DURATION = re.compile(r"^until (?:the end of (?:the|this|that|your opponent's next) (?:phase|turn|battle round|battle|fight)"
                       r"|the attacking unit has finished making (?:its|all of its) attacks"
@@ -195,6 +200,7 @@ DURATION = re.compile(r"^until (?:the end of (?:the|this|that|your opponent's ne
 TRAILING_DURATION = re.compile(r',? until (?:the end of the (?:phase|turn|battle round|battle)'
                                r'|that (?:enemy|attacking) unit has (?:attacked|finished making its attacks|resolved its attacks))$',
                                re.I)
+COMPOUND = re.compile(r',\s+and\s+(?=(?:if|until|each time|while)\b)', re.I)
 RULE_REFERENCE = re.compile(r'\s*\(\d+(?:\.\d+)+\)')  # "(13.08)": a section of the core rules
 # Lead-ins that set a condition: dropped, but kept as notes
 CONDITION = re.compile(r'^((?:if|while) [^,]{3,200}),\s*', re.I)
@@ -258,6 +264,14 @@ def _effect_buffs(text):
         return found, (m.group('cond') or '').strip() or None
 
     # Defensive: "that unit has a 4+ invulnerable save / 4+ InSv / Feel No Pain 5+ / Stealth"
+    m = re.match(r'^add (\d) to the toughness characteristic of models in that unit$', text, re.I)
+    if m:
+        return [_buff('Target', None, f'Toughness Modifier +{m.group(1)}')], None
+    # "each time a model in that enemy unit makes an attack that targets that unit, subtract 1 from the Hit roll"
+    m = re.match(r'^each time a model in (?:that|an) enemy unit makes an? (?:(ranged|melee) )?attack that targets that unit, (?P<effect>.+)$',
+                 text, re.I)
+    if m:
+        return _target_effect(m.group(1), m.group('effect')), None
     m = re.match(r'^(?:that unit|models in that unit) (?:has|have) (?:an? )?(\d)\+ (?:insv|invulnerable save)$', text, re.I)
     if m:
         return [_buff('Target', None, f'Invulnerable Save {m.group(1)}+')], None
@@ -302,8 +316,8 @@ def _effect_buffs(text):
         found = _target_effect(m.group(1), m.group('effect'))
         return found, (m.group('cond').strip(' ,') or None) if found else None
     # "each time a model in that unit makes an attack that targets X, ..." (the leader parser allows no condition)
-    m = re.match(r'^each time a model in that unit makes an? (?:(ranged|melee) )?attack(?P<cond> (?:that targets|with) [^,]+)?'
-                 r', (?:(?P<cond2>(?:if|while) [^,]+), )?(?P<effect>.+)$', text, re.I)
+    m = re.match(r'^each time a model in that unit makes an? (?:(ranged|melee) )?attack(?P<cond> (?:that targets|with) [^,]+?)?'
+                 r'(?:, | (?=you can ))(?:(?P<cond2>(?:if|while) [^,]+), )?(?P<effect>.+)$', text, re.I)
     if m:
         found = _attack_effects(m.group(1), m.group('effect'))
         cond = ' '.join(c.strip() for c in (m.group('cond'), m.group('cond2')) if c)
@@ -336,8 +350,11 @@ def parse_effects(text):
     sentences the maths models, the sentences it doesn't, and the conditions dropped on the way.
     """
     buffs, skipped, conditions = [], [], []
-    for sentence in sentences(plain_text(text)):
+    # Two effects in one sentence (", and if your unit contains 15 or more models, ..."): each read on its own
+    clauses = [c for sentence in sentences(plain_text(text)) for c in COMPOUND.split(sentence)]
+    for sentence in clauses:
         reworded = TRAILING_DURATION.sub('', RULE_REFERENCE.sub('', sentence).rstrip('.').strip())
+        reworded = re.sub(r',?\s+instead$', '', reworded, flags=re.I)  # "... have the Feel No Pain 4+ ability instead"
         # A label ("Doctrine: Each time ..."), not a list's opening ("Your unit's ranged attacks: Have [LANCE]")
         reworded = re.sub(r"^(?!(?i:your|that|each|models?|ranged|melee|weapons)\b)[A-Z][\w' -]{0,40}:\s+(?=[A-Z])", '', reworded)
         reworded = re.sub(r'^in addition,?\s*', '', reworded, flags=re.I)

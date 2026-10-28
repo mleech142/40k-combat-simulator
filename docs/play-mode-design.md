@@ -173,6 +173,8 @@ Steps 1 to 3 are built (see [Version 1 build plan](#version-1-build-plan) and [M
    5. **Then:** a written scope for a hosted or Docker version (12, see [Platforms](#platforms)): data licences first.
 
    **Effects batches (3)** are an ongoing track, not one project: each release, a script runs the stratagems and abilities of the factions in the owner's saved armies through the rule parser and ranks what it can't read; the top of that list is the batch. It stops when manual effects are rarely needed.
+
+   The script is `scripts/effects_report.py --db <a copy of combat_sim.db>` (it runs the app on scratch copies). *Batch 1 (2.6), Death Guard and Tyranids:* Toughness bonuses; the unit named as "this unit", "friendly X units'", "a X model / unit from your army"; a trailing "instead"; "each time a model in that enemy unit makes an attack that targets your unit"; "(excluding ...) you can re-roll"; two effects joined by ", and if / until / each time / while" read one by one. 30 to 37 of the 152 stratagems and rules now have an effect read. Most of the rest move units, force battle-shock tests or mortal wounds, use reserves, or depend on Death Guard's Contagion Range and Afflicted units: game features, not reader patterns (candidates for a later batch with the game applying them).
 6. **Parked, each needing its own design first:** games with more than two players, 2v2 and free-for-all (13); computer-controlled armies and neutral units (14, after 13's third side and after 2.6 and the effects batches, since a computer player must make every reaction).
 
 ## Version 1 build plan

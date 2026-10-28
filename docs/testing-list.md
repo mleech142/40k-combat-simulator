@@ -26,6 +26,7 @@ written scope for 12. Items 13 and 14 are parked.
    player picks from a fixed list (`game.MANUAL_EFFECTS`: ±1 to hit, re-rolls, cover and so on), or a stratagem's
    text is logged to apply by hand. Means reading much more rule text (`rules_text.py`) into effects the game
    applies, including when and to whom they apply.
+   *Ongoing:* batch 1 in 2.6 (`scripts/effects_report.py`; play-mode-design.md, Effects batches).
 4. **Play: phase changes and actions are slow.** Moving to the next phase, and actions within a phase, take too long
    to process. Measure first: in an online game each action also fetches the other player's moves from the relay
    and then appends to it (two round trips), so check whether offline games are slow too.
