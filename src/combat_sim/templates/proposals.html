@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Proposals - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="setup-page">
+    <div class="page-header"><h2><i class="fa-solid fa-inbox" aria-hidden="true"></i> Proposals</h2></div>
+    {% if user.is_host %}
+    <p class="data-note">Changes the other players made to the shared data (custom factions, rules, stratagems, units
+        and weapons) wait here for you. Approving one makes the change as if you'd made it on the Data tab.</p>
+    {% else %}
+    <p class="data-note">Your changes to the shared data on the Data tab wait here until the host approves them.</p>
+    {% endif %}
+    <div class="setup-message" id="proposal-message"></div>
+    <div id="proposal-list"><p class="empty-message">Loading…</p></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const IS_HOST = {{ 'true' if user.is_host else 'false' }};
+const STATUS = {pending: 'Waiting', approved: 'Approved', rejected: 'Rejected', failed: "Couldn't be applied", withdrawn: 'Withdrawn'};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const show = v => v === undefined || v === null || v === '' ? '—' : esc(typeof v === 'string' ? v : JSON.stringify(v));
+
+function fieldTable(rows, headings, keys) {
+    if (!rows.length) return '';
+    return `<table class="proposal-fields"><thead><tr><th>Field</th>${headings.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr><td>${esc(r.field)}</td>${keys.map(k => `<td>${show(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+function card(p) {
+    const when = p.created_at ? new Date(p.created_at + 'Z').toLocaleString() : '';
+    const waiting = p.status === 'pending';
+    let detail = '';
+    if (waiting && p.gone) {
+        detail = '<p class="account-warning">The record this changes has been deleted since: approving it will fail.</p>';
+    } else if (waiting) {
+        detail = (p.changed_since.length
+            ? `<p class="account-warning"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <strong>Changed since it was proposed.</strong> Approving it still makes this change, over the newer version.</p>
+               ${fieldTable(p.changed_since, ['When proposed', 'Now'], ['then', 'now'])}` : '')
+            + (p.method === 'DELETE' ? '' : p.changes.length
+                ? fieldTable(p.changes, ['Now', 'Proposed'], ['now', 'proposed'])
+                : '<p>It changes nothing from the record as it is now.</p>');
+    }
+    const actions = !waiting ? '' : IS_HOST
+        ? `<div class="setup-row"><button class="btn btn-primary" data-approve="${p.id}">Approve</button>
+            <input class="filter-input" id="note-${p.id}" maxlength="500" placeholder="Reason (optional)">
+            <button class="btn btn-secondary" data-reject="${p.id}">Reject</button></div>`
+        : (p.mine ? `<button class="btn-small" data-withdraw="${p.id}">Withdraw</button>` : '');
+    return `<section class="setup-card proposal-card">
+        <h3>${esc(p.summary)}</h3>
+        <p class="proposal-status">${IS_HOST ? `${esc(p.by)} · ` : ''}${esc(when)} · ${STATUS[p.status] || esc(p.status)}${p.note ? ` · ${esc(p.note)}` : ''}</p>
+        ${detail}${actions}
+    </section>`;
+}
+
+async function load() {
+    const list = await fetch('/api/proposals').then(r => r.json()).catch(() => []);
+    document.getElementById('proposal-list').innerHTML = list.length ? list.map(card).join('')
+        : '<p class="empty-message">No proposals yet</p>';
+}
+
+async function send(url, body, method = 'POST') {
+    const resp = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+    const data = await resp.json().catch(() => ({}));
+    const message = document.getElementById('proposal-message');
+    message.className = 'setup-message ' + (resp.ok ? 'ok' : 'error');
+    message.textContent = resp.ok ? `${data.summary}: ${STATUS[data.status].toLowerCase()}.` : (data.error || 'Something went wrong.');
+    load();
+}
+
+document.getElementById('proposal-list').addEventListener('click', event => {
+    const b = event.target.closest('button');
+    if (!b) return;
+    if (b.dataset.approve) send(`/api/proposals/${b.dataset.approve}/approve`);
+    if (b.dataset.reject) send(`/api/proposals/${b.dataset.reject}/reject`, {note: document.getElementById(`note-${b.dataset.reject}`).value});
+    if (b.dataset.withdraw) send(`/api/proposals/${b.dataset.withdraw}`, null, 'DELETE');
+});
+load();
+</script>
+{% endblock %}

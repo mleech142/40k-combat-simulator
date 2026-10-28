@@ -4,9 +4,6 @@ A self-hosted copy runs the app on one computer (a home PC, a NAS, a Raspberry P
 everyone in your group opens it in a browser, phones included. Why it's built this way, and what's planned:
 [hosted-version-scope.md](hosted-version-scope.md).
 
-> **Release 2.8 is still being built.** Proposed edits to the shared data are still to come (the scope's
-> section 8, step d).
-
 ## Run it with Docker
 
 ```bash
@@ -29,8 +26,14 @@ way each desktop user gets them. The image ships neither (see the scope, Data li
 The first visit to a new copy asks for the **host**: a name, an email and a password. The host downloads the game
 data on the Setup page, and adds the other players on the **Players** page (name and email). Each player gets a
 link (it works once, for 7 days) to send them, where they choose their own password. Forgotten passwords: the host
-makes a new link. Players can use everything else but can't open Setup or the Players page, or change the shared
-data (custom factions, rules, stratagems): later in 2.8 they'll propose changes for the host to approve.
+makes a new link. Players can use everything else but can't open Setup or the Players page or import app data.
+
+**Changing the shared data:** custom factions, units, weapons, rules and stratagems (and how the maths reads
+Wahapedia's) are shared by everyone. A player's change on the Data tab is sent to the host as a **proposal**; the
+host's apply at once. The host reviews them on the **Proposals** page (the menu shows how many wait): what each
+changes, and a warning if the record was changed after it was proposed, with what changed. Approving makes the
+change as if the host had made it; rejecting can give a reason. Players see their own proposals' outcome there and
+can withdraw one while it waits.
 
 Tell everyone to **use a throwaway password**: the copy is run by someone in the group, not a company.
 

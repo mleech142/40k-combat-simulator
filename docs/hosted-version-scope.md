@@ -174,6 +174,9 @@ c. **Players' own lists and games.** Saved armies, scenarios, comparisons and ba
 d. **Proposed edits.** In hosted mode a player's Data-tab write is saved as a proposal instead (who, when, what it
    changes, shown as a readable summary) and answered 202. The host's Data tab lists proposals to approve (applied
    through the same code as a direct edit, then `save_data()`) or reject; the player sees their proposals' outcome.
-
-Question to agree at step d's start: what happens to a proposal when the record it edits changed after it was
-made?
+   *Agreed:* when the record changed after the proposal was made, **the host decides**: they see what changed
+   since, next to what the proposal changes, and can still approve it. *Done:* `proposals.py`, the `proposals`
+   table and the Proposals page (in the menu for everyone; the host's shows how many wait). Each proposal keeps
+   a snapshot of the record's columns when it was made. Approving sends it to its own route as the host; one
+   that can't be applied (its record deleted, or refused by the route) is marked failed with the reason. A
+   player can withdraw their own while it waits (at most 50 waiting). Importing app data stays the host's alone.

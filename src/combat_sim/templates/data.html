@@ -7,8 +7,8 @@
     <h2><i class="fa-solid fa-database" aria-hidden="true"></i> Data Management</h2>
     <div class="header-actions">
         <button class="btn btn-secondary" onclick="exportData()"><i class="fa-solid fa-file-export" aria-hidden="true"></i> Export JSON</button>
-        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import JSON</button>
-        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">
+        {% if can_setup %}<button class="btn btn-secondary" onclick="document.getElementById('import-file').click()"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import JSON</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">{% endif %}
     </div>
 </div>
 <div class="bsdata-status" id="bsdata-status"></div>
@@ -522,6 +522,10 @@ async function api(url, method = 'GET', body = undefined) {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
         alert(data.error || 'Something went wrong saving that change.');
+        return null;
+    }
+    if (resp.status === 202 && data.proposed) {  // A self-hosted copy: the host approves players' changes
+        alert(`${data.message} You'll see it on the Proposals page once they answer.`);
         return null;
     }
     return data;

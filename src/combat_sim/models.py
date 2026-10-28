@@ -720,6 +720,24 @@ class User(db.Model):
                 'link_open': bool(self.join_token_hash and self.join_expires and self.join_expires > datetime.utcnow())}
 
 
+class Proposal(db.Model):
+    """A player's change to the shared app data on a self-hosted copy, waiting for the host (proposals.py).
+    Database only."""
+    __tablename__ = 'proposals'
+
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, nullable=False)  # The player who proposed it
+    method = db.Column(db.String(10), nullable=False)  # POST / PUT / DELETE
+    path = db.Column(db.String(200), nullable=False)  # The Data-tab route it was sent to
+    body = db.Column(JSON, nullable=True)  # What was sent
+    summary = db.Column(db.String(300), nullable=False)  # "Edit stratagem 'X' (Faction)"
+    before = db.Column(JSON, nullable=True)  # The record as it was when proposed (None: a new one)
+    status = db.Column(db.String(12), nullable=False, default='pending')  # pending, approved, rejected, failed, withdrawn
+    note = db.Column(db.Text, nullable=True)  # The host's reason, or why approving it failed
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    decided_at = db.Column(db.DateTime, nullable=True)
+
+
 def init_db(app):
     """Initialize the database with the Flask app."""
     db.init_app(app)
@@ -734,7 +752,7 @@ def add_missing_columns():
     (create_all only makes missing tables). Anything else still needs a manual ALTER TABLE.
     """
     inspector = db.inspect(db.engine)
-    for model in (SavedScenario, SavedComparison, SavedArmy, SavedGame, SavedBattlefield, StableId, User):
+    for model in (SavedScenario, SavedComparison, SavedArmy, SavedGame, SavedBattlefield, StableId, User, Proposal):
         table = model.__table__
         if not inspector.has_table(table.name):
             continue

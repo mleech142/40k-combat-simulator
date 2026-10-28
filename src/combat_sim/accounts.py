@@ -6,8 +6,8 @@ Named players on a self-hosted copy (hosted mode; docs/self-hosting.md, hosted-v
   forgotten password is reset.
 - Logins are a session cookie holding the player's ID and `session_key`; changing the key (new password, removal)
   logs out every browser they use. The cookie is SameSite=Lax, and writes from other sites are refused.
-- Host only: Setup and its downloads, the Play menu setting, the Players page, and app data writes (players'
-  proposals come with step d).
+- Host only: Setup and its downloads, the Play menu setting, the Players page and importing app data. A player's
+  other app data writes become proposals for the host (proposals.py).
 
 Outside hosted mode none of this runs: there is no login.
 """
@@ -217,10 +217,13 @@ def register_account_routes(app):
             if wants_page():
                 return redirect('/welcome' if no_host else url_for('login_page', next=request.full_path.rstrip('?')))
             return jsonify({'error': 'Log in first.', 'login': True}), 401
-        host_only = path.startswith(HOST_PATHS) or (path.startswith('/api/data/') and request.method not in SAFE_METHODS)
+        data_write = path.startswith('/api/data/') and request.method not in SAFE_METHODS
+        if data_write and not g.user.is_host and path != '/api/data/import':
+            from .proposals import propose  # a player's edit waits for the host
+            return propose()
+        host_only = path.startswith(HOST_PATHS) or data_write
         if host_only and not g.user.is_host:
-            message = ('Only the host can change the shared data for now.' if path.startswith('/api/data/')
-                       else 'Only the host can do that.')
+            message = 'Only the host can do that.'
             if wants_page():
                 return render_template('account.html', mode='refused', message=message), 403
             return jsonify({'error': message}), 403

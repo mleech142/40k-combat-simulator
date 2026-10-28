@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy.exc import IntegrityError
-from .models import (db, init_db, Faction, Detachment, Enhancement, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
+from .models import (db, init_db, Proposal, Faction, Detachment, Enhancement, Unit, RangedWeapon, MeleeWeapon, FactionRule, Stratagem, Keyword, TargetProfile,
                      SavedScenario, SavedComparison, SavedArmy, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, is_hosted, prepare_data_dir
@@ -19,6 +19,7 @@ from . import armies, army_share, bsdata_download, contagion, effects, folder_di
 from .effects import RULE_PHASES
 from .rules_text import ability_buffs
 from .play.routes import register_play_routes
+from .proposals import register_proposal_routes
 from .accounts import current_user, mine_or_404, only_mine, owner_id, owner_names, owns, register_account_routes, secret_key
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
@@ -73,6 +74,8 @@ def create_app(config=None):
                 'hosted': app.config['HOSTED'],
                 'user': current_user(),
                 'can_setup': not app.config['HOSTED'] or bool(current_user() and current_user().is_host),
+                'pending_proposals': (Proposal.query.filter_by(status='pending').count()
+                                      if current_user() and current_user().is_host else 0),
                 'show_play': bool(load_settings(app.config['SETTINGS_JSON']).get('show_play')),
                 'wahapedia_label': (last_update[:10] or 'loaded') if wahapedia_loaded else None}
 
@@ -89,6 +92,7 @@ def create_app(config=None):
     register_routes(app)
     register_play_routes(app)
     register_account_routes(app)
+    register_proposal_routes(app)
 
     return app
 

@@ -152,7 +152,7 @@ def test_players_cant_do_the_hosts_jobs(host):
     assert player.post('/api/wahapedia/download').status_code == 403
     assert player.post('/api/play/setting', json={'enabled': True}).status_code == 403
     assert player.post('/api/data/import', json=APP_DATA).status_code == 403
-    assert player.post('/api/data/factions', json={'name': 'Mine'}).status_code == 403
+    assert player.post('/api/data/factions', json={'name': 'Mine'}).status_code == 202  # a proposal for the host
     # Reading the data and using the app is fine
     assert player.get('/api/data/status').status_code == 200
     assert player.get('/data').status_code == 200

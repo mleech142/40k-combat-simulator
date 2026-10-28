@@ -27,6 +27,7 @@
             <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}"><i class="fa-solid fa-bookmark" aria-hidden="true"></i> Scenarios</a>
             <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}"><i class="fa-solid fa-database" aria-hidden="true"></i> Data</a>
             {% if can_setup %}<a href="/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</a>{% endif %}
+            {% if user %}<a href="/proposals" class="nav-link {% if request.path == '/proposals' %}active{% endif %}"><i class="fa-solid fa-inbox" aria-hidden="true"></i> Proposals{% if user.is_host and pending_proposals %} <span class="nav-badge">{{ pending_proposals }}</span>{% endif %}</a>{% endif %}
             {% if user and user.is_host %}<a href="/players" class="nav-link {% if request.path == '/players' %}active{% endif %}"><i class="fa-solid fa-users" aria-hidden="true"></i> Players</a>{% endif %}
             {% if user %}<a href="/account" class="nav-link {% if request.path == '/account' %}active{% endif %}"><i class="fa-solid fa-user" aria-hidden="true"></i> {{ user.name }}</a>{% endif %}
             {% endif %}

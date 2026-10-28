@@ -4673,3 +4673,34 @@ h4 .fa-solid,
     border-left: 3px solid var(--warning, #d9a400);
     padding: 0.4rem 0.75rem;
 }
+
+.nav-badge {
+    background: var(--warning);
+    color: #000;
+    border-radius: 999px;
+    padding: 0 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* Proposals page (proposals.html) */
+.proposal-card .proposal-fields {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+}
+
+.proposal-card .proposal-fields td,
+.proposal-card .proposal-fields th {
+    border-top: 1px solid var(--border, #444);
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+    vertical-align: top;
+    word-break: break-word;
+}
+
+.proposal-card .proposal-status {
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
