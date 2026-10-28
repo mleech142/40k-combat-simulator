@@ -135,11 +135,13 @@ def test_a_failed_rebuild_leaves_the_reference_tables_as_they_were(host, monkeyp
         real(dict(data, factions=data['factions'] + data['factions'][:1]))  # a duplicate ID: the insert fails
 
     real = data_store.rebuild_reference_tables
-    import combat_sim.app as app_module
-    monkeypatch.setattr(app_module, 'rebuild_reference_tables', broken)
+    from combat_sim import reference
+    before = reference.current(host.application)
+    monkeypatch.setattr(reference, 'rebuild_reference_tables', broken)
     with pytest.raises(Exception):
         with host.application.app_context():
-            app_module.reload_bsdata(host.application)
+            reference.load(host.application, bsdata=True)
+    assert reference.current(host.application) is before  # the published snapshot didn't change either
     assert len(host.get('/api/data/factions').get_json()) == factions  # the drop was rolled back too
 
 

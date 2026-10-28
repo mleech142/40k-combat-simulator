@@ -13,14 +13,13 @@ from .models import (db, init_db, Proposal, Faction, Detachment, Enhancement, Un
                      SavedScenario, SavedComparison, SavedArmy, BSDATA_ID_BASE, unit_ranged_weapons, unit_melee_weapons)
 from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, is_hosted, prepare_data_dir
-from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
-                         rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS, REFERENCE_LOCK)
-from . import armies, army_share, bsdata_download, contagion, effects, folder_dialog, match_view, wahapedia, wahapedia_download
+from .data_store import DataFileError, check_data, LINKED_FIELDS
+from . import armies, army_share, bsdata_download, contagion, effects, folder_dialog, match_view, wahapedia_download
 from .effects import RULE_PHASES
 from .rules_text import ability_buffs
 from .play.routes import register_play_routes
 from .proposals import register_proposal_routes
-from . import access
+from . import access, reference
 from .access import desktop_only, host_only, proposable
 from .accounts import register_account_routes, secret_key
 from .wargear import default_used
@@ -69,17 +68,15 @@ def create_app(config=None):
 
     @app.context_processor
     def inject_page_globals():
-        wahapedia_loaded = (app.config.get('WAHAPEDIA_STATUS') or {}).get('loaded')
-        last_update = ((app.config.get('WAHAPEDIA_STATUS') or {}).get('source') or {}).get('last_update') or ''
         return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
-                'bsdata_label': bsdata_label(app),
+                'bsdata_label': reference.label(app),
                 'hosted': app.config['HOSTED'],
                 'user': access.viewer(),
                 'can_setup': access.is_host(),
                 'pending_proposals': (Proposal.query.filter_by(status='pending').count()
                                       if app.config['HOSTED'] and access.is_host() else 0),
                 'show_play': bool(load_settings(app.config['SETTINGS_JSON']).get('show_play')),
-                'wahapedia_label': (last_update[:10] or 'loaded') if wahapedia_loaded else None}
+                'wahapedia_label': reference.wahapedia_label(app)}
 
     if config:
         app.config.update(config)
@@ -87,8 +84,7 @@ def create_app(config=None):
     # Initialize database, then rebuild the reference tables from BSData, Wahapedia and the app data JSON
     init_db(app)
     with app.app_context():
-        load_wahapedia(app)
-        reload_bsdata(app)
+        reference.load(app, bsdata=True, wahapedia_too=True)
 
     # Register routes
     register_routes(app)
@@ -98,67 +94,6 @@ def create_app(config=None):
     access.register(app)  # last: it checks every route is labelled
 
     return app
-
-
-def bsdata_folder(app):
-    """The BSData folder in use: chosen on the Setup page, else the default."""
-    chosen = load_settings(app.config['SETTINGS_JSON']).get('bsdata_dir')
-    return chosen or app.config['DEFAULT_BSDATA_DIR']
-
-
-def reload_bsdata(app, fresh=False):
-    """(Re)import the BSData folder and rebuild the reference tables. fresh: ignore the cache."""
-    with REFERENCE_LOCK:
-        return _reload_bsdata(app, fresh)
-
-
-def _reload_bsdata(app, fresh):
-    if fresh:
-        Path(app.config['BSDATA_CACHE']).unlink(missing_ok=True)
-    data = read_data_file(app.config['DATA_JSON'])
-    known = [k['name'] for k in data.get('keywords', [])] or None
-    app.config['BSDATA_DIR'] = bsdata_folder(app)
-    result, status = load_bsdata(app.config['BSDATA_DIR'], app.config['BSDATA_CACHE'], known)
-    app.config['BSDATA_RESULT'] = result
-    app.config['BSDATA_STATUS'] = status
-    load_reference_data(app, data)
-    return status
-
-
-def load_wahapedia(app):
-    """Import the Wahapedia folder (rules and stratagems); the reference tables are rebuilt separately."""
-    result, status = wahapedia.load_folder(app.config['WAHAPEDIA_DIR'])
-    with REFERENCE_LOCK:
-        app.config['WAHAPEDIA_RESULT'] = result
-        app.config['WAHAPEDIA_STATUS'] = status
-    return status
-
-
-def bsdata_label(app):
-    """Data version for the footer: the downloaded commit, else the game system revision."""
-    status = app.config.get('BSDATA_STATUS') or {}
-    if not status.get('loaded'):
-        return None
-    download = load_settings(app.config['SETTINGS_JSON']).get('download') or {}
-    if download.get('sha') and download.get('folder') == app.config.get('BSDATA_DIR'):
-        return f"@ {download['sha'][:7]}, {(download.get('date') or '')[:10]}".rstrip(', ')
-    revision = ((status.get('source') or {}).get('game_system') or {}).get('revision')
-    return f'game system revision {revision}' if revision is not None else None
-
-
-def load_reference_data(app, data):
-    """Rebuild the reference tables from app data JSON `data` plus the loaded BSData and Wahapedia imports."""
-    with REFERENCE_LOCK:
-        report = []
-        merged, unmatched = merge_data(data, app.config.get('BSDATA_RESULT'), app.config.get('WAHAPEDIA_RESULT'), report)
-        try:
-            rebuild_reference_tables(merged)
-        except Exception:
-            db.session.rollback()  # The old tables stay as they were
-            raise
-        (app.config.get('WAHAPEDIA_STATUS') or {})['report'] = report
-        app.config['DATA_SOURCE'] = data.get('source')
-        app.config['UNMATCHED'] = unmatched
 
 
 def conditions_from_request(conditions_data):
@@ -321,7 +256,7 @@ def register_routes(app):
     @app.route('/')
     def index():
         """Main simulation page (the Setup page until BSData loads or the user skips it)."""
-        status = app.config.get('BSDATA_STATUS') or {}
+        status = reference.current(app).bsdata_status
         if (not status.get('loaded') and not load_settings(app.config['SETTINGS_JSON']).get('setup_skipped')
                 and access.is_host()):
             return redirect('/setup')
@@ -703,10 +638,7 @@ def register_routes(app):
     # =========================================================================
 
     def save_data():
-        with REFERENCE_LOCK:  # never while the reference tables are being rebuilt
-            db.session.commit()
-            write_data_file(app.config['DATA_JSON'],
-                            export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED')))
+        reference.save_app_data(app)  # never while the reference tables are being rebuilt
 
     def read_only(message='BSData records are read-only.'):
         return jsonify({'error': message}), 403
@@ -723,7 +655,7 @@ def register_routes(app):
     @app.route('/api/data/status')
     def api_data_status():
         """The BSData folder and import: where, whether it loaded, revisions and report."""
-        status = app.config.get('BSDATA_STATUS') or {}
+        status = reference.current(app).bsdata_status
         report = status.get('report') or []
         counts = {}
         for item in report:
@@ -738,7 +670,7 @@ def register_routes(app):
             'report': report if request.args.get('report') else None,
             'factions': Faction.query.filter_by(source='bsdata').count(),
             'units': Unit.query.join(Faction).filter(Faction.source == 'bsdata').count(),
-            'label': bsdata_label(app),
+            'label': reference.label(app),
             'download': load_settings(app.config['SETTINGS_JSON']).get('download'),
             'download_folder': app.config['DOWNLOAD_DIR'],
             'hosted': app.config['HOSTED'],
@@ -758,7 +690,7 @@ def register_routes(app):
 
     def wahapedia_status(with_report=False):
         """The Wahapedia import: whether it loaded, when Wahapedia last updated it, counts and report."""
-        status = app.config.get('WAHAPEDIA_STATUS') or {}
+        status = reference.current(app).wahapedia_status
         report = status.get('report') or []
         counts = {}
         for item in report:
@@ -794,10 +726,9 @@ def register_routes(app):
             return jsonify({'error': str(err)}), 502
         update_settings(app.config['SETTINGS_JSON'], wahapedia_download=dict(
             info, downloaded_at=datetime.now(timezone.utc).isoformat(timespec='seconds')))
-        status = load_wahapedia(app)
+        status = reference.load(app, wahapedia_too=True).wahapedia_status
         if status.get('error'):
             return jsonify({'error': status['error']}), 400
-        load_reference_data(app, read_data_file(app.config['DATA_JSON']))
         return api_data_status()
 
     # --- Setup: choosing, downloading and re-importing the BSData folder -------------
@@ -829,10 +760,10 @@ def register_routes(app):
             update_settings(settings_file, bsdata_dir=str(folder.resolve()))
         else:
             update_settings(settings_file, bsdata_dir=None)
-        status = reload_bsdata(app)
+        status = reference.load(app, bsdata=True).bsdata_status
         if status.get('error'):  # Keep the folder that worked
             update_settings(settings_file, bsdata_dir=previous)
-            reload_bsdata(app)
+            reference.load(app, bsdata=True)
             return jsonify({'error': status['error']}), 400
         return api_data_status()
 
@@ -840,7 +771,7 @@ def register_routes(app):
     @desktop_only
     def api_bsdata_browse():
         """Open the computer's folder dialog; {'path'} or {'path': null} if cancelled or unavailable."""
-        return jsonify({'path': folder_dialog.choose_folder(initial=app.config.get('BSDATA_DIR'))})
+        return jsonify({'path': folder_dialog.choose_folder(initial=reference.current(app).bsdata_dir)})
 
     @app.route('/api/bsdata/download', methods=['POST'])
     @host_only
@@ -854,7 +785,7 @@ def register_routes(app):
         update_settings(app.config['SETTINGS_JSON'], bsdata_dir=app.config['DOWNLOAD_DIR'], download={
             'sha': commit['sha'], 'date': commit['date'], 'files': count, 'folder': app.config['DOWNLOAD_DIR'],
             'downloaded_at': datetime.now(timezone.utc).isoformat(timespec='seconds')})
-        status = reload_bsdata(app, fresh=True)
+        status = reference.load(app, bsdata='fresh').bsdata_status
         if status.get('error'):
             return jsonify({'error': status['error']}), 400
         return api_data_status()
@@ -863,7 +794,7 @@ def register_routes(app):
     @host_only
     def api_bsdata_reimport():
         """Import the BSData folder again (after changing its files), ignoring the cache."""
-        reload_bsdata(app, fresh=True)
+        reference.load(app, bsdata='fresh')
         return api_data_status()
 
     @app.route('/api/bsdata/skip-setup', methods=['POST'])
@@ -903,7 +834,7 @@ def register_routes(app):
     @app.route('/api/data/export')
     def api_data_export():
         """The current app data JSON (BSData records are left out)."""
-        return jsonify(export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED')))
+        return jsonify(reference.export(app))
 
     @app.route('/api/data/import', methods=['POST'])
     @host_only
@@ -914,7 +845,7 @@ def register_routes(app):
             check_data(data)
         except DataFileError as err:
             return jsonify({'error': str(err)}), 400
-        load_reference_data(app, data)
+        reference.load(app, data=data)
         save_data()
         return jsonify({'message': 'Data imported'})
 

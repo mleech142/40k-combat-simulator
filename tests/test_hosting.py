@@ -94,6 +94,7 @@ def test_hosted_mode_listens_everywhere_on_the_exact_port(run_module, monkeypatc
 
     class FakeApp:
         config = {'DATA_JSON': 'x', 'BSDATA_DIR': 'y'}
+        extensions = {}
 
     monkeypatch.setattr(run_module, 'create_app', lambda: FakeApp)
     monkeypatch.setattr(run_module, 'pick_port', lambda *a, **k: pytest.fail('hosted mode must not pick a port'))
