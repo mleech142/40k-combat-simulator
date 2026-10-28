@@ -304,13 +304,14 @@ test('withLeaderEntries and scaling: the leader is never scaled with the unit', 
 
 test('buildMatrixRequest carries leaders for attackers, their weapons and defenders', () => {
     const request = Core.buildMatrixRequest({
-        attackers: [{ unit_id: 1, unit_name: 'Squad', leader_id: 9, default_models: 5, weapons: [
+        attackers: [{ unit_id: 1, unit_name: 'Squad', leader_id: 9, leader_name: 'Captain', default_models: 5, weapons: [
             { weapon_id: 1, weapon_type: 'ranged', name: 'Rifle', models: 5, include: true },
             { weapon_id: 2, weapon_type: 'ranged', name: 'Pistol', models: 1, include: true, leader: true, leader_name: 'Captain' }] }],
         defenders: [{ unit_id: 3, unit_name: 'Target', model_count: 5, leader_id: 4, leader_name: 'Champion' }],
         weaponTypeFilter: 'both', defenderMode: 'real', attackerTicked: [], defenderTicked: [],
     });
     assert.equal(request.attackers[0].leader_id, 9);
+    assert.equal(request.attackers[0].label, 'Squad + Captain');  // The matrix row says the leader is in it
     assert.deepEqual(request.attackers[0].weapons.map(w => [w.label, w.leader_id]), [['Rifle', 9], ['Pistol (Captain)', 9]]);
     assert.equal(request.defenders[0].leader_id, 4);
     assert.equal(request.defenders[0].label, 'Target (x5) + Champion');

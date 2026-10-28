@@ -57,8 +57,8 @@ def test_factions_are_catalogues_named_without_their_prefix(result):
 
 def test_faction_takes_its_own_and_imported_units_but_not_allies(result):
     assert faction_units(result, 'Starfarers') == [
-        'Beast Pack', 'Field Bunker', 'Field Medic', 'Gun Crew', 'Scout Drone', 'Star Captain', 'Star Lord',
-        'Star Walker [Legends]', 'Void Warriors', 'Wandering Troupe']
+        'Beast Pack', 'Field Bunker', 'Field Medic', 'Gun Crew', 'Scout Drone', 'Shield Brutes', 'Star Captain',
+        'Star Herald', 'Star Lord', 'Star Walker [Legends]', 'Void Warriors', 'Wandering Troupe']
     # Ally Agent is linked from Starfarers, but not one of theirs
     assert faction_units(result, 'Allies') == ['Ally Agent', 'Wandering Troupe']
 
@@ -100,6 +100,30 @@ def test_invulnerable_save_and_feel_no_pain_from_ability_text(result):
     u = unit(result, 'Star Captain')
     assert u['invulnerable_save'] == 4
     assert u['feel_no_pain'] == 5
+
+
+def test_rules_bsdata_hides_for_a_unit_on_its_own_are_left_out(result):
+    # The captain's Feel No Pain 4+ is only while a bodyguard unit is attached (issue #14: Krieg Command Squad)
+    u = unit(result, 'Star Captain')
+    assert u['feel_no_pain'] == 5
+    assert 'Feel No Pain 4+' not in u['abilities']
+
+
+def test_default_options_change_the_stat_line(result):
+    # Issue #13: the Slab shield (the default) gives +1 W, so the datasheet shows 4, not the profile's 3
+    assert unit(result, 'Shield Brutes')['wounds'] == 4
+
+
+def test_options_without_weapons_or_points_stay_in_the_option_tree(result):
+    def options(tree):
+        return {c['name']: c for c in tree.get('children', [])} | {k: v for c in tree.get('children', [])
+                                                                   for k, v in options(c).items()}
+    brutes = options(unit(result, 'Shield Brutes')['wargear'])
+    assert brutes['Slab shield']['stats'] == [['W', 'increment', 1]]
+    assert brutes['Brute shield']['abilities'] == [['Brute Shield', 'The bearer has a 4+ invulnerable save.']]
+    herald = options(unit(result, 'Star Herald')['wargear'])  # Issue #10: the Daemon Prince's allegiance
+    assert herald['Sun God']['keywords'] == ['Sun God', 'Sun God non-Battleline']
+    assert herald['Moon God']['keywords'] == ['Moon God']
 
 
 def test_feel_no_pain_from_core_rule_link_and_legends_flag(result):
@@ -214,6 +238,8 @@ def test_points_for_every_legal_size(result):
 
 def test_repeated_datasheet_surcharge_never_applies_to_a_lone_unit(result):
     assert unit(result, 'Void Warriors')['points_cost'] == 80
+    assert unit(result, 'Void Warriors')['copy_points'] == [0, 0, 10]  # Kept for armies: the third copy costs 10 more
+    assert unit(result, 'Gun Crew')['copy_points'] == []
     assert not any(r[1] == 'Void Warriors' for r in reported(result, 'points'))
 
 

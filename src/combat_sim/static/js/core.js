@@ -528,7 +528,7 @@
     function buildMatrixRequest(page) {
         const filter = page.weaponTypeFilter || 'both';
         const attackers = page.attackers.map((atk, a) => ({
-            label: copyLabel(page.attackers, a),
+            label: copyLabel(page.attackers, a) + (atk.leader_id && atk.leader_name ? ` + ${atk.leader_name}` : ''),
             unit_id: atk.unit_id,
             leader_id: atk.leader_id || null,
             enhancements: enhancementRefs(atk),

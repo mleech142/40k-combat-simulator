@@ -72,3 +72,24 @@ def test_page_and_missing_army(client):
     assert page.status_code == 200 and b'match.js' in page.data
     assert client.get('/armies/9999/match').status_code == 404
     assert client.get('/api/armies/9999/match').status_code == 404
+
+
+def test_chosen_wargear_changes_the_datasheet(client):
+    # Issue #13: a shield choice shows in the characteristics and abilities, not only the defaults' Slab shield
+    factions = {f['name']: f['id'] for f in client.get('/api/data/factions').get_json()}
+    units = {u['name']: u['id'] for u in client.get(f'/api/units?faction_id={factions["Starfarers"]}').get_json()}
+    form = client.post('/api/armies/wargear', json={'unit_id': units['Shield Brutes'], 'models': 3}).get_json()['form']
+    k = {m['name']: m['k'] for s in form for m in s['members']}
+
+    def sheet(wargear):
+        _, view = saved_match(client, warlord=None, units=[{'uid': 'b', 'unit_id': units['Shield Brutes'], 'models': 3,
+                                                            'wargear': wargear}])
+        return view['units'][0]
+
+    plain = sheet(None)
+    assert (plain['stats']['wounds'], plain['stats']['invulnerable_save']) == (4, None)  # Slab shields: W 4
+    assert [a['name'] for a in plain['abilities']] == ['Slab Shield']
+    brute = sheet({k['Brute shield']: 2})  # Most of the unit now has Brute shields
+    assert (brute['stats']['wounds'], brute['stats']['invulnerable_save']) == (3, 4)
+    assert [a['name'] for a in brute['abilities']] == ['Slab Shield', 'Brute Shield']
+    assert brute['wargear_summary'] == '2× Brute shield'

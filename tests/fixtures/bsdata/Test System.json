@@ -25,7 +25,37 @@
   "profileTypes": [
    {
     "name": "Unit",
-    "id": "pt-unit"
+    "id": "pt-unit",
+    "characteristicTypes": [
+     {
+      "name": "M",
+      "id": "ct-m"
+     },
+     {
+      "name": "T",
+      "id": "ct-t"
+     },
+     {
+      "name": "Sv",
+      "id": "ct-sv"
+     },
+     {
+      "name": "W",
+      "id": "ct-w"
+     },
+     {
+      "name": "LD",
+      "id": "ct-ld"
+     },
+     {
+      "name": "OC",
+      "id": "ct-oc"
+     },
+     {
+      "name": "InSv",
+      "id": "ct-insv"
+     }
+    ]
    },
    {
     "name": "Ranged Weapons",
@@ -86,6 +116,18 @@
    {
     "name": "Support",
     "id": "k-support"
+   },
+   {
+    "name": "Sun God",
+    "id": "k-god-sun"
+   },
+   {
+    "name": "Moon God",
+    "id": "k-god-moon"
+   },
+   {
+    "name": "Sun God non-Battleline",
+    "id": "k-god-sun-helper"
    }
   ]
  }

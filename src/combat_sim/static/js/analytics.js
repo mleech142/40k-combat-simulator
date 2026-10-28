@@ -867,7 +867,9 @@
 
         // One row per attacker unit, optionally followed by its weapons
         attackers.forEach((atk, a) => {
-            html += `<tr class="matrix-unit-row"><th class="matrix-row-header" title="${escapeHtml(atk.label)}">${escapeHtml(truncate(atk.label, 28))}</th>`;
+            const [unitName, ...leaders] = atk.label.split(' + ');  // "Squad + Its leader": the leader on its own line
+            const leaderLine = leaders.length ? `<span class="matrix-weight">+ ${escapeHtml(truncate(leaders.join(' + '), 30))}</span>` : '';
+            html += `<tr class="matrix-unit-row"><th class="matrix-row-header" title="${escapeHtml(atk.label)}">${escapeHtml(truncate(unitName, 28))}${leaderLine}</th>`;
             matrix[a].forEach((cell, d) => { html += cellHtml(cell, 'unit', a, -1, d, atk.label); });
             html += '</tr>';
 

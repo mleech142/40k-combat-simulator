@@ -52,6 +52,22 @@ def test_pricing_and_sizes(client):
     assert priced['faction'] == 'Starfarers'
 
 
+def test_later_copies_of_a_datasheet_cost_what_bsdata_adds(client):
+    # Issue #15: BSData's "+10 pts with two copies before it" applies to the third Void Warriors in list order
+    factions, units = ids(client)
+    priced = price(client, army(factions, *[{'uid': u, 'unit_id': units['Void Warriors']} for u in 'abc'],
+                                {'uid': 'd', 'unit_id': units['Void Warriors'], 'models': 7}))
+    entries = {e['uid']: e for e in priced['units']}
+    assert [entries[u]['points'] for u in 'abcd'] == [80, 80, 90, 170]
+    assert entries['c']['size_points'][:2] == [90, 170]
+    assert priced['total'] == 420
+    # With wargear chosen too
+    choices = client.post('/api/armies/wargear', json={'unit_id': units['Void Warriors'], 'models': 5}).get_json()['wargear']
+    assert choices
+    chosen = price(client, army(factions, *[{'uid': u, 'unit_id': units['Void Warriors'], 'wargear': choices} for u in 'abc']))
+    assert [e['points'] for e in chosen['units']] == [80, 80, 90]
+
+
 def test_checks(client):
     factions, units = ids(client)
     over = price(client, army(factions, {'unit_id': units['Gun Crew'], 'models': 4}, limit=100))
@@ -279,7 +295,7 @@ def test_enhancements_offered_and_checked(client):
     entries = {e['uid']: e for e in priced['units']}
     assert [o['key'] for o in entries['c']['enhancement_options']] == ['enh-void-blade']  # Its detachment's only
     assert entries['l']['enhancement_options'] == []  # An Epic Hero
-    assert [o['key'] for o in entries['g']['enhancement_options']] == ['enh-sights']  # Its own Upgrade
+    assert [o['key'] for o in entries['g']['enhancement_options']] == ['enh-line-banner', 'enh-sights']  # Its Upgrade too
     assert (entries['c']['unit_points'], entries['c']['enhancement_points'], entries['c']['points']) == (70, 20, 90)
     assert priced['total'] == 90 + 120 + 65 and priced['problems'] == []
     assert (priced['enhancement_count'], priced['enhancement_limit']) == (1, 4)
@@ -294,6 +310,27 @@ def test_enhancements_offered_and_checked(client):
     assert "Star Lord: Epic Heroes can't be given enhancements." in problems
     assert 'Bastion Ward is taken 2 times; at most 1.' in problems
     assert not any(p.startswith('Star Captain') for p in problems)
+
+
+def test_enhancements_for_given_non_character_units(client):
+    # Issue #11: Warptide's enhancements go on its Battleline units (only theirs link to them), not on Characters,
+    # up to three in an army, counting as one enhancement
+    factions, units = ids(client)
+    lines = [{'uid': f'v{i}', 'unit_id': units['Void Warriors'], 'enhancement': 'enh-line-banner'} for i in range(3)]
+    priced = price(client, army(factions, *lines, {'uid': 'c', 'unit_id': units['Star Captain']},
+                                detachment_keys=['d-vanguard'], warlord='c'))
+    entries = {e['uid']: e for e in priced['units']}
+    assert [o['key'] for o in entries['v0']['enhancement_options']] == ['enh-line-banner']
+    assert 'enh-line-banner' not in [o['key'] for o in entries['c']['enhancement_options']]
+    assert priced['problems'] == [] and priced['enhancement_count'] == 1
+    assert entries['v0']['points'] == 90
+
+    four = price(client, army(factions, *lines, dict(lines[0], uid='v3'), detachment_keys=['d-vanguard']))
+    assert 'Line Banner is taken 4 times; at most 3.' in four['problems']
+    captain = price(client, army(factions, {'uid': 'c', 'unit_id': units['Star Captain'], 'enhancement': 'enh-line-banner'},
+                                 detachment_keys=['d-vanguard'], warlord='c'))
+    assert captain['problems'] == ["Star Captain: Line Banner isn't for Star Captain."]
+    assert price(client, army(factions, lines[0]))['problems'] == ['Void Warriors: Line Banner needs its detachment.']
 
 
 def test_enhancement_limit_and_upgrades(client):
