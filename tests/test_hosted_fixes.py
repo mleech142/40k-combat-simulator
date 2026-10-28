@@ -108,15 +108,6 @@ def test_wrong_passwords_from_one_device_dont_lock_out_another(host):
                         headers={'X-Forwarded-For': '100.64.0.5'}).status_code == 200
 
 
-@pytest.mark.parametrize('path,prefixes,inside', [
-    ('/setup', ('/setup',), True), ('/setup/x', ('/setup',), True), ('/setupx', ('/setup',), False),
-    ('/login', ('/login',), True), ('/loginx', ('/login',), False), ('/api/auth/joinx', ('/api/auth/join',), False),
-    ('/join/abc', ('/join/',), True), ('/api/bsdata/reimport', ('/api/bsdata/',), True),
-])
-def test_path_rules_match_whole_segments(path, prefixes, inside):
-    assert accounts.path_in(path, prefixes) is inside
-
-
 def test_look_alike_paths_arent_open(host):
     stranger = host.application.test_client()
     assert stranger.get('/loginx').status_code == 302  # to the login page, not a 404 left open

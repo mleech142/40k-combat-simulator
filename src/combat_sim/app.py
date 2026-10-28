@@ -20,7 +20,9 @@ from .effects import RULE_PHASES
 from .rules_text import ability_buffs
 from .play.routes import register_play_routes
 from .proposals import register_proposal_routes
-from .accounts import current_user, mine_or_404, only_mine, owner_id, owner_names, owns, register_account_routes, secret_key
+from . import access
+from .access import desktop_only, host_only, proposable
+from .accounts import register_account_routes, secret_key
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
@@ -72,10 +74,10 @@ def create_app(config=None):
         return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
                 'bsdata_label': bsdata_label(app),
                 'hosted': app.config['HOSTED'],
-                'user': current_user(),
-                'can_setup': not app.config['HOSTED'] or bool(current_user() and current_user().is_host),
+                'user': access.viewer(),
+                'can_setup': access.is_host(),
                 'pending_proposals': (Proposal.query.filter_by(status='pending').count()
-                                      if current_user() and current_user().is_host else 0),
+                                      if app.config['HOSTED'] and access.is_host() else 0),
                 'show_play': bool(load_settings(app.config['SETTINGS_JSON']).get('show_play')),
                 'wahapedia_label': (last_update[:10] or 'loaded') if wahapedia_loaded else None}
 
@@ -93,6 +95,7 @@ def create_app(config=None):
     register_play_routes(app)
     register_account_routes(app)
     register_proposal_routes(app)
+    access.register(app)  # last: it checks every route is labelled
 
     return app
 
@@ -320,7 +323,7 @@ def register_routes(app):
         """Main simulation page (the Setup page until BSData loads or the user skips it)."""
         status = app.config.get('BSDATA_STATUS') or {}
         if (not status.get('loaded') and not load_settings(app.config['SETTINGS_JSON']).get('setup_skipped')
-                and (not app.config['HOSTED'] or current_user().is_host)):
+                and access.is_host()):
             return redirect('/setup')
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
@@ -662,7 +665,7 @@ def register_routes(app):
             defender_config=data['defender'],
             battle_conditions=data['conditions'],
             results=data.get('results'),
-            owner_id=owner_id(),
+            owner_id=access.stamp(),
         )
         db.session.add(scenario)
         db.session.commit()
@@ -672,7 +675,7 @@ def register_routes(app):
     @app.route('/api/scenarios/<int:scenario_id>', methods=['DELETE'])
     def api_delete_scenario(scenario_id):
         """Delete a scenario."""
-        scenario = mine_or_404(SavedScenario, scenario_id)
+        scenario = access.get(SavedScenario, scenario_id, write=True)
         db.session.delete(scenario)
         db.session.commit()
         return jsonify({'message': 'Scenario deleted'})
@@ -747,7 +750,7 @@ def register_routes(app):
 
     def without_paths(status):
         """A self-hosted copy shows where its files are on the server to the host alone."""
-        if not app.config['HOSTED'] or (current_user() and current_user().is_host):
+        if access.is_host():
             return status
         def strip(d):
             return {k: (strip(v) if isinstance(v, dict) else v) for k, v in d.items() if k not in PATH_KEYS}
@@ -782,6 +785,7 @@ def register_routes(app):
         }
 
     @app.route('/api/wahapedia/download', methods=['POST'])
+    @host_only
     def api_wahapedia_download():
         """Download the latest rules and stratagems from Wahapedia and use them."""
         try:
@@ -802,14 +806,16 @@ def register_routes(app):
         return jsonify({'error': f'{what} is turned off on a self-hosted copy (hosted mode).'}), 403
 
     @app.route('/setup')
+    @host_only
     def setup_page():
         return render_template('setup.html')
 
     @app.route('/api/bsdata/folder', methods=['POST'])
+    @host_only
     def api_bsdata_folder():
         """Use the BSData folder {'path'} (null = back to the default), if it loads."""
         path = (request.get_json() or {}).get('path')
-        if path and app.config['HOSTED']:
+        if path and access.hosted():
             return hosted_refusal('Choosing a BSData folder by path')
         settings_file = app.config['SETTINGS_JSON']
         previous = load_settings(settings_file).get('bsdata_dir')
@@ -831,13 +837,13 @@ def register_routes(app):
         return api_data_status()
 
     @app.route('/api/bsdata/browse', methods=['POST'])
+    @desktop_only
     def api_bsdata_browse():
         """Open the computer's folder dialog; {'path'} or {'path': null} if cancelled or unavailable."""
-        if app.config['HOSTED']:
-            return hosted_refusal('The folder dialog')
         return jsonify({'path': folder_dialog.choose_folder(initial=app.config.get('BSDATA_DIR'))})
 
     @app.route('/api/bsdata/download', methods=['POST'])
+    @host_only
     def api_bsdata_download():
         """Download the latest catalogues from GitHub into the download folder and use it."""
         try:
@@ -854,12 +860,14 @@ def register_routes(app):
         return api_data_status()
 
     @app.route('/api/bsdata/reimport', methods=['POST'])
+    @host_only
     def api_bsdata_reimport():
         """Import the BSData folder again (after changing its files), ignoring the cache."""
         reload_bsdata(app, fresh=True)
         return api_data_status()
 
     @app.route('/api/bsdata/skip-setup', methods=['POST'])
+    @host_only
     def api_bsdata_skip_setup():
         """Use the app without BSData for now: the Simulator stops redirecting to Setup."""
         update_settings(app.config['SETTINGS_JSON'], setup_skipped=True)
@@ -898,6 +906,7 @@ def register_routes(app):
         return jsonify(export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED')))
 
     @app.route('/api/data/import', methods=['POST'])
+    @host_only
     def api_data_import():
         """Replace all app data with an uploaded app data JSON (BSData stays as loaded)."""
         data = request.get_json()
@@ -954,6 +963,7 @@ def register_routes(app):
         return jsonify({'army_rules': faction.army_rules or [], 'detachments': [d.to_dict() for d in detachments]})
 
     @app.route('/api/data/factions', methods=['POST'])
+    @proposable
     def api_data_create_faction():
         """Create a new (custom) faction."""
         data = request.get_json()
@@ -963,6 +973,7 @@ def register_routes(app):
         return jsonify({'id': faction.id, 'name': faction.name})
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['PUT'])
+    @proposable
     def api_data_update_faction(faction_id):
         """Rename a custom faction."""
         faction = db.get_or_404(Faction, faction_id)
@@ -974,6 +985,7 @@ def register_routes(app):
         return jsonify({'id': faction.id, 'name': faction.name})
 
     @app.route('/api/data/factions/<int:faction_id>', methods=['DELETE'])
+    @proposable
     def api_data_delete_faction(faction_id):
         """Delete a custom faction with its units, weapons, rules and stratagems."""
         faction = db.get_or_404(Faction, faction_id)
@@ -1021,6 +1033,7 @@ def register_routes(app):
         return jsonify([r.to_dict() for r in query.order_by(FactionRule.name).all()])
 
     @app.route('/api/data/rules', methods=['POST'])
+    @proposable
     def api_data_create_rule():
         data = request.get_json()
         rule = FactionRule(faction_id=int(data['faction_id']))
@@ -1030,6 +1043,7 @@ def register_routes(app):
         return jsonify(rule.to_dict())
 
     @app.route('/api/data/rules/<int:rule_id>', methods=['PUT'])
+    @proposable
     def api_data_update_rule(rule_id):
         rule = db.get_or_404(FactionRule, rule_id)
         if rule.source == 'wahapedia':
@@ -1039,6 +1053,7 @@ def register_routes(app):
         return jsonify(rule.to_dict())
 
     @app.route('/api/data/rules/<int:rule_id>', methods=['DELETE'])
+    @proposable
     def api_data_delete_rule(rule_id):
         rule = db.get_or_404(FactionRule, rule_id)
         if rule.source == 'wahapedia':
@@ -1092,6 +1107,7 @@ def register_routes(app):
         return jsonify([s.to_dict() for s in query.order_by(Stratagem.name).all()])
 
     @app.route('/api/data/stratagems', methods=['POST'])
+    @proposable
     def api_data_create_stratagem():
         data = request.get_json()
         strat = Stratagem(faction_id=int_or_none(data.get('faction_id')))
@@ -1101,6 +1117,7 @@ def register_routes(app):
         return jsonify(strat.to_dict())
 
     @app.route('/api/data/stratagems/<int:strat_id>', methods=['PUT'])
+    @proposable
     def api_data_update_stratagem(strat_id):
         strat = db.get_or_404(Stratagem, strat_id)
         if strat.source == 'wahapedia':
@@ -1110,6 +1127,7 @@ def register_routes(app):
         return jsonify(strat.to_dict())
 
     @app.route('/api/data/stratagems/<int:strat_id>', methods=['DELETE'])
+    @proposable
     def api_data_delete_stratagem(strat_id):
         strat = db.get_or_404(Stratagem, strat_id)
         if strat.source == 'wahapedia':
@@ -1178,6 +1196,7 @@ def register_routes(app):
             unit.set_loadout(weapon_type, [e for e in entries if int(e['weapon_id']) in allowed])
 
     @app.route('/api/data/units', methods=['POST'])
+    @proposable
     def api_data_create_unit():
         """Create a new unit in a custom faction."""
         data = request.get_json()
@@ -1192,6 +1211,7 @@ def register_routes(app):
         return jsonify({'id': unit.id, 'message': 'Unit created'})
 
     @app.route('/api/data/units/<int:unit_id>', methods=['PUT'])
+    @proposable
     def api_data_update_unit(unit_id):
         """
         Update a custom unit and its loadout. A BSData unit only takes 'added_modifiers' and
@@ -1219,6 +1239,7 @@ def register_routes(app):
         return jsonify({'id': unit.id, 'message': 'Unit updated'})
 
     @app.route('/api/data/units/<int:unit_id>', methods=['DELETE'])
+    @proposable
     def api_data_delete_unit(unit_id):
         """Delete a custom unit. Its faction's weapons stay."""
         unit = db.get_or_404(Unit, unit_id)
@@ -1313,6 +1334,7 @@ def register_routes(app):
             weapon.weapon_skill = skill
 
     @app.route('/api/data/weapons', methods=['POST'])
+    @proposable
     def api_data_create_weapon():
         """Create a new weapon for a custom faction."""
         data = request.get_json()
@@ -1332,6 +1354,7 @@ def register_routes(app):
         return jsonify(weapon_dict(db.get_or_404(model, weapon_id)))
 
     @app.route('/api/data/weapons/<weapon_type>/<int:weapon_id>', methods=['PUT'])
+    @proposable
     def api_data_update_weapon(weapon_type, weapon_id):
         """Update a weapon. Moving it to another faction drops it from other factions' units."""
         weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
@@ -1351,6 +1374,7 @@ def register_routes(app):
         return jsonify({'id': weapon.id, 'message': 'Weapon updated'})
 
     @app.route('/api/data/weapons/<weapon_type>/<int:weapon_id>', methods=['DELETE'])
+    @proposable
     def api_data_delete_weapon(weapon_type, weapon_id):
         """Delete a weapon and remove it from every loadout."""
         weapon_type = 'ranged' if weapon_type == 'ranged' else 'melee'
@@ -1366,7 +1390,7 @@ def register_routes(app):
     @app.route('/api/scenarios/<int:scenario_id>', methods=['PUT'])
     def api_update_scenario(scenario_id):
         """Update a scenario."""
-        scenario = mine_or_404(SavedScenario, scenario_id)
+        scenario = access.get(SavedScenario, scenario_id, write=True)
         data = request.get_json()
 
         if 'name' in data:
@@ -1386,7 +1410,7 @@ def register_routes(app):
     @app.route('/api/scenarios')
     def api_get_scenarios():
         """Get all scenarios with full config."""
-        scenarios = only_mine(SavedScenario.query, SavedScenario).order_by(SavedScenario.created_at.desc()).all()
+        scenarios = access.listed(SavedScenario, SavedScenario.query.order_by(SavedScenario.created_at.desc()))
         return jsonify([{
             'id': s.id,
             'name': s.name,
@@ -1928,30 +1952,24 @@ def register_routes(app):
     def saved_army_response(saved):
         """A saved army with its prices and problems (its units priced too)."""
         army = saved.to_dict()
-        whose = owner_names().get(saved.owner_id) if app.config['HOSTED'] else None
-        return jsonify(dict(army, **armies.price_army(army), mine=owns(saved), owner=whose))
+        whose = access.owner_names().get(saved.owner_id) if access.hosted() else None
+        return jsonify(dict(army, **armies.price_army(army), mine=access.can_write(saved), owner=whose))
 
-    def own_army_or_error(army_id):
-        """(a saved army of yours, None) or (None, the error): another player's army is read-only."""
-        saved = db.get_or_404(SavedArmy, army_id)
-        if not owns(saved):
-            return None, (jsonify({'error': "This army is another player's: copy it to make one you can change."}), 403)
-        return saved, None
 
     @app.route('/api/armies')
     def api_list_armies():
         """Saved armies, newest first, with their faction and points. On a self-hosted copy, every player's: 'mine'
         says which are yours, 'owner' whose the others are (read-only; a copy is yours)."""
         names = {f.id: f.name for f in Faction.query}
-        players = owner_names() if app.config['HOSTED'] else {}
+        players = access.owner_names() if access.hosted() else {}
         out = []
         for saved in SavedArmy.query.order_by(SavedArmy.updated_at.desc(), SavedArmy.id.desc()):
             priced = armies.price_army(saved.to_dict())
             out.append({'id': saved.id, 'name': saved.name, 'faction': names.get(saved.faction_id),
                         'detachment': priced['detachment'], 'total': priced['total'],
                         'points_limit': saved.points_limit, 'unit_count': len(saved.units or []),
-                        'problem_count': len(priced['problems']), 'mine': owns(saved),
-                        'owner': players.get(saved.owner_id) if app.config['HOSTED'] else None})
+                        'problem_count': len(priced['problems']), 'mine': access.can_write(saved),
+                        'owner': players.get(saved.owner_id) if access.hosted() else None})
         out.sort(key=lambda a: not a['mine'])  # Yours first
         return jsonify(out)
 
@@ -2014,30 +2032,28 @@ def register_routes(app):
         army, error = army_from_request()
         if error:
             return error
-        saved = SavedArmy(**army, owner_id=owner_id())
+        saved = SavedArmy(**army, owner_id=access.stamp())
         db.session.add(saved)
         db.session.commit()
         return saved_army_response(saved)
 
     @app.route('/api/armies/<int:army_id>')
     def api_get_army(army_id):
-        return saved_army_response(db.get_or_404(SavedArmy, army_id))
+        return saved_army_response(access.get(SavedArmy, army_id))
 
     @app.route('/armies/<int:army_id>/match')
     def army_match_page(army_id):
-        saved = db.get_or_404(SavedArmy, army_id)
+        saved = access.get(SavedArmy, army_id)
         return render_template('match.html', army_id=saved.id, army_name=saved.name)
 
     @app.route('/api/armies/<int:army_id>/match')
     def api_army_match(army_id):
         """A saved army's Match view: its units' datasheets, rules, enhancements and stratagems (match_view.py)."""
-        return jsonify(match_view.match_view(db.get_or_404(SavedArmy, army_id).to_dict()))
+        return jsonify(match_view.match_view(access.get(SavedArmy, army_id).to_dict()))
 
     @app.route('/api/armies/<int:army_id>', methods=['PUT'])
     def api_update_army(army_id):
-        saved, error = own_army_or_error(army_id)
-        if error:
-            return error
+        saved = access.get(SavedArmy, army_id, write=True)
         army, error = army_from_request()
         if error:
             return error
@@ -2048,20 +2064,18 @@ def register_routes(app):
 
     @app.route('/api/armies/<int:army_id>/copy', methods=['POST'])
     def api_copy_army(army_id):
-        saved = db.get_or_404(SavedArmy, army_id)
+        saved = access.get(SavedArmy, army_id)
         copy = SavedArmy(name=f'{saved.name} (copy)'[:200], faction_id=saved.faction_id,
                          detachment_keys=saved.to_dict()['detachment_keys'], points_limit=saved.points_limit,
                          warlord=saved.warlord, disposition=saved.disposition,
-                         units=list(saved.units or []), owner_id=owner_id())
+                         units=list(saved.units or []), owner_id=access.stamp())
         db.session.add(copy)
         db.session.commit()
         return saved_army_response(copy)
 
     @app.route('/api/armies/<int:army_id>', methods=['DELETE'])
     def api_delete_army(army_id):
-        saved, error = own_army_or_error(army_id)
-        if error:
-            return error
+        saved = access.get(SavedArmy, army_id, write=True)
         db.session.delete(saved)
         db.session.commit()
         return jsonify({'message': 'Army deleted'})
@@ -2069,7 +2083,7 @@ def register_routes(app):
     @app.route('/api/comparisons', methods=['GET'])
     def api_list_comparisons():
         """List saved matrix comparisons."""
-        comparisons = only_mine(SavedComparison.query, SavedComparison).order_by(SavedComparison.created_at.desc()).all()
+        comparisons = access.listed(SavedComparison, SavedComparison.query.order_by(SavedComparison.created_at.desc()))
         return jsonify([{
             'id': c.id,
             'name': c.name,
@@ -2089,7 +2103,7 @@ def register_routes(app):
             defenders=data['defenders'],
             battle_conditions=data['conditions'],
             results=data.get('results'),
-            owner_id=owner_id(),
+            owner_id=access.stamp(),
         )
         db.session.add(comparison)
         db.session.commit()
@@ -2099,7 +2113,7 @@ def register_routes(app):
     @app.route('/api/comparisons/<int:comparison_id>')
     def api_get_comparison(comparison_id):
         """Get a specific comparison with full config."""
-        c = mine_or_404(SavedComparison, comparison_id)
+        c = access.get(SavedComparison, comparison_id)
         return jsonify({
             'id': c.id,
             'name': c.name,
@@ -2113,7 +2127,7 @@ def register_routes(app):
     @app.route('/api/comparisons/<int:comparison_id>', methods=['DELETE'])
     def api_delete_comparison(comparison_id):
         """Delete a comparison."""
-        comparison = mine_or_404(SavedComparison, comparison_id)
+        comparison = access.get(SavedComparison, comparison_id, write=True)
         db.session.delete(comparison)
         db.session.commit()
         return jsonify({'message': 'Comparison deleted'})

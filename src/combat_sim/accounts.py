@@ -6,8 +6,8 @@ Named players on a self-hosted copy (hosted mode; docs/self-hosting.md, hosted-v
   forgotten password is reset.
 - Logins are a session cookie holding the player's ID and `session_key`; changing the key (new password, removal)
   logs out every browser they use. The cookie is SameSite=Lax, and writes from other sites are refused.
-- Host only: Setup and its downloads, the Play menu setting, the Players page and importing app data. A player's
-  other app data writes become proposals for the host (proposals.py).
+- Who may do what (host-only routes, proposals, whose records are whose) is access.py's; this module only says
+  who is logged in (`load_session_user`, called by access.py's gate).
 
 Outside hosted mode none of this runs: there is no login.
 """
@@ -22,11 +22,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import abort, current_app, g, jsonify, redirect, render_template, request, session, url_for
-from sqlalchemy import or_
+from flask import g, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import mail
+from .access import host_only, open_to_all, viewer
 from .models import User, db
 
 SECRET_KEY_FILE = 'secret_key'
@@ -39,13 +39,6 @@ LOGIN_WAIT = 60  # seconds
 LOGIN_MEMORY = 15 * 60  # seconds a wrong password is remembered
 LOGIN_KEYS = 10_000  # most names and devices remembered at once
 
-# Reachable without logging in
-OPEN_PATHS = ('/login', '/welcome', '/join/', '/api/auth/login', '/api/auth/welcome', '/api/auth/join', '/static/')
-# The host's alone (prefixes; app data writes are checked by method below)
-HOST_PATHS = ('/setup', '/api/bsdata/', '/api/wahapedia/', '/api/play/setting', '/api/play/relay', '/players',
-              '/api/players')
-SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS')
-
 _failed = {}  # (name_key, device) -> (count, time of the last failure)
 _failed_lock = threading.Lock()
 _welcome_lock = threading.Lock()  # one host, even if two people send the Welcome form together
@@ -57,12 +50,6 @@ def device():
     if request.remote_addr in ('127.0.0.1', '::1') and request.access_route:
         return request.access_route[0]
     return request.remote_addr or ''
-
-
-def path_in(path, prefixes):
-    """Whether `path` is one of `prefixes` or below one, by whole path segments ('/setup' and '/setup/x', never
-    '/setupx'); a prefix ending in '/' matches anything below it."""
-    return any(path == p.rstrip('/') or path.startswith(p if p.endswith('/') else p + '/') for p in prefixes)
 
 
 def new_setup_code():
@@ -144,74 +131,17 @@ def log_in(user):
     session['key'] = user.session_key
 
 
-def current_user():
-    """The logged-in player of this request (hosted mode), or None."""
-    return getattr(g, 'user', None)
-
-
-def is_host():
-    user = current_user()
-    return bool(user and user.is_host)
-
-
-# --- What belongs to whom (step c) ------------------------------------------------
-# Saved armies, scenarios, comparisons, battlefields and games have an `owner_id`: the player who made them, None
-# for rows from before (the host's). Outside hosted mode everything is the one user's.
-
-def hosted():
-    return bool(current_app.config.get('HOSTED'))
-
-
-def owner_id():
-    """The owner to stamp on a new saved record (None outside hosted mode)."""
-    user = current_user()
-    return user.id if hosted() and user else None
-
-
-def owns(record):
-    if not hosted():
-        return True
-    user = current_user()
-    return bool(user) and (record.owner_id == user.id or (record.owner_id is None and user.is_host))
-
-
-def only_mine(query, model):
-    """`query` narrowed to the current player's records (unchanged outside hosted mode)."""
-    if not hosted():
-        return query
-    user = current_user()
-    mine = model.owner_id == user.id
-    return query.filter(or_(mine, model.owner_id.is_(None)) if user.is_host else mine)
-
-
-def mine_or_404(model, ident):
-    """A record of the current player's (another player's is as good as missing)."""
-    record = db.get_or_404(model, ident)
-    if not owns(record):
-        abort(404)
-    return record
-
-
-def owner_names():
-    """{player ID (None: the host): name}, for showing whose a record is."""
-    names = {u.id: u.name for u in User.query}
-    host = User.query.filter_by(is_host=True).first()
-    names[None] = host.name if host else None
-    return names
-
-
-def cross_site():
-    """Whether a write came from another site's page (the cookie alone mustn't be enough)."""
-    if request.headers.get('Sec-Fetch-Site') in ('cross-site', 'same-site'):
-        return True
-    origin = request.headers.get('Origin')
-    if origin and origin != 'null':
-        return urlsplit(origin).netloc.lower() != request.host.lower()
-    return origin == 'null'
-
-
-def wants_page():
-    return not request.path.startswith('/api/')
+def load_session_user():
+    """Who this request's login cookie says is logged in (g.user), if the login is still good: their password
+    hasn't changed and they haven't been removed since."""
+    uid = session.get('uid')
+    if uid is None:
+        return
+    user = db.session.get(User, uid)
+    if user and user.password_hash and user.session_key and session.get('key') == user.session_key:
+        g.user = user
+    else:
+        session.clear()
 
 
 def register_account_routes(app):
@@ -226,38 +156,6 @@ def register_account_routes(app):
     with app.app_context():
         app.config['SETUP_CODE'] = None if User.query.count() else new_setup_code()  # run.py prints it
 
-    @app.before_request
-    def gate():
-        g.user = None
-        if request.method not in SAFE_METHODS and cross_site():
-            return jsonify({'error': 'Refused: that request came from another site.'}), 403
-        uid = session.get('uid')
-        if uid is not None:
-            user = db.session.get(User, uid)
-            if user and user.password_hash and user.session_key and session.get('key') == user.session_key:
-                g.user = user
-            else:
-                session.clear()
-        path = request.path
-        if path_in(path, OPEN_PATHS):
-            return None
-        if g.user is None:
-            no_host = User.query.count() == 0
-            if wants_page():
-                return redirect('/welcome' if no_host else url_for('login_page', next=request.full_path.rstrip('?')))
-            return jsonify({'error': 'Log in first.', 'login': True}), 401
-        data_write = path.startswith('/api/data/') and request.method not in SAFE_METHODS
-        if data_write and not g.user.is_host and path != '/api/data/import':
-            from .proposals import propose  # a player's edit waits for the host
-            return propose()
-        host_only = path_in(path, HOST_PATHS) or data_write
-        if host_only and not g.user.is_host:
-            message = 'Only the host can do that.'
-            if wants_page():
-                return render_template('account.html', mode='refused', message=message), 403
-            return jsonify({'error': message}), 403
-        return None
-
     def form():
         return request.get_json(silent=True) or {}
 
@@ -267,12 +165,14 @@ def register_account_routes(app):
     # --- Logging in ---------------------------------------------------------------
 
     @app.route('/welcome')
+    @open_to_all
     def welcome_page():
         if User.query.count():
             return redirect('/login')
         return render_template('account.html', mode='welcome')
 
     @app.route('/api/auth/welcome', methods=['POST'])
+    @open_to_all
     def api_auth_welcome():
         """Create the host: only while the copy has no players at all, with the setup code from its log."""
         data = form()
@@ -298,12 +198,14 @@ def register_account_routes(app):
         return jsonify(user.to_dict())
 
     @app.route('/login')
+    @open_to_all
     def login_page():
         if not User.query.count():
             return redirect('/welcome')
         return render_template('account.html', mode='login')
 
     @app.route('/api/auth/login', methods=['POST'])
+    @open_to_all
     def api_auth_login():
         data = form()
         key = ' '.join(str(data.get('name') or '').split()).lower()
@@ -332,11 +234,13 @@ def register_account_routes(app):
         return jsonify({'message': 'Logged out'})
 
     @app.route('/join/<token>')
+    @open_to_all
     def join_page(token):
         user = user_for_token(token)
         return render_template('account.html', mode='join' if user else 'bad-link', player=user)
 
     @app.route('/api/auth/join', methods=['POST'])
+    @open_to_all
     def api_auth_join():
         """Choose a password with a join link (a first one, or a new one the host sent)."""
         data = form()
@@ -362,12 +266,12 @@ def register_account_routes(app):
 
     @app.route('/api/auth/me')
     def api_auth_me():
-        return jsonify(current_user().to_dict())
+        return jsonify(viewer().to_dict())
 
     @app.route('/api/auth/account', methods=['POST'])
     def api_auth_account():
         """Change your email, "your move" emails ('notify'), or your password (with the current one)."""
-        user, data = current_user(), form()
+        user, data = viewer(), form()
         try:
             if 'email' in data:
                 user.email = clean_email(data.get('email'))
@@ -388,14 +292,17 @@ def register_account_routes(app):
     # --- The host's Players page ---------------------------------------------------
 
     @app.route('/players')
+    @host_only
     def players_page():
         return render_template('account.html', mode='players')
 
     @app.route('/api/players')
+    @host_only
     def api_players():
         return jsonify([u.to_dict() for u in User.query.filter(User.removed.isnot(True)).order_by(User.name_key)])
 
     @app.route('/api/players', methods=['POST'])
+    @host_only
     def api_add_player():
         """Add a player {name, email}; the answer has their join link to send them."""
         data = form()
@@ -418,6 +325,7 @@ def register_account_routes(app):
         return user, None
 
     @app.route('/api/players/<int:player_id>/link', methods=['POST'])
+    @host_only
     def api_player_link(player_id):
         """A new join link for a player who lost theirs or forgot their password (their password works until it's used)."""
         user, failed = player_or_404(player_id)
@@ -428,6 +336,7 @@ def register_account_routes(app):
         return jsonify(dict(user.to_dict(), link=link))
 
     @app.route('/api/players/<int:player_id>', methods=['PUT'])
+    @host_only
     def api_update_player(player_id):
         user, failed = player_or_404(player_id)
         if failed:
@@ -440,6 +349,7 @@ def register_account_routes(app):
         return jsonify(user.to_dict())
 
     @app.route('/api/players/<int:player_id>', methods=['DELETE'])
+    @host_only
     def api_remove_player(player_id):
         user, failed = player_or_404(player_id)
         if failed:

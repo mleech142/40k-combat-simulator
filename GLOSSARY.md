@@ -29,3 +29,24 @@ _Avoid_: Prompt, interrupt, live mode
 A choice a player sets in advance that answers a reaction window, or a defender's decision, without asking them,
 such as "Overwatch with this unit if it's charged" or "remove casualties from the back".
 _Avoid_: Default, auto-reaction, pre-set
+
+### A self-hosted copy: who's who
+
+**Copy**:
+One running install of the app with its own data: a desktop install used by one person, or a self-hosted copy
+that a group's players reach in their browsers.
+_Avoid_: Instance, server, deployment
+
+**Host**:
+The player who runs a self-hosted copy: they set up its game data, add the other players and approve their
+proposals. A desktop install's one user is its host.
+_Avoid_: Admin, owner, superuser
+
+**Player**:
+Someone with a login on a self-hosted copy, the host included. In a game, each side is played by one player.
+_Avoid_: User, account, member
+
+**Proposal**:
+A player's change to the copy's shared data (custom factions, units, weapons, rules, stratagems) that waits for
+the host to approve or reject it.
+_Avoid_: Request, suggestion, pending edit

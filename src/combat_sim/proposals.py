@@ -15,7 +15,8 @@ from flask import g, jsonify, render_template, request
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 
-from .accounts import current_user, is_host
+from . import access
+from .access import host_only
 from .models import Faction, FactionRule, MeleeWeapon, Proposal, RangedWeapon, Stratagem, Unit, User, db
 
 MAX_PENDING = 50  # a player's proposals waiting at once
@@ -70,10 +71,8 @@ def propose():
     """Save the current request (a player's Data-tab write) as a proposal: the 202 answer, or an error."""
     if (request.content_length or 0) > MAX_BODY:
         return jsonify({'error': 'That change is too big to send.'}), 400
-    path, method = request.path, request.method
-    if method not in VERBS or not PATH_RE.match(path):
-        return jsonify({'error': 'Only the host can do that.'}), 403
-    user = current_user()
+    path, method = request.path, request.method  # a @proposable route (access.py); check_routes says it can be read
+    user = access.viewer()
     if Proposal.query.filter_by(owner_id=user.id, status='pending').count() >= MAX_PENDING:
         return jsonify({'error': f'You have {MAX_PENDING} proposals waiting: let the host catch up first.'}), 429
     body = request.get_json(silent=True)
@@ -138,8 +137,8 @@ def changes(proposal, current):
 
 
 def proposal_dict(proposal, names=None, detail=False):
-    names = names if names is not None else {u.id: u.name for u in User.query}
-    out = {'id': proposal.id, 'by': names.get(proposal.owner_id), 'mine': bool(current_user() and current_user().id == proposal.owner_id),
+    names = names if names is not None else access.owner_names()
+    out = {'id': proposal.id, 'by': names.get(proposal.owner_id), 'mine': bool(access.viewer() and access.viewer().id == proposal.owner_id),
            'summary': proposal.summary, 'method': proposal.method, 'status': proposal.status, 'note': proposal.note,
            'created_at': proposal.created_at.isoformat() if proposal.created_at else None,
            'decided_at': proposal.decided_at.isoformat() if proposal.decided_at else None}
@@ -158,7 +157,7 @@ def apply(proposal):
         endpoint, view_args = app.url_map.bind('localhost').match(proposal.path, method=proposal.method)
     except HTTPException:
         return False, 'That kind of change is no longer possible.'
-    host = current_user()
+    host = access.viewer()
     with app.test_request_context(proposal.path, method=proposal.method,
                                   json=proposal.body if proposal.body is not None else None):
         g.user = host
@@ -180,6 +179,18 @@ def apply(proposal):
     return True, None
 
 
+def sample_path(rule):
+    """A URL a route rule could answer, its variables filled in ('/api/data/weapons/ranged/1')."""
+    import re as _re
+    return _re.sub(r'<(?:(\w+)(?:\([^)]*\))?:)?(\w+)>', lambda m: '1' if m.group(1) in ('int', 'float') else 'ranged', rule)
+
+
+def unreadable_routes(app):
+    """@proposable routes whose URLs this module can't describe (PATH_RE): access.check refuses to start."""
+    return sorted(str(rule) for rule in app.url_map.iter_rules()
+                  if access.route_label(app, rule.endpoint) == access.PROPOSABLE and not PATH_RE.match(sample_path(str(rule))))
+
+
 def register_proposal_routes(app):
     if not app.config.get('HOSTED'):
         return
@@ -190,22 +201,21 @@ def register_proposal_routes(app):
 
     @app.route('/api/proposals')
     def api_proposals():
-        """The host: every proposal, waiting ones first. A player: their own."""
-        query = Proposal.query if is_host() else Proposal.query.filter_by(owner_id=current_user().id)
-        found = sorted(query.order_by(Proposal.id.desc()).limit(200), key=lambda p: p.status != 'pending')
-        names = {u.id: u.name for u in User.query}
+        """The host: every proposal, waiting ones first. A player: their own (access.py)."""
+        found = sorted(access.visible(Proposal.query, Proposal).order_by(Proposal.id.desc()).limit(200),
+                       key=lambda p: p.status != 'pending')
+        names = access.owner_names()
         return jsonify([proposal_dict(p, names, detail=p.status == 'pending') for p in found])
 
-    def decide(proposal_id):
-        proposal = db.get_or_404(Proposal, proposal_id)
+    def decide(proposal_id, withdraw=False):
+        proposal = access.get(Proposal, proposal_id, write=withdraw)
         if proposal.status != 'pending':
             return None, (jsonify({'error': 'That proposal has already been answered.'}), 409)
         return proposal, None
 
     @app.route('/api/proposals/<int:proposal_id>/approve', methods=['POST'])
+    @host_only
     def api_approve_proposal(proposal_id):
-        if not is_host():
-            return jsonify({'error': 'Only the host can approve proposals.'}), 403
         proposal, error = decide(proposal_id)
         if error:
             return error
@@ -218,9 +228,8 @@ def register_proposal_routes(app):
         return (jsonify(answer), 200) if ok else (jsonify(dict(answer, error=message)), 400)
 
     @app.route('/api/proposals/<int:proposal_id>/reject', methods=['POST'])
+    @host_only
     def api_reject_proposal(proposal_id):
-        if not is_host():
-            return jsonify({'error': 'Only the host can reject proposals.'}), 403
         proposal, error = decide(proposal_id)
         if error:
             return error
@@ -232,11 +241,9 @@ def register_proposal_routes(app):
     @app.route('/api/proposals/<int:proposal_id>', methods=['DELETE'])
     def api_withdraw_proposal(proposal_id):
         """A player takes back their own proposal while it waits."""
-        proposal, error = decide(proposal_id)
+        proposal, error = decide(proposal_id, withdraw=True)
         if error:
             return error
-        if proposal.owner_id != current_user().id:
-            return jsonify({'error': 'Only the player who proposed it can withdraw it.'}), 403
         proposal.status, proposal.decided_at = 'withdrawn', datetime.utcnow()
         db.session.commit()
         return jsonify(proposal_dict(proposal))
