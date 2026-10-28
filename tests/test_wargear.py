@@ -140,3 +140,47 @@ def test_army_entries_with_wargear(client):
     plain = client.post('/api/armies/price', json={'faction_id': star, 'units': [
         {'unit_id': units['Void Warriors']['id']}]}).get_json()['units'][0]
     assert (plain['loadout'], plain['wargear'], plain['unit_points']) == (None, None, 80)  # Defaults: no tree needed
+
+
+def test_an_allegiance_adds_its_keyword_for_enhancements(client):
+    # Issue #10: a Daemon Prince's allegiance has no weapons or points, but its keyword decides its enhancements
+    star, units = ids(client)
+    herald = units['Star Herald']['id']
+    form = client.post('/api/armies/wargear', json={'unit_id': herald, 'models': 1}).get_json()['form']
+    allegiance = next(s for s in form if s['title'] == 'Allegiance')
+    assert allegiance['kind'] == 'one' and [m['name'] for m in allegiance['members']] == ['Sun God', 'Moon God']
+    k = {m['name']: m['k'] for m in allegiance['members']}
+
+    def options(wargear):
+        priced = client.post('/api/armies/price', json={'faction_id': star, 'detachment_keys': ['d-vanguard'], 'units': [
+            {'uid': 'h', 'unit_id': herald, 'wargear': wargear}]}).get_json()
+        return [o['name'] for o in priced['units'][0]['enhancement_options']], priced['units'][0]['wargear_summary']
+
+    assert options({k['Sun God']: 1, k['Moon God']: 0}) == (['Sun Crown', 'Void Blade'], 'Sun God')
+    assert options({k['Sun God']: 0, k['Moon God']: 1}) == (['Void Blade'], 'Moon God')
+    assert options(None)[0] == ['Sun Crown', 'Void Blade']  # BSData's first option until one is chosen
+
+
+def test_each_model_chooses_its_own_option(imported):
+    # Issue #16: three Brutes are one model entry ×3; choosing a Brute shield gives it to one of them, not all three
+    tree = unit(imported, 'Shield Brutes')['wargear']
+    defaults = wargear.evaluate(tree, None, 3, 'cat-star')
+    shield = next(s for s in defaults['form'] if s['title'] == 'Brute › Shield')
+    assert (shield['kind'], shield['min'], shield['max']) == ('counts', 3, 3)
+    assert [(m['name'], m['count'], m['max'], m['default']) for m in shield['members']] == [
+        ('Slab shield', 3, 3, True), ('Brute shield', 0, 2, False)]  # At most 2 Brute shields in the unit
+    k = {m['name']: m['k'] for m in shield['members']}
+
+    one = wargear.evaluate(tree, {k['Brute shield']: 1}, 3, 'cat-star')
+    assert {m['name']: m['count'] for s in one['form'] if s['title'] == 'Brute › Shield' for m in s['members']} == {
+        'Slab shield': 2, 'Brute shield': 1}  # The rest keep the default
+    assert (one['choices'][k['Slab shield']], one['choices'][k['Brute shield']]) == (2, 1)
+    assert one['problems'] == [] and one['summary'] == 'Brute shield'
+    assert weapons(imported, one) == {'Brute club': 3}
+    assert one['effects']['stats'] == {}  # The datasheet shows the most numerous Brutes: still Slab shields
+    assert {a[0] for a in one['effects']['abilities']} == {'Slab Shield', 'Brute Shield'}
+
+    two = wargear.evaluate(tree, one['choices'] | {k['Brute shield']: 2}, 3, 'cat-star')
+    assert two['effects']['stats'] == {'W': -1} and two['effects']['invulnerable_save'] == 4
+    three = wargear.evaluate(tree, {k['Brute shield']: 3}, 3, 'cat-star')
+    assert three['problems'] == ['Brute shield: 3 in the unit; at most 2.']

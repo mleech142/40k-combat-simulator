@@ -6,7 +6,7 @@ Punishment's condemned units, VP corrections, and replays.
 
 from combat_sim.play.game import new_game, replay, score
 from test_play_game import army, part
-from test_play_turns import act, put, refused
+from test_play_turns import act, put, refused, next_phase
 
 BASE = {'shape': 'round', 'length_mm': 32, 'width_mm': 32}
 # Dawn of War: Red attacks from the bottom; home objectives (30, 10) and (30, 34), central (30, 22),
@@ -38,7 +38,7 @@ def to_turn_end(state, events=None):
     """Next phase until the turn changes (Command through Consolidate); the last event."""
     player, round_number = state['turn']['player'], state['turn']['round']
     while (state['turn']['player'], state['turn']['round']) == (player, round_number) and state['turn']['phase'] != 'ended':
-        state, event = act(state, {'type': 'next_phase'})
+        state, event = next_phase(state)
         if events is not None:
             events.append(event)
     return state, event

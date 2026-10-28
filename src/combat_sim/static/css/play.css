@@ -368,3 +368,12 @@
              display: flex; gap: 0.4rem; align-items: center; }
 .play-luck.hot { background: rgba(240, 140, 40, 0.16); color: #f4a24c; }
 .play-luck.cold { background: rgba(80, 160, 230, 0.16); color: #7cbcf0; }
+
+/* Command Re-roll: the bar above the log, and the dice that can be picked */
+.play-reroll-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; padding: 0.35rem 0.5rem;
+                   border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-tint); font-size: 0.85rem; }
+.play-die.pickable { cursor: pointer; outline: 2px solid var(--accent); outline-offset: 1px; animation: play-pick 1.2s ease-in-out infinite; }
+.play-die.pickable:focus-visible { outline-width: 3px; }
+@keyframes play-pick { 50% { outline-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { .play-die.pickable { animation: none; } }
+.play-log-redo { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.4rem; display: flex; gap: 0.4rem; align-items: center; }

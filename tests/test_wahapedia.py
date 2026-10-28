@@ -136,6 +136,36 @@ def test_parse_effects_reads(text, expected):
     assert found['skipped'] == []
 
 
+# Effects batch 1 (release 2.6): wordings from the stratagems and rules of the owner's saved armies' factions that
+# scripts/effects_report.py ranked as skipped
+@pytest.mark.parametrize('text, expected, skipped', [
+    ('Until the end of the phase, add 2 to the Toughness characteristic of models in your unit.',
+     [('Target', 'Both', 'Toughness Modifier +2')], []),
+    ("This unit's ranged attacks have [ASSAULT].", [('Attacker', 'Shooting', 'Assault')], []),
+    ("Friendly ^^GUN DRONE^^ units' ranged attacks have [ASSAULT].", [('Attacker', 'Shooting', 'Assault')], []),
+    ('While this unit is within range of an objective marker, models in this unit have a 5+ invulnerable save.',
+     [('Target', 'Both', 'Invulnerable Save 5+')], []),
+    ('Each time a ^^SWARMER^^ model from your army makes an attack, re-roll a Hit roll of 1.',
+     [('Attacker', 'Both', 'Reroll Hits 1')], []),
+    ('If your unit is within range of an objective marker, models in your unit have the Feel No Pain 4+ ability instead.',
+     [('Target', 'Both', 'Feel No Pain 4+')], []),
+    ('Each time a ranged attack targets a ^^SWARMER^^ unit from your army, if the attacking model is more than 12" away, '
+     'subtract 1 from the Hit roll.', [('Target', 'Shooting', 'Hit Modifier -1')], []),
+    ('Until the end of the phase, each time a model in that enemy unit makes an attack that targets your unit, subtract 1 '
+     'from the Hit roll.', [('Target', 'Both', 'Hit Modifier -1')], []),
+    ('Until the end of the phase, each time a model in your unit makes an attack that targets an enemy unit (excluding '
+     '^^MONSTERS^^ and ^^VEHICLES^^) you can re-roll the Hit roll.', [('Attacker', 'Both', 'Reroll Hits')], []),
+    ('Until the end of the phase, weapons equipped by models in your unit have the [SUSTAINED HITS 1] ability, and if your '
+     'unit contains 15 or more models, each time a model in your unit makes an attack, it scores more hits.',
+     [('Attacker', 'Both', 'Sustained Hits 1')],
+     ['if your unit contains 15 or more models, each time a model in your unit makes an attack, it scores more hits.']),
+])
+def test_effects_batch_1(text, expected, skipped):
+    found = parse_effects(text)
+    assert buffs(text) == expected
+    assert found['skipped'] == skipped
+
+
 def test_has_core_ability_finds_a_core_ability_on_its_own_line():
     text = 'Deep Strike\n\n**Fights First**\n\nBlade Dance: After this unit ends a Charge move, it does not have the Fights First ability.'
     assert has_core_ability(text, 'Fights First') and has_core_ability(text, 'deep strike')

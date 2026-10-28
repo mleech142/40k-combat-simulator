@@ -528,7 +528,7 @@
     function buildMatrixRequest(page) {
         const filter = page.weaponTypeFilter || 'both';
         const attackers = page.attackers.map((atk, a) => ({
-            label: copyLabel(page.attackers, a),
+            label: copyLabel(page.attackers, a) + (atk.leader_id && atk.leader_name ? ` + ${atk.leader_name}` : ''),
             unit_id: atk.unit_id,
             leader_id: atk.leader_id || null,
             enhancements: enhancementRefs(atk),
@@ -762,8 +762,9 @@
         };
         const lows = (axis) => Math.min(...positions.map((p, i) => p[axis] - reach[i]));
         const highs = (axis) => Math.max(...positions.map((p, i) => p[axis] + reach[i]));
-        const dx = shift(lows('x'), highs('x'), area.left, area.right);
-        const dy = shift(lows('y'), highs('y'), area.bottom, area.top);
+        const pad = 0.01;  // Inside by more than the rounding below, so a base fitted to an edge never pokes past it
+        const dx = shift(lows('x'), highs('x'), area.left + pad, area.right - pad);
+        const dy = shift(lows('y'), highs('y'), area.bottom + pad, area.top - pad);
         return positions.map(p => ({ x: round(p.x + dx), y: round(p.y + dy) }));
     }
 
@@ -809,16 +810,18 @@
      * An attack's dice for the dice log: the event's rolls from `range` ([first, last)) as groups
      * {label, need ('3+' or null), note, dice: [{face, kind, rerolled_from}]}, kind being 'critical',
      * 'success', 'fail' or 'value' (a rolled amount such as damage). Rolls of the same kind and target
-     * show as one group, even taking turns (saves and Feel No Pain are rolled one wound at a time).
+     * show as one group, even taking turns (saves and Feel No Pain are rolled one wound at a time). Each die
+     * keeps `ref`, 'roll:die', its place in the event's rolls.
      */
     function playDiceGroups(rolls, range) {
         const label = purpose => purpose.replace(/\b\w/g, c => c.toUpperCase());
         const groups = [];
-        for (const roll of rolls.slice(range[0], range[1])) {
+        rolls.slice(range[0], range[1]).forEach((roll, r) => {
             const value = roll.need == null;
-            const dice = roll.dice.map(d => ({
+            const dice = roll.dice.map((d, i) => ({
                 face: d.face, rerolled_from: d.rerolled_from ?? null,
                 kind: value ? 'value' : d.critical ? 'critical' : d.success ? 'success' : 'fail',
+                ref: `${range[0] + r}:${i}`,  // Its place in the event's rolls (roll:die), for Command Re-roll
             }));
             const need = value ? null : `${roll.need}+`;
             const note = value ? `${roll.dice.length > 1 ? roll.dice.length : ''}D${roll.size}${roll.modifier ? (roll.modifier > 0 ? '+' : '') + roll.modifier : ''} = ${roll.total}` : null;
@@ -829,7 +832,7 @@
             } else {
                 groups.push({ purpose: roll.purpose, label: label(roll.purpose), need, note, dice });
             }
-        }
+        });
         return groups.map(({ purpose, ...group }) => group);
     }
 
@@ -931,6 +934,16 @@
     function playBounds(points) {
         const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
         return { left: Math.min(...xs), bottom: Math.min(...ys), right: Math.max(...xs), top: Math.max(...ys) };
+    }
+
+    /** Play: whether a point ({x, y}) is inside a polygon ([[x, y], ...]), for choosing how to drop a unit (not a rule check). */
+    function playInside(point, polygon) {
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const [ax, ay] = polygon[i], [bx, by] = polygon[j];
+            if ((ay > point.y) !== (by > point.y) && point.x < ax + (point.y - ay) * (bx - ax) / (by - ay)) inside = !inside;
+        }
+        return inside;
     }
 
     /** The middle of some positions ({x, y}), or null when there are none. */
@@ -1255,7 +1268,7 @@
     }
 
     return {
-        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playInside, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

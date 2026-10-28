@@ -14,6 +14,12 @@ written scope for 12. Items 13 and 14 are parked.
 1. **Play: reserves and Deep Strike.** Add Tactical Reserves / Strategic Reserves and Deep Strike, with all the rules
    around them (ingress and Rapid Ingress, set-up restrictions, when units must arrive). Not built yet: every unit
    starts on the board (`play-mode-design.md`, "Not in v1"; `rules-audit-11e.md`, "Not modelled").
+   *Done (2.7, step a):* reserves chosen during deployment (up to half the points), ingress moves from round 2 on the
+   shaded ground, Deep Strike, Rapid Ingress in the reaction window, units lost at the end of round 3. Scouts,
+   Infiltrators and Transports (arriving inside one) follow in steps b and c. *Step b done:* Infiltrators set up away
+   from the enemy, and Scouts move (or set up from reserves) in a pre-battle step after deployment. *Step c done:*
+   Transports (embark, disembark, starting embarked or in reserve inside one, Firing Deck, emergency disembarks) and
+   Deadly Demise.
 2. **Play: rotate and rearrange models when moving.** In the Movement phase, let the player turn models (and the
    unit's formation) and move individual models within the unit, not only drag the unit as a block. Deployment
    already has turning (the 15° and 45° buttons, `Core.playPivot`) and Shift-drag for one model; movement should
@@ -26,6 +32,7 @@ written scope for 12. Items 13 and 14 are parked.
    player picks from a fixed list (`game.MANUAL_EFFECTS`: ±1 to hit, re-rolls, cover and so on), or a stratagem's
    text is logged to apply by hand. Means reading much more rule text (`rules_text.py`) into effects the game
    applies, including when and to whom they apply.
+   *Ongoing:* batch 1 in 2.6 (`scripts/effects_report.py`; play-mode-design.md, Effects batches).
 4. **Play: phase changes and actions are slow.** Moving to the next phase, and actions within a phase, take too long
    to process. Measure first: in an online game each action also fetches the other player's moves from the relay
    and then appends to it (two round trips), so check whether offline games are slow too.
@@ -46,6 +53,10 @@ written scope for 12. Items 13 and 14 are parked.
    or "use a Command Re-roll if this unit would die". Planned as **standing orders** in `play-mode-design.md`
    (Decisions during the opponent's turn) but not built. Overwatch itself isn't built yet either
    (`rules-audit-11e.md`, "Not modelled").
+   *Done (2.6):* the reaction window (`turn.window`) and standing orders for Fire Overwatch (ask, never, always with a
+   unit), Heroic Intervention (ask, never) and re-rolling failed saves with Command Re-roll (ask, never, only when a
+   model dies); Command Re-roll of your own rolls from the battle log. Counteroffensive and faction reactive
+   stratagems come with later effects batches.
 7. **Play: unit profile on hover.** Hovering over a unit on the board shows its datasheet: characteristics,
    weapon profiles and abilities (and the attached leader's).
    *Done (2.5):* half a second over a model shows a card by the pointer (`Core.playUnitCard`): characteristics,

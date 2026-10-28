@@ -125,6 +125,8 @@ class Unit(db.Model):
     can_lead = db.Column(JSON, default=list)  # Names of units this unit can lead
     can_support = db.Column(JSON, default=list)  # Names of units this unit can join as a Support unit
     max_in_army = db.Column(db.Integer, nullable=True)  # BSData's limit on copies in an army (None = not given)
+    # BSData's extra points for later copies in an army: [0, 0, 15] = the third and later cost 15 more
+    copy_points = db.Column(JSON, nullable=True)
     wargear = db.Column(JSON, nullable=True)  # BSData units: the option tree (bsdata.freeze; None = nothing to choose)
     # What this unit grants the unit it leads, as rows like faction rules:
     # [{"applies_to": "Attacker"|"Target", "phase": "Shooting"|"Fighting"|"Both", "modifier": "Lethal Hits"}]
@@ -153,6 +155,11 @@ class Unit(db.Model):
         if not brackets and self.points_cost is not None and self.default_models:
             brackets = [{'models': self.default_models, 'points': self.points_cost}]
         return sorted(brackets, key=lambda b: b['models'])
+
+    def copy_surcharge(self, earlier):
+        """Extra points for this copy of the datasheet, with `earlier` copies before it in the army."""
+        extra = self.copy_points or []
+        return extra[min(earlier, len(extra) - 1)] if extra else 0
 
     def points_for(self, models):
         """
@@ -527,7 +534,8 @@ class Enhancement(db.Model):
     A BSData enhancement of a faction (read-only; see bsdata.enhancements): its points, text, the
     effects the maths models (`buffs`, each for the bearer or its unit) and the conditions BSData
     hides it under (`hidden_when`, evaluated by armies.enhancement_hidden). One defined in a unit's
-    own entry (`unit_bsdata_id`) is an Upgrade for that unit.
+    own entry (`unit_bsdata_id`) is an Upgrade for that unit; one with `bearer_bsdata_ids` goes on
+    those units instead of Characters.
     """
     __tablename__ = 'enhancements'
 
@@ -541,6 +549,10 @@ class Enhancement(db.Model):
     detachment_keys = db.Column(JSON, default=list)
     hidden_when = db.Column(JSON, default=list)
     unit_bsdata_id = db.Column(db.String(40), nullable=True)
+    # Units it goes on instead of Characters (only non-Characters' options link to it), e.g. Warptide's Battleline
+    bearer_bsdata_ids = db.Column(JSON, default=list)
+    max_taken = db.Column(db.Integer, nullable=True)  # How many an army may take (None: once)
+    counts_once = db.Column(db.Boolean, default=False)  # Its copies count as one enhancement towards the limit
 
     faction = db.relationship('Faction')
 

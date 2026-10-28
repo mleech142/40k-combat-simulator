@@ -27,12 +27,16 @@ How BattleScribe data maps onto the app:
   have different stat lines are reported.
 - **Points** are the sum of `pts` costs over the selection, after the cost modifiers whose
   conditions can be evaluated for a lone unit. Modifiers that can't be are skipped and
-  reported.
+  reported. The surcharge for later copies of a datasheet is kept apart (`copy_points`, from
+  `Selection.earlier_copies`) for armies to add.
 - **Weapons** are the `Ranged Weapons` / `Melee Weapons` profiles, one record per faction
   and name/stat line. "➤ Plasma gun - standard" becomes "Plasma gun - standard", the app's
   "Weapon - Profile" variant naming.
 - **Defensive abilities** used by the maths: InSv from the profile, Feel No Pain and
   Stealth from core rule links, and a few unconditional ability texts (see DEFENSIVE_TEXT).
+  A rule link BSData hides for the unit on its own (only while a bodyguard is attached, or in
+  another detachment) is left out (_hidden_alone). The stat line takes the default options'
+  stat changes (a Slabshield's +1 W).
 - **Rule text** keeps BSData's markup for display (`**bold**`, `*italic*`, `^^keyword^^`, bullets;
   see Core.formatRuleText) but with its whitespace tidied (tidy_text). Everything parsed from
   it (Feel No Pain, Leader lists) reads the plain words (plain_text).
@@ -60,7 +64,7 @@ from pathlib import Path
 from .rules_text import tidy_text, plain_text, parse_leader_buffs, parse_enhancement  # noqa: F401 (also used by importers of bsdata)
 from .simulation import check_keywords
 
-IMPORTER_VERSION = 10  # Bump when the output changes, so cached imports are redone
+IMPORTER_VERSION = 13  # Bump when the output changes, so cached imports are redone
 
 PTS = 'pts'
 SUPPORTED_BATTLESCRIBE_VERSIONS = ('2.',)  # Major version 2 (files are currently 2.03)
@@ -261,6 +265,7 @@ class Selection:
     count: int = 1
     parent: 'Selection' = None
     children: list = field(default_factory=list)
+    earlier_copies: int = 0  # On the unit: copies of its datasheet before it in the army (copy surcharges)
 
     def walk(self):
         yield self
@@ -382,8 +387,9 @@ def grow(sel, report):
 # Wargear: a unit's option tree, kept for wargear.py to rebuild selections from
 # ---------------------------------------------------------------------------
 
-# Groups left out of the option tree: Crusade-only, and enhancements (armies.py handles those)
-SKIPPED_GROUPS = re.compile(r'^(crusade|weapon modifications|battle scars|battle honours|enhancements?)$', re.I)
+# Groups left out of the option tree: Crusade- and Boarding Actions-only, and enhancements (armies.py handles those)
+SKIPPED_GROUPS = re.compile(r'^(crusade( relic upgrades)?|weapon modifications|weapon upgrades|boarding act\w* upgrades'
+                            r'|battle scars|battle honours|enhancements?)$', re.I)
 MAX_TREE_DEPTH = 8
 
 
@@ -428,6 +434,11 @@ def freeze(entry, report, depth=0, counter=None, keep=False):
         'defaultSelectionEntryId': entry.node.get('defaultSelectionEntryId'),
         'weapons': [[WEAPON_TYPES[p['typeName']], list(_stat_key(weapon_record(p, WEAPON_TYPES[p['typeName']])))]
                     for p in profiles(entry, report) if p.get('typeName') in WEAPON_TYPES],
+        # An option's own abilities, the keywords it adds and its changes to the bearer's characteristics
+        'abilities': [[p['name'], ability_text(p)] for p in profiles(entry, report) if p.get('typeName') == 'Abilities']
+        if entry.kind == 'upgrade' else [],
+        'keywords': added_keywords(entry),
+        'stats': stat_changes(entry),
         'children': [],
     }
     if depth < MAX_TREE_DEPTH:
@@ -451,10 +462,76 @@ def freeze(entry, report, depth=0, counter=None, keep=False):
                                 and (child.id in kept_ids or child.kind != 'group')]
     # Only what matters to the maths or the points: models, weapons, pts costs (Crusade upgrades and the like go)
     matters = (node['type'] in ('unit', 'model') or node['weapons'] or node['children']
+               or node['abilities'] or node['keywords'] or node['stats']
                or any(c['value'] for c in node['costs']) or any(m.get('field') in pts_types for m in node['modifiers']))
     if depth and not matters and not keep:
         return None
     return {key: value for key, value in node.items() if value not in (None, []) or key in ('children', 'k')}
+
+
+def _unconditional(modifier):
+    return not (modifier.get('conditions') or modifier.get('conditionGroups') or modifier.get('localConditionGroups')
+                or modifier.get('repeats'))
+
+
+def added_keywords(entry):
+    """Keywords an option adds to its unit (BSData's unconditional "add category"), e.g. a Daemon Prince's KHORNE."""
+    names = []
+    for modifier in entry.merged('modifiers'):
+        if modifier.get('type') == 'add' and modifier.get('field') == 'category' and _unconditional(modifier):
+            category, _ = entry.cat.find(modifier.get('value')) if entry.cat else (None, None)
+            name = (category or {}).get('name')
+            if name and not name.startswith('Faction:') and name not in names:
+                names.append(name)
+    return names
+
+
+UNIT_STATS = ('M', 'T', 'Sv', 'W', 'LD', 'OC')
+
+
+def stat_changes(entry):
+    """
+    An option's unconditional changes to its bearer's characteristics: [['W', 'increment', 1]] (a
+    Slabshield). BSData names the characteristic by its type's ID.
+    """
+    out = []
+    for modifier in entry.merged('modifiers'):
+        if modifier.get('type') not in ('increment', 'decrement', 'set') or not _unconditional(modifier):
+            continue
+        stat, _ = entry.cat.find(modifier.get('field')) if entry.cat else (None, None)
+        if stat and stat.get('name') in UNIT_STATS and 'typeId' not in stat and 'characteristics' not in stat:
+            out.append([stat['name'], modifier['type'], modifier.get('value')])
+    return out
+
+
+def model_stat_changes(model_sel):
+    """The stat changes of the options a model carries (not those of other models below it)."""
+    changes = []
+
+    def visit(node):
+        for child in node.children:
+            if child.entry.kind == 'model':
+                continue
+            if child.entry.kind == 'upgrade':
+                changes.extend(stat_changes(child.entry))
+            visit(child)
+    visit(model_sel)
+    return changes
+
+
+def apply_stats(characteristics_, changes):
+    """A Unit profile's characteristics ({'W': '3', ...}) with stat changes applied ('3' + 1 -> '4')."""
+    out = dict(characteristics_)
+    for name, kind, value in changes:
+        current = out.get(name)
+        if kind == 'set':
+            out[name] = str(value)
+            continue
+        m = re.match(r'^(\d+)(.*)$', current or '')
+        if m:
+            number = int(m.group(1)) + (1 if kind == 'increment' else -1) * int(value or 0)
+            out[name] = f'{number}{m.group(2)}'
+    return out
 
 
 def _key_weapons(tree, weapon_ids):
@@ -578,14 +655,39 @@ def _group_holds(group, node, root, faction_cat):
 
 def _local_group(group, node, root):
     """
-    "At least N matching selections in scope", e.g. the surcharge for a second copy of a
-    datasheet (scope: the unit's force). A lone unit has no other units, so outside the unit
-    the count is 0; counts inside the unit aren't modelled.
+    "At least N matching selections in scope", e.g. the surcharge for a third copy of a datasheet:
+    in the unit's force (scope parent), selections before it that are that datasheet. Those count
+    the unit's `earlier_copies` (set when pricing it in an army; 0 for a lone unit); other
+    selections outside the unit count 0; counts inside the unit aren't modelled.
     """
     outside = group.get('scope') in ('force', 'roster') or (group.get('scope') == 'parent' and node is root)
     if not outside or group.get('field') != 'selections' or group.get('type') not in COMPARE:
         raise Unevaluable('localConditionGroups')
-    return COMPARE[group['type']](0, group.get('value') or 0)
+    tests = {c.get('type'): c for c in group.get('conditions', [])}
+    count = 0
+    if (group.get('scope') == 'parent' and set(tests) == {'before', 'instanceOf'}
+            and tests['instanceOf'].get('scope') == 'self' and tests['instanceOf'].get('childId') in root.entry.ids):
+        count = root.earlier_copies
+    return COMPARE[group['type']](count, group.get('value') or 0)
+
+
+MAX_COPIES = 6  # The most copies of a datasheet an army may take (Battleline)
+
+
+def copy_surcharges(sel, faction_cat):
+    """
+    Extra points for later copies of a datasheet: [0, 0, 15] means the third and later copies cost
+    15 more (index: copies before it in the army; past the end, the last value). [] when none.
+    """
+    base, _ = points(sel, faction_cat)
+    extra = []
+    for earlier in range(MAX_COPIES):
+        sel.earlier_copies = earlier
+        extra.append(points(sel, faction_cat)[0] - base)
+    sel.earlier_copies = 0
+    while len(extra) > 1 and extra[-1] == extra[-2]:
+        extra.pop()
+    return extra if any(extra) else []
 
 
 COMPARE = {
@@ -622,6 +724,8 @@ def _instance_of(c, node, root, faction_cat):
 
 def _count(c, node, root):
     """Value of a condition's field over its scope: selection counts, or a cost such as pts."""
+    if c.get('field') == 'associations':
+        return 0  # A unit on its own: nothing attached to it
     if c.get('field') != 'selections':
         raise Unevaluable(c.get('field'))
     scope = c.get('scope')
@@ -683,11 +787,17 @@ def profiles(entry, report):
     return [p for p in out if not p.get('hidden')]
 
 
-def rule_links(entry):
-    """Core rules linked to an entry, with unconditional name appends: ['Feel No Pain 5+', 'Deep Strike']."""
+def rule_links(entry, node=None, root=None, faction_cat=None):
+    """
+    Core rules linked to an entry, with unconditional name appends: ['Feel No Pain 5+', 'Deep Strike'].
+    With the entry's selection (`node` in the unit `root`), a link BSData hides for the unit on its
+    own is left out, e.g. a Feel No Pain only while an Ogryn Bodyguard is attached (_hidden_alone).
+    """
     names = []
     for link in entry.merged('infoLinks'):
         if link.get('type') != 'rule' or link.get('hidden'):
+            continue
+        if node is not None and _hidden_alone(link, node, root, faction_cat):
             continue
         name = link.get('name', '')
         for modifier in link.get('modifiers', []):
@@ -699,6 +809,25 @@ def rule_links(entry):
         if not rule.get('hidden'):
             names.append(rule.get('name', ''))
     return names
+
+
+def _hidden_alone(element, node, root, faction_cat):
+    """
+    True if one of the element's conditional "hidden" modifiers holds for the unit on its own: no
+    unit attached to it (associations count 0) and nothing else in the army. A condition that can't
+    be evaluated never hides it.
+    """
+    for modifier in element.get('modifiers', []):
+        if modifier.get('field') != 'hidden' or str(modifier.get('value')).lower() != 'true':
+            continue
+        if not (modifier.get('conditions') or modifier.get('conditionGroups')):
+            continue
+        try:
+            if _conditions_hold(modifier, node, root, faction_cat):
+                return True
+        except Unevaluable:
+            continue
+    return False
 
 
 def characteristics(profile):
@@ -809,7 +938,8 @@ def build_unit(entry, faction_cat, report, known_keywords):
         profile = own or unit_profile
         if profile is not None:
             weight = (node.count * node.multiplier()) if node is not sel else (1 if node.entry.kind == 'model' else 0)
-            stat_lines[json.dumps(characteristics(profile), sort_keys=True)] += weight
+            stats_ = apply_stats(characteristics(profile), model_stat_changes(node))  # E.g. a Slabshield's +1 W
+            stat_lines[json.dumps(stats_, sort_keys=True)] += weight
     if not stat_lines and unit_profile is not None:
         stat_lines[json.dumps(characteristics(unit_profile), sort_keys=True)] += 1
     if not stat_lines:
@@ -830,9 +960,9 @@ def build_unit(entry, faction_cat, report, known_keywords):
 
     # Abilities, rules and the defensive values the maths uses
     ability_lines, rules, modifiers, fnp = [], [], [], None
-    sources = [entry] + [n.entry for n in sel.walk() if n.entry.kind in ('model', 'upgrade') and n.entry is not entry]
+    sources = [(entry, sel)] + [(n.entry, n) for n in sel.walk() if n.entry.kind in ('model', 'upgrade') and n.entry is not entry]
     seen_abilities = set()
-    for source in sources:
+    for source, source_sel in sources:
         for profile in profiles(source, report):
             if profile.get('typeName') in ('Abilities',) and profile['name'] not in seen_abilities:
                 seen_abilities.add(profile['name'])
@@ -844,7 +974,13 @@ def build_unit(entry, faction_cat, report, known_keywords):
                         fnp = min(fnp or 7, int(m.group(1)))
                     elif m and effect not in modifiers:
                         modifiers.append(effect)
-        for rule in rule_links(source):
+            elif profile.get('typeName') == 'Transport' and 'Transport' not in seen_abilities:
+                # A transport's capacity in its own profile (most catalogues): kept as an ability line, as others write it
+                capacity = (characteristics(profile).get('Capacity') or '').strip()
+                if capacity:
+                    seen_abilities.add('Transport')
+                    ability_lines.append(f'Transport: {capacity}')
+        for rule in rule_links(source, source_sel, sel, faction_cat):
             if rule not in rules:
                 rules.append(rule)
     for rule in rules:
@@ -904,6 +1040,8 @@ def build_unit(entry, faction_cat, report, known_keywords):
                 report.add('unknown_keyword', faction, None, f'{record["name"]}: "{keyword}"')
     weapons = {k: r for k, r in weapons.items() if r['strength'] is not None}
 
+    copy_points = copy_surcharges(sel, faction_cat)
+
     # Points for every legal size, from the minimum configuration up
     sizes, skipped = [], False
     current = sel
@@ -940,6 +1078,7 @@ def build_unit(entry, faction_cat, report, known_keywords):
         'can_lead': can_lead,
         'can_support': can_support,
         'max_in_army': int(min(limits)) if limits else None,
+        'copy_points': copy_points,
         'leader_buffs': leader_buffs,
         'abilities': '\n\n'.join(ability_lines + [r for r in rules if r != 'Leader']),
         'wargear': freeze(entry, report),
@@ -1191,21 +1330,32 @@ def _tree_ids(trees):
 
 def enhancements(cat, members, detachment_ids, names):
     """
-    [{'bsdata_id', 'name', 'points', 'text', 'buffs', 'detachment_keys', 'hidden_when', 'unit_bsdata_id'}]
-    for a faction: the entries costing "Enhancements" in its own catalogue and those it takes units
+    [{'bsdata_id', 'name', 'points', 'text', 'buffs', 'detachment_keys', 'hidden_when', 'unit_bsdata_id',
+    'bearer_bsdata_ids', 'max_taken', 'counts_once'}] for a faction: the entries costing "Enhancements" in its own catalogue and those it takes units
     from. BSData hides each unless conditions hold (its detachment is in the army, the bearer is a
     Character, Infantry, a given unit...); `hidden_when` keeps those conditions, with the enclosing
     groups', as trees (_condition_tree) that armies.py evaluates for a bearer and the chosen
     detachments (`names`: element names by ID in every file). `detachment_keys` are the detachments they name (`detachment_ids`: every
     faction's, since some enhancements belong to another faction's detachment). One defined
-    inside a unit's own entry is an Upgrade for that unit (`unit_bsdata_id`). `buffs` are its effects
-    the maths models (rules_text.parse_enhancement: each for the bearer or for its whole unit).
+    inside a unit's own entry is an Upgrade for that unit (`unit_bsdata_id`). One that only
+    non-Character units' options link to (a group shared by Warptide's Battleline units) goes on
+    those units (`bearer_bsdata_ids`) instead of Characters. `buffs` are its effects the maths
+    models (rules_text.parse_enhancement: each for the bearer or for its whole unit).
     """
     sources = [cat] + [c for c in dict.fromkeys(e.cat for e in members) if c is not cat]
     found, seen = [], set()
+    memo = {}
+    reach = {e.id: _linked_ids(e.node, e.cat, memo) for e in members if e.kind in ('unit', 'model')}
+    characters = {e.id for e in members if 'Character' in e.category_names()}
 
-    def visit(node, owner, inherited, unit_id):
+    def bearers(path):
+        """Units it is offered to when only non-Characters link to it (Warptide's Battleline enhancements); else []."""
+        linking = sorted(uid for uid, ids in reach.items() if ids & set(path))
+        return linking if linking and not characters & set(linking) else []
+
+    def visit(node, owner, inherited, unit_id, path=()):
         trees = inherited + _condition_tree(node, names)
+        path = path + (node.get('id'),)
         if node.get('type') in ('unit', 'model') and unit_id is None:
             unit_id = node.get('id')
         costs = {c.get('typeId'): c.get('value') or 0 for c in node.get('costs', [])}
@@ -1222,17 +1372,53 @@ def enhancements(cat, members, detachment_ids, names):
                 'detachment_keys': list(dict.fromkeys(i for i in _tree_ids(trees) if i in detachment_ids)),
                 'hidden_when': trees,
                 'unit_bsdata_id': unit_id,
+                'bearer_bsdata_ids': bearers(path) if unit_id is None else [],
+                # How many an army may take (BSData's own limit), and whether those copies share one
+                # "Enhancements" between them (Bane-forged weapons: up to 3, counting as 1)
+                'max_taken': int(min(limits)) if (limits := [c['value'] for c in node.get('constraints', [])
+                                                              if c.get('type') == 'max' and c.get('field') == 'selections'
+                                                              and c.get('scope') in ('force', 'roster')]) else None,
+                'counts_once': any(m.get('type') == 'divide' and m.get('field') == ENHANCEMENTS_TYPE_ID
+                                   for m in node.get('modifiers', []) + [m for g in node.get('modifierGroups', [])
+                                                                         for m in g.get('modifiers', [])]),
             })
             return
         for key in ('selectionEntries', 'selectionEntryGroups'):
             for child in node.get(key, []):
-                visit(child, owner, trees, unit_id)
+                visit(child, owner, trees, unit_id, path)
 
     for source in sources:
         for key in ('sharedSelectionEntries', 'sharedSelectionEntryGroups', 'selectionEntries'):
             for node in source.root.get(key, []):
                 visit(node, source, [], None)
     return found
+
+
+def _linked_ids(node, cat, memo, depth=0):
+    """IDs of the entries and groups an entry's options link to, through links inside linked ones too."""
+    out = set()
+    if depth > 12:
+        return out
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, list):
+            stack.extend(current)
+            continue
+        if not isinstance(current, dict):
+            continue
+        target = current.get('targetId')
+        if target and current.get('type') in ('selectionEntry', 'selectionEntryGroup'):
+            out.add(target)
+            key = (cat.id, target)
+            if key not in memo:
+                memo[key] = set()  # Guards against links that loop
+                element, owner = cat.find(target)
+                memo[key] = _linked_ids(element, owner, memo, depth + 1) if element is not None else set()
+            out |= memo[key]
+        for key in ('selectionEntries', 'selectionEntryGroups', 'entryLinks'):
+            stack.extend(current.get(key, []))
+    return out
 
 
 DP_TYPE_ID = '82ae-1066-5107-6ae0'  # The game system's "Detachment Points" cost type

@@ -3706,6 +3706,8 @@ h4 .fa-solid,
 .play-zone { opacity: 0.12; }
 .play-zone.play-p1 { fill: var(--play-p1); }
 .play-zone.play-p2 { fill: var(--play-p2); }
+.play-log-aftermath { margin-top: 0.4rem; font-size: 0.85em; color: var(--text-muted, #aaa); }  /* Emergency disembarks, Deadly Demise */
+.play-ingress { fill: var(--success, #3c9a5f); opacity: 0.22; pointer-events: none; }  /* Where a unit from reserves can arrive */
 .play-grid line { stroke: #ffffff; stroke-opacity: 0.05; stroke-width: 0.03; }
 .play-grid line.major { stroke-opacity: 0.12; }
 

@@ -17,6 +17,7 @@ What is checked (an army that breaks a rule can still be saved; the problems are
   the army's faction, and no two sharing a Unique Tag (DP costs and tags come from BSData);
 - unit sizes: one the datasheet lists; copies of a datasheet: its own limit in BSData, else the
   core rule (one Epic Hero, six Battleline or Dedicated Transport, three of anything else);
+  later copies cost what BSData adds for them (`Unit.copy_points`, in list order);
 - units from another faction, or no longer in the data;
 - leaders and support units: attached only to units their Leader / Support ability names, at
   most one leader and one support unit per unit;
@@ -25,7 +26,8 @@ What is checked (an army that breaks a rule can still be saved; the problems are
 - enhancements: at most 2 at Incursion and 4 otherwise, each once, on Characters but not Epic
   Heroes, with their detachment chosen and their bearer allowed (BSData's own conditions:
   enhancement_hidden); Upgrades go on their own unit, up to three of the same, and don't count
-  towards the limit.
+  towards the limit; those only non-Characters link to (Warptide's) go on those units, as many
+  as BSData allows, its copies counting once when BSData shares their cost.
 
 - wargear: each unit's chosen options, priced, sized and checked by BSData's own rules
   (wargear.evaluate), its loadout passed to Analytics.
@@ -185,18 +187,27 @@ def _tree_holds(node, context):
     return any(results) if node.get('op') == 'or' else all(results)
 
 
-def enhancement_hidden(enhancement, bearer, detachment_keys, catalogue_id):
-    """True if BSData hides `enhancement` for this bearer (a Unit) with these detachments chosen."""
-    context = {'detachments': set(detachment_keys), 'catalogue': catalogue_id,
-               'bearer_ids': {bearer.bsdata_id}, 'bearer_names': {bearer.name.lower()} | {k.lower() for k in bearer.keywords or []}}
+def enhancement_hidden(enhancement, bearer, detachment_keys, catalogue_id, keywords=()):
+    """
+    True if BSData hides `enhancement` for this bearer (a Unit) with these detachments chosen;
+    `keywords`: those its chosen wargear adds (a Daemon Prince's allegiance).
+    """
+    context = {'detachments': set(detachment_keys), 'catalogue': catalogue_id, 'bearer_ids': {bearer.bsdata_id},
+               'bearer_names': {bearer.name.lower()} | {k.lower() for k in list(bearer.keywords or []) + list(keywords)}}
     return any(_tree_holds(tree, context) for tree in enhancement.hidden_when or [])
 
 
-def enhancement_allowed(enhancement, bearer, detachment_keys, catalogue_id):
-    """(allowed, reason) for giving `enhancement` to `bearer` (a Unit), core rules and BSData's conditions."""
+def enhancement_allowed(enhancement, bearer, detachment_keys, catalogue_id, keywords=()):
+    """
+    (allowed, reason) for giving `enhancement` to `bearer` (a Unit), core rules and BSData's
+    conditions; `keywords`: those the bearer's chosen wargear adds.
+    """
     if enhancement.unit_bsdata_id:  # An Upgrade: its own unit only
         if enhancement.unit_bsdata_id != bearer.bsdata_id:
             return False, f'{enhancement.name} is an Upgrade for another unit.'
+    elif enhancement.bearer_bsdata_ids:  # For given units, not Characters (Warptide's Battleline enhancements)
+        if bearer.bsdata_id not in enhancement.bearer_bsdata_ids:
+            return False, f"{enhancement.name} isn't for {bearer.name}."
     else:
         if not has_keyword(bearer, 'Character'):
             return False, 'Only Characters can be given enhancements.'
@@ -204,7 +215,7 @@ def enhancement_allowed(enhancement, bearer, detachment_keys, catalogue_id):
             return False, "Epic Heroes can't be given enhancements."
     if enhancement.detachment_keys and not set(enhancement.detachment_keys) & set(detachment_keys):
         return False, f'{enhancement.name} needs its detachment.'
-    if enhancement_hidden(enhancement, bearer, detachment_keys, catalogue_id):
+    if enhancement_hidden(enhancement, bearer, detachment_keys, catalogue_id, keywords):
         return False, f"{bearer.name} can't take {enhancement.name}."
     return True, None
 
@@ -212,6 +223,10 @@ def enhancement_allowed(enhancement, bearer, detachment_keys, catalogue_id):
 # ---------------------------------------------------------------------------
 # Pricing and checking
 # ---------------------------------------------------------------------------
+
+def _plus_points(points, extra):
+    return points + extra if points is not None else None
+
 
 def price_army(army):
     """
@@ -231,7 +246,7 @@ def price_army(army):
     faction_enhancements = Enhancement.query.filter_by(faction_id=army['faction_id']).order_by(Enhancement.name).all()
     enhancements = {e.bsdata_id: e for e in faction_enhancements}
 
-    entries = []
+    entries, copies = [], Counter()
     for e in army['units']:
         unit = units.get(e['unit_id'])
         entry = dict({'models': None, 'attached_to': None, 'enhancement': None, 'wargear': None}, **e,
@@ -239,27 +254,33 @@ def price_army(army):
                      is_leader=False, is_support=False, is_character=False, is_epic_hero=False, can_join=[], join_roles={},
                      led_by=[],
                      supported_by=[], enhancement_points=0, enhancement_options=[], problems=[], has_wargear=False,
-                     wargear_summary='', loadout=None)
+                     wargear_summary='', loadout=None, wargear_effects=None)
         entries.append(entry)
         if unit is None:
             entry['problems'].append('This unit is no longer in the data.')
             continue
+        surcharge = unit.copy_surcharge(copies[unit.id])  # BSData's extra points for a later copy of the datasheet
+        copies[unit.id] += 1
         entry['sizes'] = sizes_of(unit)
-        entry['size_points'] = [unit.points_for(n) for n in entry['sizes']]
+        entry['size_points'] = [_plus_points(unit.points_for(n), surcharge) for n in entry['sizes']]
         if not entry['models']:
             entry['models'] = entry['sizes'][0]
         if entry['models'] not in entry['sizes']:
             entry['problems'].append(f'{entry["models"]} models isn\'t a size this datasheet lists '
                                      f'({", ".join(map(str, entry["sizes"]))}).')
-        entry['unit_points'] = unit.points_for(entry['models'])
+        entry['unit_points'] = _plus_points(unit.points_for(entry['models']), surcharge)
         entry['has_wargear'] = unit.wargear is not None
         if entry['wargear'] and unit.wargear is not None:  # Chosen options: BSData's rules price and size the unit
             chosen = unit_wargear(unit, entry['wargear'], entry['models'], catalogue)
-            entry.update(models=chosen['models'], unit_points=chosen['points'], wargear=chosen['choices'],
-                         wargear_summary=chosen['summary'], loadout=chosen['loadout'])
+            entry.update(models=chosen['models'], unit_points=_plus_points(chosen['points'], surcharge), wargear=chosen['choices'],
+                         wargear_summary=chosen['summary'], loadout=chosen['loadout'], wargear_effects=chosen['effects'])
             entry['problems'] += chosen['problems']
         elif entry['wargear']:
             entry['wargear'] = None  # The unit has nothing to choose (any more)
+        if entry['wargear_effects'] is None and unit.wargear is not None and wargear_engine.has_keywords(unit.wargear):
+            # Keywords from BSData's default options (a Daemon Prince's first allegiance until one is chosen)
+            entry['wargear_effects'] = unit_wargear(unit, None, entry['models'], catalogue)['effects']
+        keywords = (entry['wargear_effects'] or {}).get('keywords', [])
         if entry['unit_points'] is None:
             entry['problems'].append('This unit has no points.')
         if faction and unit.faction_id != faction.id:
@@ -268,13 +289,13 @@ def price_army(army):
                      is_character=has_keyword(unit, 'Character'), is_epic_hero=has_keyword(unit, 'Epic Hero'))
         entry['enhancement_options'] = [
             {'key': x.bsdata_id, 'name': x.name, 'points': x.points, 'upgrade': bool(x.unit_bsdata_id)}
-            for x in faction_enhancements if enhancement_allowed(x, unit, chosen_keys, catalogue)[0]]
+            for x in faction_enhancements if enhancement_allowed(x, unit, chosen_keys, catalogue, keywords)[0]]
         chosen = enhancements.get(entry['enhancement']) if entry['enhancement'] else None
         if entry['enhancement'] and chosen is None:
             entry['problems'].append('Its enhancement is no longer in the data.')
         elif chosen is not None:
             entry['enhancement_points'] = chosen.points
-            allowed, reason = enhancement_allowed(chosen, unit, chosen_keys, catalogue)
+            allowed, reason = enhancement_allowed(chosen, unit, chosen_keys, catalogue, keywords)
             if not allowed:
                 entry['problems'].append(reason)
             if chosen.bsdata_id not in {o['key'] for o in entry['enhancement_options']}:
@@ -368,16 +389,19 @@ def check_disposition(army, detachments):
 
 
 def check_enhancements(entries, enhancements, points_limit):
-    """(enhancements counting towards the limit, problems): the limit, each once, Upgrades up to three."""
+    """
+    (enhancements counting towards the limit, problems): the limit, each once (or as many as BSData
+    allows: Bane-forged weapons up to three, counting as one), Upgrades up to three.
+    """
     problems = []
     taken = Counter(e['enhancement'] for e in entries if e['enhancement'] in enhancements)
-    count = sum(n for key, n in taken.items() if not enhancements[key].unit_bsdata_id)
+    count = sum(1 if enhancements[key].counts_once else n for key, n in taken.items() if not enhancements[key].unit_bsdata_id)
     limit = enhancement_limit(points_limit)
     if count > limit:
         problems.append(f'{count} enhancements; the limit is {limit}.')
     for key, n in taken.items():
         enhancement = enhancements[key]
-        most = MAX_SAME_UPGRADE if enhancement.unit_bsdata_id else 1
+        most = MAX_SAME_UPGRADE if enhancement.unit_bsdata_id else (enhancement.max_taken or 1)
         if n > most:
             problems.append(f'{enhancement.name} is taken {n} times; at most {most}.')
     return count, problems

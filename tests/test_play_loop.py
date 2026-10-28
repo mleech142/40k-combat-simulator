@@ -5,7 +5,7 @@ the end of the battle and the score.
 
 from combat_sim.play.game import new_game, score, unit_by_id
 from test_play_game import army, gun, part
-from test_play_turns import act, put, refused
+from test_play_turns import act, put, refused, next_phase
 
 BASE = {'shape': 'round', 'length_mm': 32, 'width_mm': 32}
 
@@ -33,7 +33,7 @@ def to_phase(state, phase, player, *faces):
     for _ in range(40):
         if state['turn']['phase'] == phase and state['turn']['player'] == player and 'step' not in state['turn']:
             return state
-        state, event = act(state, {'type': 'next_phase'}, *faces)
+        state, event = next_phase(state, *faces)
         used = sum(len(g['dice']) for g in event['rolls'])
         faces = faces[used:]
     raise AssertionError('never got there')
@@ -124,7 +124,7 @@ def test_a_unit_that_falls_back_in_ordered_retreat_takes_a_battle_shock_roll():
         back = [(10, 2), (11.5, 2), (13, 2)]
         state, _ = act(state, {'type': 'move', 'unit': 'p1-squad', 'mode': 'fall_back',
                                'models': [{'id': f'p1-squad-0-{i + 1}', 'x': x, 'y': y} for i, (x, y) in enumerate(back)]})
-        state, event = act(state, {'type': 'next_phase'}, *faces)
+        state, event = next_phase(state, *faces)
         assert [(b['name'], b['total'], b['shocked'], b['reason']) for b in event['battle_shock']] == [('Squad', sum(faces), shocked, 'Ordered Retreat')]
         assert unit_by_id(state, 'p1-squad')['status']['shocked'] is shocked
 

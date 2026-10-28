@@ -257,6 +257,12 @@ def test_replaying_saved_events_rebuilds_the_game_without_dice():
         event = resolve_action(state, action, Dice(FixedRolls(*faces)))
         events.append(event)
         state = apply_event(state, event)
+        window = state['turn'].get('window')
+        if window:  # Blue lets Fire Overwatch go (the phase then changes)
+            event = resolve_action(state, {'type': 'pass', 'player': window['player']}, Dice(FixedRolls()))
+            events.append(event)
+            state = apply_event(state, event)
+    assert any(e.get('passed') == 'overwatch' for e in events)
     saved = json.loads(json.dumps(events))  # As the game file / relay would keep them
     assert replay(armies, saved) == state
     assert wounds(state, 'p2-squad') == ['dead', 'dead', 'dead', 5]

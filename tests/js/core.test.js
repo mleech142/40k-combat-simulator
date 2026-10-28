@@ -304,13 +304,14 @@ test('withLeaderEntries and scaling: the leader is never scaled with the unit', 
 
 test('buildMatrixRequest carries leaders for attackers, their weapons and defenders', () => {
     const request = Core.buildMatrixRequest({
-        attackers: [{ unit_id: 1, unit_name: 'Squad', leader_id: 9, default_models: 5, weapons: [
+        attackers: [{ unit_id: 1, unit_name: 'Squad', leader_id: 9, leader_name: 'Captain', default_models: 5, weapons: [
             { weapon_id: 1, weapon_type: 'ranged', name: 'Rifle', models: 5, include: true },
             { weapon_id: 2, weapon_type: 'ranged', name: 'Pistol', models: 1, include: true, leader: true, leader_name: 'Captain' }] }],
         defenders: [{ unit_id: 3, unit_name: 'Target', model_count: 5, leader_id: 4, leader_name: 'Champion' }],
         weaponTypeFilter: 'both', defenderMode: 'real', attackerTicked: [], defenderTicked: [],
     });
     assert.equal(request.attackers[0].leader_id, 9);
+    assert.equal(request.attackers[0].label, 'Squad + Captain');  // The matrix row says the leader is in it
     assert.deepEqual(request.attackers[0].weapons.map(w => [w.label, w.leader_id]), [['Rifle', 9], ['Pistol (Captain)', 9]]);
     assert.equal(request.defenders[0].leader_id, 4);
     assert.equal(request.defenders[0].label, 'Target (x5) + Champion');
@@ -548,12 +549,21 @@ test('playZoom zooms about the pointer and keeps the view between 10" and the bo
     assert.equal(Core.playZoom(view, 10, 30, 22).w, 72);
 });
 
+test('playInside says whether a point is inside a polygon', () => {
+    const zone = [[0, 0], [20, 0], [20, 22], [12, 22], [12, 44], [0, 44]];  // Tipping Point's stepped zone
+    assert.ok(Core.playInside({ x: 5, y: 40 }, zone));
+    assert.ok(!Core.playInside({ x: 16, y: 40 }, zone));
+    assert.ok(Core.playInside({ x: 16, y: 10 }, zone));
+});
+
 test('playFit shifts a dropped formation to lie wholly inside an area when it can', () => {
     const area = { left: 0, bottom: 0, right: 60, top: 12 };
     // Two models 1" across (0.5" from centre to edge) dropped too close to the zone's top edge
     assert.deepEqual(Core.playFit([{ x: 10, y: 11.8 }, { x: 12, y: 11.8 }], [0.5, 0.5], area),
-                     [{ x: 10, y: 11.5 }, { x: 12, y: 11.5 }]);
-    assert.deepEqual(Core.playFit([{ x: 0.2, y: 6 }], [0.5], area), [{ x: 0.5, y: 6 }]);  // Off the left edge
+                     [{ x: 10, y: 11.49 }, { x: 12, y: 11.49 }]);  // 0.01" inside, so rounding never puts a base past the edge
+    assert.deepEqual(Core.playFit([{ x: 0.2, y: 6 }], [0.5], area), [{ x: 0.51, y: 6 }]);  // Off the left edge
+    // A 32mm base (0.63" from centre to edge, after rounding 0.6299") fitted to the edge stays on the board
+    assert.ok(Core.playFit([{ x: 0, y: 6 }], [32 / 25.4 / 2], area)[0].x - 32 / 25.4 / 2 >= 0);
     assert.deepEqual(Core.playFit([{ x: 10, y: 6 }], [0.5], area), [{ x: 10, y: 6 }]);  // Already inside
     // Too deep to fit: left where it was dropped (the server says why)
     assert.deepEqual(Core.playFit([{ x: 10, y: 1 }, { x: 10, y: 14 }], [0.5, 0.5], area), [{ x: 10, y: 1 }, { x: 10, y: 14 }]);
@@ -569,6 +579,7 @@ test('playDiceGroups turns an attack\'s rolls into labelled groups, joining one-
         { purpose: 'damage', size: 3, dice: [die(2, true)], modifier: 1, total: 3 },
     ];
     const groups = Core.playDiceGroups(rolls, [1, 5]);
+    assert.equal(groups[0].dice[0].ref, '1:0');  // Its place in the event's rolls, for Command Re-roll
     assert.deepEqual(groups.map(g => [g.label, g.need]), [['Hit', '3+'], ['Wound', '4+'], ['Save', '3+'], ['Damage', null]]);
     assert.deepEqual(groups[0].dice.map(d => d.kind), ['critical', 'fail', 'success']);
     assert.equal(groups[0].dice[2].rerolled_from, 1);

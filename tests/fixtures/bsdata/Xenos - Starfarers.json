@@ -411,6 +411,16 @@
       "type": "rule"
      }
     ],
+    "entryLinks": [
+     {
+      "name": "Enhancements",
+      "id": "l-void-enh",
+      "hidden": false,
+      "targetId": "g-line-enh",
+      "type": "selectionEntryGroup",
+      "constraints": []
+     }
+    ],
     "costs": [
      {
       "name": "pts",
@@ -910,6 +920,35 @@
       "hidden": false,
       "targetId": "r-leader",
       "type": "rule"
+     },
+     {
+      "name": "Feel No Pain",
+      "id": "il-captain-guard",
+      "hidden": false,
+      "targetId": "r-fnp",
+      "type": "rule",
+      "modifiers": [
+       {
+        "field": "name",
+        "type": "append",
+        "value": "4+"
+       },
+       {
+        "field": "hidden",
+        "type": "set",
+        "value": true,
+        "conditions": [
+         {
+          "childId": "u-void",
+          "field": "associations",
+          "scope": "root-entry",
+          "shared": true,
+          "type": "lessThan",
+          "value": 1
+         }
+        ]
+       }
+      ]
      }
     ],
     "costs": [
@@ -966,7 +1005,7 @@
       ],
       "constraints": [
        {
-        "id": "c-21",
+        "id": "c-22",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -974,7 +1013,7 @@
         "value": 1
        },
        {
-        "id": "c-22",
+        "id": "c-23",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -991,7 +1030,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-23",
+        "id": "c-24",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1153,7 +1192,7 @@
       ],
       "constraints": [
        {
-        "id": "c-24",
+        "id": "c-25",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1161,7 +1200,7 @@
         "value": 1
        },
        {
-        "id": "c-25",
+        "id": "c-26",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1216,7 +1255,7 @@
       ],
       "constraints": [
        {
-        "id": "c-26",
+        "id": "c-27",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1224,7 +1263,7 @@
         "value": 1
        },
        {
-        "id": "c-27",
+        "id": "c-28",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1279,7 +1318,7 @@
       ],
       "constraints": [
        {
-        "id": "c-28",
+        "id": "c-29",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1287,7 +1326,7 @@
         "value": 1
        },
        {
-        "id": "c-29",
+        "id": "c-30",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1349,7 +1388,7 @@
       "type": "model",
       "constraints": [
        {
-        "id": "c-30",
+        "id": "c-31",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1357,7 +1396,7 @@
         "value": 1
        },
        {
-        "id": "c-31",
+        "id": "c-32",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1430,7 +1469,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-32",
+        "id": "c-33",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1438,7 +1477,7 @@
         "value": 3
        },
        {
-        "id": "c-33",
+        "id": "c-34",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1500,7 +1539,7 @@
           ],
           "constraints": [
            {
-            "id": "c-34",
+            "id": "c-35",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1508,7 +1547,7 @@
             "value": 1
            },
            {
-            "id": "c-35",
+            "id": "c-36",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1646,6 +1685,16 @@
       ]
      }
     ],
+    "entryLinks": [
+     {
+      "name": "Enhancements",
+      "id": "l-crew-line-enh",
+      "hidden": false,
+      "targetId": "g-line-enh",
+      "type": "selectionEntryGroup",
+      "constraints": []
+     }
+    ],
     "costs": [
      {
       "name": "pts",
@@ -1732,7 +1781,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-36",
+        "id": "c-37",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1828,7 +1877,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-37",
+        "id": "c-38",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1836,7 +1885,7 @@
         "value": 2
        },
        {
-        "id": "c-38",
+        "id": "c-39",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1852,7 +1901,7 @@
         "type": "model",
         "constraints": [
          {
-          "id": "c-39",
+          "id": "c-40",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -1907,7 +1956,7 @@
           ],
           "constraints": [
            {
-            "id": "c-40",
+            "id": "c-41",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1915,7 +1964,7 @@
             "value": 1
            },
            {
-            "id": "c-41",
+            "id": "c-42",
             "field": "selections",
             "scope": "parent",
             "shared": true,
@@ -1947,7 +1996,7 @@
       "hidden": false,
       "constraints": [
        {
-        "id": "c-42",
+        "id": "c-54",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1955,7 +2004,7 @@
         "value": 1
        },
        {
-        "id": "c-43",
+        "id": "c-55",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -1972,7 +2021,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-44",
+          "id": "c-56",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -2017,7 +2066,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-45",
+          "id": "c-57",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -2068,7 +2117,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-46",
+          "id": "c-58",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -2119,7 +2168,7 @@
         "profiles": [],
         "constraints": [
          {
-          "id": "c-47",
+          "id": "c-59",
           "field": "selections",
           "scope": "parent",
           "shared": true,
@@ -2317,7 +2366,7 @@
       ],
       "constraints": [
        {
-        "id": "c-17",
+        "id": "c-18",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -2325,7 +2374,7 @@
         "value": 1
        },
        {
-        "id": "c-18",
+        "id": "c-19",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -2467,7 +2516,7 @@
       ],
       "constraints": [
        {
-        "id": "c-19",
+        "id": "c-20",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -2475,7 +2524,7 @@
         "value": 1
        },
        {
-        "id": "c-20",
+        "id": "c-21",
         "field": "selections",
         "scope": "parent",
         "shared": true,
@@ -2483,6 +2532,453 @@
         "value": 1
        }
       ]
+     }
+    ]
+   },
+   {
+    "name": "Shield Brutes",
+    "id": "u-brutes",
+    "hidden": false,
+    "type": "unit",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Infantry",
+      "id": "cl-k-inf",
+      "primary": false,
+      "targetId": "k-inf"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Brute",
+      "id": "p-brute",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "6\""
+       },
+       {
+        "name": "T",
+        "$text": "6"
+       },
+       {
+        "name": "Sv",
+        "$text": "3+"
+       },
+       {
+        "name": "W",
+        "$text": "3"
+       },
+       {
+        "name": "LD",
+        "$text": "7+"
+       },
+       {
+        "name": "OC",
+        "$text": "1"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       },
+       {
+        "name": "Base",
+        "$text": "50mm",
+        "typeId": "nr-base-size"
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 90
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Brute",
+      "id": "m-brute",
+      "hidden": false,
+      "type": "model",
+      "constraints": [
+       {
+        "id": "c-43",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 3
+       },
+       {
+        "id": "c-44",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 3
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Brute club",
+        "id": "e-brute-club",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [
+         {
+          "name": "Brute club",
+          "id": "p-brute-club",
+          "hidden": false,
+          "typeId": "pt-melee",
+          "typeName": "Melee Weapons",
+          "characteristics": [
+           {
+            "name": "Range",
+            "$text": "Melee"
+           },
+           {
+            "name": "A",
+            "$text": "4"
+           },
+           {
+            "name": "WS",
+            "$text": "3+"
+           },
+           {
+            "name": "S",
+            "$text": "7"
+           },
+           {
+            "name": "AP",
+            "$text": "-1"
+           },
+           {
+            "name": "D",
+            "$text": "2"
+           },
+           {
+            "name": "Keywords",
+            "$text": null
+           }
+          ]
+         }
+        ],
+        "constraints": [
+         {
+          "id": "c-45",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "min",
+          "value": 1
+         },
+         {
+          "id": "c-46",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ]
+       }
+      ],
+      "entryLinks": [],
+      "selectionEntryGroups": [
+       {
+        "name": "Shield",
+        "id": "g-brute-shield",
+        "hidden": false,
+        "constraints": [
+         {
+          "id": "c-47",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "min",
+          "value": 1
+         },
+         {
+          "id": "c-48",
+          "field": "selections",
+          "scope": "parent",
+          "shared": true,
+          "type": "max",
+          "value": 1
+         }
+        ],
+        "selectionEntries": [
+         {
+          "name": "Slab shield",
+          "id": "e-slab",
+          "hidden": false,
+          "type": "upgrade",
+          "profiles": [
+           {
+            "name": "Slab Shield",
+            "id": "a-slab",
+            "hidden": false,
+            "typeId": "pt-abil",
+            "typeName": "Abilities",
+            "characteristics": [
+             {
+              "name": "Description",
+              "$text": "The bearer has a Wounds characteristic of 4."
+             }
+            ]
+           }
+          ],
+          "constraints": [],
+          "modifiers": [
+           {
+            "field": "ct-w",
+            "type": "increment",
+            "value": 1
+           }
+          ]
+         },
+         {
+          "name": "Brute shield",
+          "id": "e-brute-shield",
+          "hidden": false,
+          "type": "upgrade",
+          "profiles": [
+           {
+            "name": "Brute Shield",
+            "id": "a-brute-shield",
+            "hidden": false,
+            "typeId": "pt-abil",
+            "typeName": "Abilities",
+            "characteristics": [
+             {
+              "name": "Description",
+              "$text": "The bearer has a 4+ invulnerable save."
+             }
+            ]
+           }
+          ],
+          "constraints": [
+           {
+            "id": "c-49",
+            "field": "selections",
+            "scope": "unit",
+            "shared": true,
+            "type": "max",
+            "value": 2
+           }
+          ]
+         }
+        ],
+        "entryLinks": [],
+        "defaultSelectionEntryId": "e-slab"
+       }
+      ],
+      "profiles": []
+     }
+    ]
+   },
+   {
+    "name": "Star Herald",
+    "id": "u-herald",
+    "hidden": false,
+    "type": "model",
+    "categoryLinks": [
+     {
+      "name": "Faction: Starfarers",
+      "id": "cl-k-faction-star",
+      "primary": false,
+      "targetId": "k-faction-star"
+     },
+     {
+      "name": "Character",
+      "id": "cl-k-char",
+      "primary": false,
+      "targetId": "k-char"
+     }
+    ],
+    "profiles": [
+     {
+      "name": "Star Herald",
+      "id": "p-herald",
+      "hidden": false,
+      "typeId": "pt-unit",
+      "typeName": "Unit",
+      "characteristics": [
+       {
+        "name": "M",
+        "$text": "8\""
+       },
+       {
+        "name": "T",
+        "$text": "5"
+       },
+       {
+        "name": "Sv",
+        "$text": "4+"
+       },
+       {
+        "name": "W",
+        "$text": "5"
+       },
+       {
+        "name": "LD",
+        "$text": "6+"
+       },
+       {
+        "name": "OC",
+        "$text": "1"
+       },
+       {
+        "name": "InSv",
+        "$text": ""
+       }
+      ]
+     }
+    ],
+    "costs": [
+     {
+      "name": "pts",
+      "typeId": "51b2-306e-1021-d207",
+      "value": 60
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Herald staff",
+      "id": "e-herald-staff",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Herald staff",
+        "id": "p-herald-staff",
+        "hidden": false,
+        "typeId": "pt-melee",
+        "typeName": "Melee Weapons",
+        "characteristics": [
+         {
+          "name": "Range",
+          "$text": "Melee"
+         },
+         {
+          "name": "A",
+          "$text": "3"
+         },
+         {
+          "name": "WS",
+          "$text": "3+"
+         },
+         {
+          "name": "S",
+          "$text": "5"
+         },
+         {
+          "name": "AP",
+          "$text": "-1"
+         },
+         {
+          "name": "D",
+          "$text": "2"
+         },
+         {
+          "name": "Keywords",
+          "$text": null
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-50",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-51",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ]
+     }
+    ],
+    "selectionEntryGroups": [
+     {
+      "name": "Allegiance",
+      "id": "g-allegiance",
+      "hidden": false,
+      "constraints": [
+       {
+        "id": "c-52",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "min",
+        "value": 1
+       },
+       {
+        "id": "c-53",
+        "field": "selections",
+        "scope": "parent",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "selectionEntries": [
+       {
+        "name": "Sun God",
+        "id": "e-god-sun",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [],
+        "constraints": [],
+        "modifiers": [
+         {
+          "field": "category",
+          "type": "add",
+          "value": "k-god-sun"
+         },
+         {
+          "field": "category",
+          "type": "add",
+          "value": "k-god-sun-helper"
+         }
+        ]
+       },
+       {
+        "name": "Moon God",
+        "id": "e-god-moon",
+        "hidden": false,
+        "type": "upgrade",
+        "profiles": [],
+        "constraints": [],
+        "modifiers": [
+         {
+          "field": "category",
+          "type": "add",
+          "value": "k-god-moon"
+         }
+        ]
+       }
+      ],
+      "entryLinks": []
      }
     ]
    }
@@ -2748,6 +3244,97 @@
         ]
        }
       ]
+     },
+     {
+      "name": "Sun Crown",
+      "id": "enh-sun-crown",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Sun Crown",
+        "id": "a-enh-sun-crown",
+        "hidden": false,
+        "typeId": "pt-abil",
+        "typeName": "Abilities",
+        "characteristics": [
+         {
+          "name": "Description",
+          "$text": "The bearer shines."
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-enh-sun-crown",
+        "field": "selections",
+        "scope": "force",
+        "shared": true,
+        "type": "max",
+        "value": 1
+       }
+      ],
+      "costs": [
+       {
+        "name": "pts",
+        "typeId": "51b2-306e-1021-d207",
+        "value": 25
+       },
+       {
+        "name": "Enhancements",
+        "typeId": "f759-1bc4-cb3a-f0d2",
+        "value": 1
+       }
+      ],
+      "modifiers": [
+       {
+        "field": "hidden",
+        "type": "set",
+        "value": true,
+        "conditionGroups": [
+         {
+          "type": "or",
+          "conditionGroups": [
+           {
+            "type": "and",
+            "conditions": [
+             {
+              "childId": "cac3-71d1-ea4b-795d",
+              "field": "forces",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             },
+             {
+              "childId": "d-vanguard",
+              "field": "selections",
+              "scope": "roster",
+              "shared": true,
+              "type": "lessThan",
+              "value": 1
+             }
+            ]
+           },
+           {
+            "type": "and",
+            "conditions": [
+             {
+              "childId": "k-god-sun",
+              "field": "selections",
+              "scope": "ancestor",
+              "shared": true,
+              "type": "notInstanceOf",
+              "value": 1
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
      }
     ],
     "entryLinks": [],
@@ -2764,6 +3351,119 @@
         "shared": true,
         "type": "notInstanceOf",
         "value": 1
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Enhancements",
+    "id": "g-line-enh",
+    "hidden": false,
+    "constraints": [
+     {
+      "id": "c-17",
+      "field": "selections",
+      "scope": "parent",
+      "shared": true,
+      "type": "max",
+      "value": 1
+     }
+    ],
+    "selectionEntries": [
+     {
+      "name": "Line Banner",
+      "id": "enh-line-banner",
+      "hidden": false,
+      "type": "upgrade",
+      "profiles": [
+       {
+        "name": "Line Banner",
+        "id": "a-line-banner",
+        "hidden": false,
+        "typeId": "pt-abil",
+        "typeName": "Abilities",
+        "characteristics": [
+         {
+          "name": "Description",
+          "$text": "This unit's attacks have +1 S."
+         }
+        ]
+       }
+      ],
+      "constraints": [
+       {
+        "id": "c-line-banner",
+        "field": "selections",
+        "scope": "force",
+        "shared": true,
+        "type": "max",
+        "value": 3
+       }
+      ],
+      "costs": [
+       {
+        "name": "pts",
+        "typeId": "51b2-306e-1021-d207",
+        "value": 10
+       },
+       {
+        "name": "Enhancements",
+        "typeId": "f759-1bc4-cb3a-f0d2",
+        "value": 1
+       }
+      ],
+      "modifierGroups": [
+       {
+        "type": "and",
+        "modifiers": [
+         {
+          "field": "f759-1bc4-cb3a-f0d2",
+          "type": "divide",
+          "value": 2,
+          "conditions": [
+           {
+            "childId": "enh-line-banner",
+            "field": "selections",
+            "scope": "roster",
+            "shared": true,
+            "type": "equalTo",
+            "value": 2
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "entryLinks": [],
+    "modifiers": [
+     {
+      "field": "hidden",
+      "type": "set",
+      "value": true,
+      "conditionGroups": [
+       {
+        "type": "and",
+        "conditions": [
+         {
+          "childId": "cac3-71d1-ea4b-795d",
+          "field": "forces",
+          "scope": "roster",
+          "shared": true,
+          "type": "lessThan",
+          "value": 1
+         },
+         {
+          "childId": "d-vanguard",
+          "field": "selections",
+          "scope": "roster",
+          "shared": true,
+          "type": "lessThan",
+          "value": 1
+         }
+        ]
        }
       ]
      }
@@ -2840,6 +3540,22 @@
     "id": "rl-medic",
     "hidden": false,
     "targetId": "u-medic",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Shield Brutes",
+    "id": "rl-brutes",
+    "hidden": false,
+    "targetId": "u-brutes",
+    "type": "selectionEntry",
+    "constraints": []
+   },
+   {
+    "name": "Star Herald",
+    "id": "rl-herald",
+    "hidden": false,
+    "targetId": "u-herald",
     "type": "selectionEntry",
     "constraints": []
    },

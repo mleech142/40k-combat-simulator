@@ -17,12 +17,17 @@ class WoundPool:
     mortal: int
 
 
-def roll_attack(attacker, defender, conditions, dice):
-    """Roll a weapon's attacks, hits and wounds against `defender` (simulation profiles)."""
+def roll_attack(attacker, defender, conditions, dice, snap=False):
+    """
+    Roll a weapon's attacks, hits and wounds against `defender` (simulation profiles). With `snap` (snap shooting,
+    11th edition: Fire Overwatch), each attack hits only on an unmodified 6, never critically, with no re-rolls.
+    """
     r = resolve(attacker, defender, conditions)
     attacks = sum(_model_attacks(attacker, defender, r, dice) for _ in range(attacker.models))
 
-    if r.auto_hit:  # Torrent, or no BS/WS: every attack hits, never critically
+    if snap:  # The game's own rule: resolve()'s Snap Shooting keyword is the v2 workbook's, for the Simulator
+        hits, lethal = dice.roll(attacks, 'hit', 6, crit_on=7).successes, 0
+    elif r.auto_hit:  # Torrent, or no BS/WS: every attack hits, never critically
         hits, lethal = attacks, 0
     else:
         hit_roll = dice.roll(attacks, 'hit', r.hit_need, r.crit_hit_on, r.hit_reroll)

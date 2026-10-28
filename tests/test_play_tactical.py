@@ -10,7 +10,7 @@ from combat_sim.play.dice import Dice
 from combat_sim.play.game import apply_event, resolve_action
 from test_play_mission_game import CENTRE, FAR, armies
 from combat_sim.play.game import new_game
-from test_play_turns import put
+from test_play_turns import put, next_phase
 
 
 def act(state, action):
@@ -51,7 +51,7 @@ def to_turn_end(state):
     player, round_number = state['turn']['player'], state['turn']['round']
     event = None
     while (state['turn']['player'], state['turn']['round']) == (player, round_number):
-        state, event = act(state, {'type': 'next_phase'})
+        state, event = next_phase(state)
     return state, event
 
 

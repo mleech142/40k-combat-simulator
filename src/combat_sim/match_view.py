@@ -81,9 +81,44 @@ def unit_weapons(unit, entry, catalogue, hints):
             for kind in ('ranged', 'melee')}
 
 
+HELPER_KEYWORD = re.compile(r'\bnon-', re.I)  # BSData's own categories, e.g. "Khorne non-Battleline"
+STAT_FIELDS = {'M': 'move', 'T': 'toughness', 'Sv': 'save', 'W': 'wounds', 'LD': 'leadership', 'OC': 'oc'}
+
+
+def sheet_stats(unit, effects):
+    """The datasheet's characteristics with the chosen wargear's changes (wargear.effects) applied."""
+    stats = {'move': unit.move, 'toughness': unit.toughness, 'save': unit.save, 'wounds': unit.wounds,
+             'leadership': unit.leadership, 'oc': unit.oc, 'invulnerable_save': unit.invulnerable_save,
+             'feel_no_pain': unit.feel_no_pain}
+    for name, change in (effects or {}).get('stats', {}).items():
+        field = STAT_FIELDS.get(name)
+        current = stats.get(field)
+        if field == 'move' and current is not None and str(current).isdigit():
+            stats[field] = str(int(current) + change)
+        elif isinstance(current, int):
+            stats[field] = current + change
+    invulnerable = (effects or {}).get('invulnerable_save')
+    if invulnerable and (stats['invulnerable_save'] is None or invulnerable < stats['invulnerable_save']):
+        stats['invulnerable_save'] = invulnerable
+    return stats
+
+
+def sheet_abilities(abilities, effects):
+    """The unit's abilities with those of options no longer taken left out and those of options taken added."""
+    if not effects:
+        return abilities
+    dropped = {name.lower() for name in effects.get('dropped_abilities', [])}
+    out = [a for a in abilities if a['name'].lower() not in dropped]
+    shown = {a['name'].lower() for a in out}
+    out += [{'name': name, 'text': text} for name, text in effects.get('abilities', []) if name.lower() not in shown]
+    return out
+
+
 def unit_sheet(unit, entry, catalogue, hints, faction_rule_names, enhancements):
     weapons = unit_weapons(unit, entry, catalogue, hints)
+    effects = entry.get('wargear_effects')
     abilities, rules = split_abilities(unit.abilities)
+    abilities = sheet_abilities(abilities, effects)
     # Weapon abilities the importer lists with the unit's rules (Sustained Hits...) belong on the weapons
     option_ids = {'ranged': unit.ranged_options or [], 'melee': unit.melee_options or []}
     carried = [a['text'] for rows in weapons.values() for w in rows for a in w['abilities']]
@@ -100,13 +135,12 @@ def unit_sheet(unit, entry, catalogue, hints, faction_rule_names, enhancements):
     enhancement = enhancements.get(entry.get('enhancement')) if entry.get('enhancement') else None
     return {
         'name': unit.name, 'legends': bool(unit.legends),
-        'stats': {'move': unit.move, 'toughness': unit.toughness, 'save': unit.save, 'wounds': unit.wounds,
-                  'leadership': unit.leadership, 'oc': unit.oc, 'invulnerable_save': unit.invulnerable_save,
-                  'feel_no_pain': unit.feel_no_pain},
+        'stats': sheet_stats(unit, effects),
         'base': (unit.base or {}).get('text'),
         'weapons': weapons,
         'abilities': abilities, 'core_abilities': core, 'faction_abilities': faction,
-        'keywords': unit.keywords or [],
+        'keywords': list(dict.fromkeys((unit.keywords or []) + [k for k in (effects or {}).get('keywords', [])
+                                                                 if not HELPER_KEYWORD.search(k)])),
         'enhancement': {'name': enhancement.name, 'points': enhancement.points, 'text': enhancement.text or ''}
         if enhancement else None,
     }

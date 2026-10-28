@@ -14,6 +14,8 @@ PTS = '51b2-306e-1021-d207'
 UNIT_T, RANGED_T, MELEE_T, ABIL_T = 'pt-unit', 'pt-ranged', 'pt-melee', 'pt-abil'
 DP = '82ae-1066-5107-6ae0'  # The game system's "Detachment Points" cost type
 ENH = 'f759-1bc4-cb3a-f0d2'  # The game system's "Enhancements" cost type
+# The Unit profile's characteristics: options change them by these IDs (a shield's +1 W)
+UNIT_STATS = [{'name': n, 'id': f'ct-{n.lower()}'} for n in ('M', 'T', 'Sv', 'W', 'LD', 'OC', 'InSv')]
 
 
 def cat_link(cid, name):
@@ -113,13 +115,14 @@ write('Test System', {'gameSystem': {
     'costTypes': [{'name': 'pts', 'id': PTS, 'defaultCostLimit': -1},
                   {'name': 'Detachment Points', 'id': DP, 'defaultCostLimit': -1},
                   {'name': 'Enhancements', 'id': ENH, 'defaultCostLimit': -1}],
-    'profileTypes': [{'name': n, 'id': i} for n, i in
+    'profileTypes': [{'name': n, 'id': i} | ({'characteristicTypes': UNIT_STATS} if i == UNIT_T else {}) for n, i in
                      [('Unit', UNIT_T), ('Ranged Weapons', RANGED_T), ('Melee Weapons', MELEE_T), ('Abilities', ABIL_T)]],
     'sharedRules': [{'name': n, 'id': i, 'description': n} for n, i in
                     [('Feel No Pain', 'r-fnp'), ('Stealth', 'r-stealth'), ('Leader', 'r-leader'), ('Deep Strike', 'r-ds')]],
     'categoryEntries': [{'name': n, 'id': i} for n, i in
                         [('Infantry', 'k-inf'), ('Vehicle', 'k-veh'), ('Character', 'k-char'), ('Battleline', 'k-bl'),
-                         ('Epic Hero', 'k-epic'), ('Support', 'k-support')]],
+                         ('Epic Hero', 'k-epic'), ('Support', 'k-support'), ('Sun God', 'k-god-sun'),
+                         ('Moon God', 'k-god-moon'), ('Sun God non-Battleline', 'k-god-sun-helper')]],
 }})
 
 # --- Starfarers: the faction under test ----------------------------------------
@@ -142,6 +145,7 @@ void_warriors = {
     'profiles': [unit_profile('p-void', 'Void Warrior', '6"', '4', '3+', '2', '6+', '2', base='32mm'),
                  ability('a-void', 'Shield Wall', 'Models in this unit can do things.')],
     'infoLinks': [rule_link('il-void-stealth', 'Stealth', 'r-stealth')],
+    'entryLinks': [link('l-void-enh', 'Enhancements', 'g-line-enh', kind='selectionEntryGroup')],
     'costs': pts(80),
     'modifiers': [
         # 80 points for 5 models, 160 for more
@@ -194,6 +198,21 @@ def enhancement(eid, name, points, text, *condition_groups):
                                'conditionGroups': [{'type': 'or', 'conditionGroups': list(condition_groups)}]}])
 
 
+# Enhancements for given non-Character units (like Warptide's for Battleline units): a shared group
+# that only those units link to; up to 3 in an army, their "Enhancements" shared so they count as one
+battleline_enhancements = group('g-line-enh', 'Enhancements', constraints=cons(None, 1), children=[
+    upgrade('enh-line-banner', 'Line Banner', constraints=[{'id': 'c-line-banner', 'field': 'selections', 'scope': 'force',
+                                                            'shared': True, 'type': 'max', 'value': 3}],
+            costs_extra=[{'name': 'pts', 'typeId': PTS, 'value': 10}, {'name': 'Enhancements', 'typeId': ENH, 'value': 1}],
+            profiles=[ability('a-line-banner', 'Line Banner', "This unit's attacks have +1 S.")],
+            modifierGroups=[{'type': 'and', 'modifiers': [
+                {'field': ENH, 'type': 'divide', 'value': 2, 'conditions': [
+                    {'childId': 'enh-line-banner', 'field': 'selections', 'scope': 'roster', 'shared': True,
+                     'type': 'equalTo', 'value': 2}]}]}]),
+]) | {'modifiers': [{'field': 'hidden', 'type': 'set', 'value': True,
+                     'conditionGroups': [hidden_unless_detachment('d-vanguard')]}]}
+
+
 def bearer_not(*category_ids):
     """Hidden unless the bearer is one of these (BSData: hidden if it is none of them)."""
     return {'type': 'and', 'conditions': [{'childId': c, 'field': 'selections', 'scope': 'ancestor', 'shared': True,
@@ -208,6 +227,9 @@ star_enhancements = group('g-star-enh', 'Enhancements', children=[
                 '4+ invulnerable save.', hidden_unless_detachment('d-bastion'), bearer_not('k-inf', 'u-lord')),
     enhancement('enh-armada-relic', 'Armada Relic', 30, 'Once per battle, the bearer can do something clever.',
                 hidden_unless_detachment('d-armada')),
+    # Only for a bearer of the Sun God (a keyword its allegiance option adds)
+    enhancement('enh-sun-crown', 'Sun Crown', 25, 'The bearer shines.', hidden_unless_detachment('d-vanguard'),
+                bearer_not('k-god-sun')),
 ]) | {'modifiers': [{'field': 'hidden', 'type': 'set', 'value': True, 'conditions': [
     {'childId': 'k-char', 'field': 'selections', 'scope': 'ancestor', 'shared': True, 'type': 'notInstanceOf', 'value': 1}]}]}
 
@@ -247,7 +269,13 @@ star_captain = {
                          'While this model is leading a unit, ranged weapons equipped by models in that unit have the '
                          '**[LETHAL HITS]** ability. In addition, each time an attack targets that unit, subtract 1 from '
                          'the Hit roll. You can re-roll Charge rolls made for that unit.')],
-    'infoLinks': [rule_link('il-captain-leader', 'Leader', 'r-leader')],
+    'infoLinks': [rule_link('il-captain-leader', 'Leader', 'r-leader'),
+                  # Only while a bodyguard unit is attached (BSData hides it otherwise): not the unit's own
+                  rule_link('il-captain-guard', 'Feel No Pain', 'r-fnp', append='4+') | {'modifiers': [
+                      {'field': 'name', 'type': 'append', 'value': '4+'},
+                      {'field': 'hidden', 'type': 'set', 'value': True, 'conditions': [
+                          {'childId': 'u-void', 'field': 'associations', 'scope': 'root-entry', 'shared': True,
+                           'type': 'lessThan', 'value': 1}]}]}],
     'costs': pts(70),
     'selectionEntries': [upgrade('e-master-blade', 'Master blade', constraints=cons(1, 1), profiles=[
         weapon('p-master-blade', 'Master blade', 'melee', 'Melee', '5', '2+', '6', '-2', '2', 'Sustained Hits 1')])],
@@ -298,6 +326,7 @@ gun_crew = {
     'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-inf', 'Infantry')],
     'constraints': [{'id': 'c-crew-max', 'field': 'selections', 'scope': 'force', 'shared': True, 'type': 'max', 'value': 3}],
     'profiles': [unit_profile('p-crew', 'Gunner', '5"', '3', '5+', '1', '7+', '1')],
+    'entryLinks': [link('l-crew-line-enh', 'Enhancements', 'g-line-enh', kind='selectionEntryGroup')],
     'costs': pts(40),
     'modifiers': [
         {'field': PTS, 'type': 'decrement', 'value': 5, 'conditions': [
@@ -325,6 +354,41 @@ gun_crew = {
             upgrade('e-crew-gun', 'Crew gun', constraints=cons(1, 1), profiles=[
                 weapon('p-crew-gun', 'Crew gun', 'ranged', '36"', '2', '4+', '8', '-2', '3', None)])])])],
 }
+
+# Options without weapons or points that still matter: a shield changing W or giving an invulnerable save
+shield_brutes = {
+    'name': 'Shield Brutes', 'id': 'u-brutes', 'hidden': False, 'type': 'unit',
+    'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-inf', 'Infantry')],
+    'profiles': [unit_profile('p-brute', 'Brute', '6"', '6', '3+', '3', '7+', '1', base='50mm')],
+    'costs': pts(90),
+    'selectionEntries': [
+        model('m-brute', 'Brute', constraints=cons(3, 3), children=[
+            upgrade('e-brute-club', 'Brute club', constraints=cons(1, 1), profiles=[
+                weapon('p-brute-club', 'Brute club', 'melee', 'Melee', '4', '3+', '7', '-1', '2', None)])],
+              groups=[group('g-brute-shield', 'Shield', constraints=cons(1, 1), default='e-slab', children=[
+                  upgrade('e-slab', 'Slab shield', profiles=[ability('a-slab', 'Slab Shield', 'The bearer has a Wounds characteristic of 4.')],
+                          modifiers=[{'field': 'ct-w', 'type': 'increment', 'value': 1}]),
+                  upgrade('e-brute-shield', 'Brute shield', constraints=cons(None, 2, scope='unit'),  # 2 per unit at most
+                          profiles=[ability('a-brute-shield', 'Brute Shield', 'The bearer has a 4+ invulnerable save.')]),
+              ])]),
+    ],
+}
+
+# An allegiance to choose: each option adds its god's keyword (no weapons, no points)
+star_herald = {
+    'name': 'Star Herald', 'id': 'u-herald', 'hidden': False, 'type': 'model',
+    'categoryLinks': [cat_link('k-faction-star', 'Faction: Starfarers'), cat_link('k-char', 'Character')],
+    'profiles': [unit_profile('p-herald', 'Star Herald', '8"', '5', '4+', '5', '6+', '1')],
+    'costs': pts(60),
+    'selectionEntries': [upgrade('e-herald-staff', 'Herald staff', constraints=cons(1, 1), profiles=[
+        weapon('p-herald-staff', 'Herald staff', 'melee', 'Melee', '3', '3+', '5', '-1', '2', None)])],
+    'selectionEntryGroups': [group('g-allegiance', 'Allegiance', constraints=cons(1, 1), children=[
+        upgrade('e-god-sun', 'Sun God', modifiers=[{'field': 'category', 'type': 'add', 'value': 'k-god-sun'},
+                                                   {'field': 'category', 'type': 'add', 'value': 'k-god-sun-helper'}]),
+        upgrade('e-god-moon', 'Moon God', modifiers=[{'field': 'category', 'type': 'add', 'value': 'k-god-moon'}]),
+    ])],
+}
+
 
 def detachment_entry(eid, gid, options):
     """
@@ -362,8 +426,8 @@ write('Xenos - Starfarers', {'catalogue': {
     'sharedRules': [{'name': 'Star Pact', 'id': 'r-star-pact', 'hidden': False,
                      'description': 'Each time a unit from this army is selected to shoot, it can re-roll one Hit roll.'}],
     'sharedSelectionEntries': [laser_pistol, laser_rifle, plasma_pistol, ccw, void_warriors, star_captain, star_walker, beast_pack,
-                               gun_crew, star_detachments, star_lord, field_medic],
-    'sharedSelectionEntryGroups': [star_enhancements],
+                               gun_crew, star_detachments, star_lord, field_medic, shield_brutes, star_herald],
+    'sharedSelectionEntryGroups': [star_enhancements, battleline_enhancements],
     'entryLinks': [
         link('rl-star-det', 'Detachment', 'e-star-det'),
         link('rl-ally-det', 'Detachment', 'e-allies-det'),  # Another army's detachments: left out
@@ -374,6 +438,8 @@ write('Xenos - Starfarers', {'catalogue': {
         link('rl-crew', 'Gun Crew', 'u-crew'),
         link('rl-lord', 'Star Lord', 'u-lord'),
         link('rl-medic', 'Field Medic', 'u-medic'),
+        link('rl-brutes', 'Shield Brutes', 'u-brutes'),
+        link('rl-herald', 'Star Herald', 'u-herald'),
         link('rl-agent', 'Ally Agent', 'u-agent'),  # An ally from another army: left out
         link('rl-troupe', 'Wandering Troupe', 'u-troupe'),  # Nobody's own faction: taken
         link('rl-hidden', 'Hidden Thing', 'u-captain') | {'hidden': True},

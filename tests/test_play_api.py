@@ -199,6 +199,23 @@ def test_shooting_through_the_api_logs_each_attack_with_its_dice(client, game):
     assert (attack['target'], attack['models'], attack['attacks']) == ('p1-w', 2, 4)  # 2 crew, 2 shots each
     first, last = attack['rolls']
     assert event['rolls'][first]['purpose'] == 'hit' and last > first
+    window = shot.get_json()['state']['turn'].get('window')
+    if window:  # A save failed: Red may Command Re-roll it first
+        assert window['kind'] == 'reroll' and act({'type': 'pass', 'player': window['player']}).status_code == 200
+    else:
+        assert client.post(f'/api/play/games/{game["id"]}/undo').status_code == 400  # Dice were rolled
     again = act({'type': 'shoot', 'unit': 'p2-g', 'target': 'p1-w'})
     assert again.status_code == 400 and 'already shot' in again.get_json()['error']
-    assert client.post(f'/api/play/games/{game["id"]}/undo').status_code == 400  # Dice were rolled
+
+
+def test_deep_strike_and_the_points_limit_are_frozen_into_the_game(client):
+    factions = {f['name']: f['id'] for f in client.get('/api/data/factions').get_json()}
+    ids = {u['name']: u['id'] for u in client.get(f'/api/units?faction_id={factions["Starfarers"]}&legends=1').get_json()}
+    body = {'name': 'Red', 'faction_id': factions['Starfarers'], 'points_limit': 1000,
+            'units': [{'uid': 'k', 'unit_id': ids['Star Walker [Legends]']}, {'uid': 'w', 'unit_id': ids['Void Warriors']}]}
+    red = client.post('/api/armies', json=body).get_json()['id']
+    blue = saved_army(client, 'Blue', {'uid': 'g', 'unit': 'Gun Crew'})
+    game = client.post('/api/play/games', json={'name': 'Drop', 'armies': [red, blue], 'setup': False}).get_json()
+    walker, warriors = game['state']['units'][:2]
+    assert walker['parts'][0]['deep_strike'] and not warriors['parts'][0]['deep_strike']
+    assert [p['reserve_limit'] for p in game['state']['players']] == [500, 1000]  # Half of each army's points limit

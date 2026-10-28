@@ -11,7 +11,7 @@ from combat_sim.play.game import new_game
 from combat_sim.play.mission_state import action_options
 from test_play_mission_game import BLUE_HOME, CENTRE, FAR, WEST, armies, to_turn_end
 from test_play_terrain import piece
-from test_play_turns import act, put, refused
+from test_play_turns import act, put, refused, next_phase
 
 
 def game(red, blue, red_spots, blue_spots, terrain=(), red_oc=2, blue_oc=1):
@@ -30,7 +30,7 @@ def game(red, blue, red_spots, blue_spots, terrain=(), red_oc=2, blue_oc=1):
 
 def to_shooting(state):
     while state['turn']['phase'] != 'shooting':
-        state, _ = act(state, {'type': 'next_phase'})
+        state, _ = next_phase(state)
     return state
 
 

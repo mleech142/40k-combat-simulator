@@ -20,7 +20,7 @@ from .seats import actor, check_seat, waiting_on
 from ..settings import load_settings, update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, apply_event, can_fly, charge_options,
                    deployment_zone, fight_options, measure, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
-                   score, shooting_options, terrain_areas)
+                   disembark_options, embark_options, infiltrators, ingress_rules, redo_history, scouts, rerollable, score, shooting_options, terrain_areas, window_options)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army, rule_texts
 
@@ -58,6 +58,12 @@ def game_response(saved, state=None):
                     'allocation': {u['id']: allocation_groups(u) for u in state['units'] if len(allocation_groups(u)) > 1},
                     'score': score(state),
                     'ready': ready_units(state),
+                    'reaction': window_options(state),
+                    'ingress': [ingress_rules(state, p) for p in (0, 1)],
+                    'scouts': {u['id']: scouts(u, state) for u in state['units'] if scouts(u, state)},
+                    'embark': embark_options(state), 'disembark': disembark_options(state),
+                    'infiltrators': [u['id'] for u in state['units'] if infiltrators(u)],
+                    'rerollable': rerollable(state, (saved.events or [None])[-1]),
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
                     'unit_objectives': {u['id']: objectives_in_range(state, u) for u in state['units']},
                     'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},
@@ -176,6 +182,14 @@ def undo_rewind(saved, state, action):
     if not 0 <= target < len(events):
         return None
     return replay(saved.armies, events[:target], saved.battlefield, bool(saved.setup), saved.twist)
+
+
+def redo_for(saved, action):
+    """For a Command Re-roll: what it works out again (game.redo_history), else None."""
+    if action.get('type') != 'command_reroll':
+        return None
+    events = saved.events or []
+    return redo_history(events, lambda n: replay(saved.armies, events[:n], saved.battlefield, bool(saved.setup), saved.twist))
 
 
 def player_name():
@@ -522,7 +536,8 @@ def register_play_routes(app):
             except relay_client.RelayError as error:
                 return relay_failure(saved, error)
         try:
-            event = resolve_action(state, action, Dice(), rewind=undo_rewind(saved, state, action))
+            event = resolve_action(state, action, Dice(), rewind=undo_rewind(saved, state, action),
+                                   redo=redo_for(saved, action))
         except ActionError as error:
             return jsonify({'error': str(error)}), 400
         event['by'] = actor(state, action)  # Whose app sent it (undo, and the other player's notice)
