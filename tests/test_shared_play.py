@@ -10,7 +10,7 @@ import pytest
 
 from combat_sim import accounts, mail, paths
 from combat_sim.play.battlefields import BUILTIN
-from conftest import BSDATA_FIXTURES
+from conftest import BSDATA_FIXTURES, welcome
 
 APP_DATA = {'schema_version': 2, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [],
             'faction_rules': [], 'stratagems': [], 'unit_modifiers': [], 'keywords': [], 'target_profiles': []}
@@ -26,7 +26,7 @@ def copy(make_client, monkeypatch):
     mail._seen.clear()
     mail._sent.clear()
     host, _ = make_client(APP_DATA, bsdata=BSDATA_FIXTURES)
-    assert host.post('/api/auth/welcome', json={'name': 'Hosty', 'email': 'h@example.com', 'password': 'throwaway-1'}).status_code == 200
+    assert welcome(host, {'name': 'Hosty', 'email': 'h@example.com', 'password': 'throwaway-1'}).status_code == 200
     browsers = {'host': host}
     for name in ('Pat', 'Sam'):
         link = host.post('/api/players', json={'name': name, 'email': f'{name.lower()}@example.com'}).get_json()['link']

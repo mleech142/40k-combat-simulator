@@ -1,15 +1,19 @@
 # A self-hosted copy of the app (docs/self-hosting.md): docker compose up -d
-# Then open http://<this computer's address>:5000 and download the data on the Setup page.
+# Then open http://localhost:5000 on this computer: the first visit asks for the setup code from
+# `docker compose logs combat-sim`. Other people reach it through HTTPS on your Tailscale network
+# (`tailscale serve --bg 5000`) or another HTTPS proxy, never as plain HTTP across a network.
+# Your own settings (mail server, PUBLIC_URL) go in compose.override.yaml, which git ignores.
 services:
   combat-sim:
     image: ghcr.io/mleech142/40k-combat-simulator:latest
     # build: .   # instead of the image, to build from this repository
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"  # this computer only: Tailscale serve (or Caddy) brings everyone else in over HTTPS
     volumes:
       - combat-sim-data:/data  # app data JSON, database, settings, BSData and Wahapedia downloads
-    # environment:
-    #   RELAY_URL: https://your-relay.example  # your own relay for online games (default: the project's)
+    environment:
+      COMBAT_SIM_SECURE_COOKIES: "1"  # logins only over HTTPS (browsers also allow them on http://localhost)
+      # RELAY_URL: https://your-relay.example  # your own relay for online games (default: the project's)
     restart: unless-stopped
 
 volumes:

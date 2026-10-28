@@ -43,6 +43,8 @@ superseded: hidden on the pages, but kept in the file.
 import hashlib
 import json
 import os
+import tempfile
+import threading
 from pathlib import Path
 
 from . import bsdata, wahapedia as wahapedia_import
@@ -169,7 +171,7 @@ def stable_ids(keys):
         new_rows.append({'key': key, 'table': table, 'id': known[key]})
     if new_rows:
         db.session.execute(StableId.__table__.insert(), new_rows)
-        db.session.commit()  # Before the reference tables are dropped on another connection
+        db.session.commit()  # Kept even if the rebuild that follows fails
     return known
 
 
@@ -374,10 +376,20 @@ def _remap_tree_weapons(tree, weapon_ids):
 # Tables
 # ---------------------------------------------------------------------------
 
+# Held while the reference tables are rebuilt and while app data is saved (app.py), so a save never exports
+# half-rebuilt tables and two rebuilds never interleave. Reentrant: a rebuild can save, a save can rebuild.
+REFERENCE_LOCK = threading.RLock()
+
+
 def rebuild_reference_tables(data):
-    """Drop and recreate the reference tables, then fill them from `data` (as merge_data returns it)."""
-    db.metadata.drop_all(bind=db.engine, tables=REFERENCE_TABLES)
-    db.metadata.create_all(bind=db.engine, tables=REFERENCE_TABLES)
+    """Drop and recreate the reference tables, then fill them from `data` (as merge_data returns it), in one
+    transaction: other players' requests see the old tables until it commits (models.prepare_sqlite), and a
+    failure leaves them as they were. Callers hold REFERENCE_LOCK."""
+    connection = db.session.connection()
+    if connection.dialect.name == 'sqlite' and not connection.connection.dbapi_connection.in_transaction:
+        connection.exec_driver_sql('BEGIN')  # the driver wouldn't start one before DROP TABLE (models.prepare_sqlite)
+    db.metadata.drop_all(bind=connection, tables=REFERENCE_TABLES)
+    db.metadata.create_all(bind=connection, tables=REFERENCE_TABLES)
 
     for name, model in SECTIONS:
         # Every row needs every column for the batch insert; missing optional fields get the column default
@@ -477,14 +489,18 @@ BSDATA_COLUMNS = {'bsdata_id', 'legends', 'ranged_options', 'melee_options', 'ad
 
 
 def write_json(path, data, indent=2):
-    """Write JSON atomically (temp file then rename)."""
+    """Write JSON atomically (a temp file of its own, then rename), so two writes at once can't mix."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    with open(tmp, 'w', encoding='utf-8', newline='\n') as f:
-        json.dump(data, f, indent=indent, ensure_ascii=False)
-        f.write('\n')
-    os.replace(tmp, path)
+    handle, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + '.', suffix='.tmp')
+    try:
+        with os.fdopen(handle, 'w', encoding='utf-8', newline='\n') as f:
+            json.dump(data, f, indent=indent, ensure_ascii=False)
+            f.write('\n')
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def write_data_file(path, data):

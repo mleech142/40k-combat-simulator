@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from conftest import welcome
 from combat_sim import accounts, paths
 
 APP_DATA = {'schema_version': 2, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [],
@@ -19,7 +20,7 @@ def copy(make_client, monkeypatch):
     monkeypatch.setenv(paths.HOSTED_ENV, '1')
     accounts._failed.clear()
     host, data_file = make_client(APP_DATA)
-    host.post('/api/auth/welcome', json={'name': 'Hosty', 'email': 'h@example.com', 'password': 'throwaway-1'})
+    welcome(host, {'name': 'Hosty', 'email': 'h@example.com', 'password': 'throwaway-1'})
     link = host.post('/api/players', json={'name': 'Pat', 'email': 'p@example.com'}).get_json()['link']
     player = host.application.test_client()
     player.post('/api/auth/join', json={'token': link.rsplit('/', 1)[1], 'password': 'throwaway-2'})

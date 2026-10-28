@@ -14,7 +14,7 @@ from .models import (db, init_db, Proposal, Faction, Detachment, Enhancement, Un
 from . import __version__
 from .paths import DATA_FILE, DATABASE_FILE, BSDATA_FOLDER, BSDATA_CACHE_FILE, WAHAPEDIA_FOLDER, is_hosted, prepare_data_dir
 from .data_store import (DataFileError, read_data_file, check_data, load_bsdata, merge_data,
-                         rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS)
+                         rebuild_reference_tables, export_data, write_data_file, LINKED_FIELDS, REFERENCE_LOCK)
 from . import armies, army_share, bsdata_download, contagion, effects, folder_dialog, match_view, wahapedia, wahapedia_download
 from .effects import RULE_PHASES
 from .rules_text import ability_buffs
@@ -105,6 +105,11 @@ def bsdata_folder(app):
 
 def reload_bsdata(app, fresh=False):
     """(Re)import the BSData folder and rebuild the reference tables. fresh: ignore the cache."""
+    with REFERENCE_LOCK:
+        return _reload_bsdata(app, fresh)
+
+
+def _reload_bsdata(app, fresh):
     if fresh:
         Path(app.config['BSDATA_CACHE']).unlink(missing_ok=True)
     data = read_data_file(app.config['DATA_JSON'])
@@ -120,8 +125,9 @@ def reload_bsdata(app, fresh=False):
 def load_wahapedia(app):
     """Import the Wahapedia folder (rules and stratagems); the reference tables are rebuilt separately."""
     result, status = wahapedia.load_folder(app.config['WAHAPEDIA_DIR'])
-    app.config['WAHAPEDIA_RESULT'] = result
-    app.config['WAHAPEDIA_STATUS'] = status
+    with REFERENCE_LOCK:
+        app.config['WAHAPEDIA_RESULT'] = result
+        app.config['WAHAPEDIA_STATUS'] = status
     return status
 
 
@@ -139,12 +145,17 @@ def bsdata_label(app):
 
 def load_reference_data(app, data):
     """Rebuild the reference tables from app data JSON `data` plus the loaded BSData and Wahapedia imports."""
-    report = []
-    merged, unmatched = merge_data(data, app.config.get('BSDATA_RESULT'), app.config.get('WAHAPEDIA_RESULT'), report)
-    (app.config.get('WAHAPEDIA_STATUS') or {})['report'] = report
-    app.config['DATA_SOURCE'] = data.get('source')
-    app.config['UNMATCHED'] = unmatched
-    rebuild_reference_tables(merged)
+    with REFERENCE_LOCK:
+        report = []
+        merged, unmatched = merge_data(data, app.config.get('BSDATA_RESULT'), app.config.get('WAHAPEDIA_RESULT'), report)
+        try:
+            rebuild_reference_tables(merged)
+        except Exception:
+            db.session.rollback()  # The old tables stay as they were
+            raise
+        (app.config.get('WAHAPEDIA_STATUS') or {})['report'] = report
+        app.config['DATA_SOURCE'] = data.get('source')
+        app.config['UNMATCHED'] = unmatched
 
 
 def conditions_from_request(conditions_data):
@@ -689,9 +700,10 @@ def register_routes(app):
     # =========================================================================
 
     def save_data():
-        db.session.commit()
-        write_data_file(app.config['DATA_JSON'],
-                        export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED')))
+        with REFERENCE_LOCK:  # never while the reference tables are being rebuilt
+            db.session.commit()
+            write_data_file(app.config['DATA_JSON'],
+                            export_data(app.config.get('DATA_SOURCE'), app.config.get('UNMATCHED')))
 
     def read_only(message='BSData records are read-only.'):
         return jsonify({'error': message}), 403
@@ -713,7 +725,7 @@ def register_routes(app):
         counts = {}
         for item in report:
             counts[item['kind']] = counts.get(item['kind'], 0) + 1
-        return jsonify({
+        return jsonify(without_paths({
             'folder': status.get('folder'),
             'loaded': bool(status.get('loaded')),
             'error': status.get('error'),
@@ -729,7 +741,17 @@ def register_routes(app):
             'hosted': app.config['HOSTED'],
             'default_folder': app.config['DEFAULT_BSDATA_DIR'],
             'wahapedia': wahapedia_status(bool(request.args.get('report'))),
-        })
+        }))
+
+    PATH_KEYS = ('folder', 'download_folder', 'default_folder')
+
+    def without_paths(status):
+        """A self-hosted copy shows where its files are on the server to the host alone."""
+        if not app.config['HOSTED'] or (current_user() and current_user().is_host):
+            return status
+        def strip(d):
+            return {k: (strip(v) if isinstance(v, dict) else v) for k, v in d.items() if k not in PATH_KEYS}
+        return strip(status)
 
     def wahapedia_status(with_report=False):
         """The Wahapedia import: whether it loaded, when Wahapedia last updated it, counts and report."""
@@ -853,6 +875,17 @@ def register_routes(app):
         if isinstance(value, str):
             value = value.split(',')
         return [str(v).strip() for v in (value or []) if str(v).strip()]
+
+    def bad_data_request(err):
+        """A Data-tab write with a field missing or of the wrong kind: 400, not a crash."""
+        if not request.path.startswith('/api/data/'):
+            raise err
+        db.session.rollback()
+        detail = f"'{err.args[0]}' is missing" if isinstance(err, KeyError) and err.args else str(err)
+        return jsonify({'error': f'That change has a field missing or wrong: {detail}.'}), 400
+
+    for kind in (KeyError, ValueError, TypeError):
+        app.register_error_handler(kind, bad_data_request)
 
     @app.errorhandler(IntegrityError)
     def handle_integrity_error(err):
@@ -1513,6 +1546,7 @@ def register_routes(app):
                 'weapons': weapons,
                 'unit': atk_unit,
                 'leader': atk_leader,
+                'enhancements': atk_enhancements,
                 'size': unit_size or 1,
             })
 
@@ -1637,11 +1671,11 @@ def register_routes(app):
 
         results['analysis'] = army_analysis(attackers, defenders, matrix, total_cells, total_points,
                                             conditions, data.get('weapon_filter', 'both'),
-                                            (attacker_affliction, defender_affliction))
+                                            (attacker_affliction, defender_affliction), attacker_rules)
         return jsonify(results)
 
     def army_analysis(attackers, defenders, matrix, total_cells, total_points, conditions, weapon_filter,
-                      afflicted=(None, None)):
+                      afflicted=(None, None), my_rules=()):
         """Excel's Results tab: summary, gaps, role scores, T/Sv coverage and reverse durability."""
         weights = [d['weight'] if d['weight'] is not None else 1 for d in defenders]
         army_pcts = [cell['pct_destroyed'] for cell in total_cells]
@@ -1706,14 +1740,16 @@ def register_routes(app):
             'gaps': gaps,
             'roles': roles,
             'coverage': {'toughness': COVERAGE_TOUGHNESS, 'saves': COVERAGE_SAVES, 'damage': coverage},
-            'reverse': reverse_durability(attackers, defenders, conditions, weapon_filter, afflicted),
+            'reverse': reverse_durability(attackers, defenders, conditions, weapon_filter, afflicted, my_rules),
         }
 
-    def reverse_durability(attackers, defenders, conditions, weapon_filter, afflicted=(None, None)):
+    def reverse_durability(attackers, defenders, conditions, weapon_filter, afflicted=(None, None), my_rules=()):
         """
         The opponent's real units attacking mine (Excel's Reverse Durability): their loadouts with the
         default ticks, quantities scaled to their model counts, same conditions, no opponent rules.
-        `afflicted`: (my units' affliction, theirs), as the matrix request says (contagion.py).
+        My units defend as they would in the Simulator: with my rules', leader's and enhancements' Target
+        modifiers (`my_rules`: the rules ticked for my side). `afflicted`: (my units' affliction, theirs),
+        as the matrix request says (contagion.py).
         """
         mine, theirs = afflicted
         if not defenders or any(not isinstance(d['unit'], Unit) for d in defenders):
@@ -1741,7 +1777,11 @@ def register_routes(app):
             if unit is None:
                 continue
             models = atk['size'] or unit.default_models or 1
-            extra = {w_type: contagion.modifiers(theirs, mine, w_type)[1] for w_type in ('ranged', 'melee')}
+            extra = {w_type: (rule_modifiers(my_rules, 'Target', unit.faction_id, w_type)
+                              + leader_modifiers(atk['leader'], 'Target', w_type)
+                              + enhancement_modifiers(atk.get('enhancements') or [], 'Target', w_type)
+                              + contagion.modifiers(theirs, mine, w_type)[1])
+                     for w_type in ('ranged', 'melee')}
             targets = {w_type: defender_profile(unit, models, mods) for w_type, mods in extra.items()}
             leaders = {w_type: leader_target(atk['leader'], mods) for w_type, mods in extra.items()} \
                 if atk['leader'] is not None else None

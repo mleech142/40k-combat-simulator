@@ -35,3 +35,8 @@ def make_client(tmp_path, monkeypatch):
         monkeypatch.setenv('WAHAPEDIA_DIR', str(wahapedia or tmp_path / 'no-wahapedia'))
         return create_app().test_client(), data_file
     return _make
+
+
+def welcome(client, fields):
+    """POST the Welcome form of a self-hosted copy (accounts.py) with its setup code, as the host would."""
+    return client.post('/api/auth/welcome', json=dict(fields, setup_code=client.application.config['SETUP_CODE']))

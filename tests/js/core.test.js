@@ -974,3 +974,12 @@ test('matchStratagemShown filters stratagems by phase, turn and words', () => {
     assert.ok(Core.matchStratagemShown(theirs, { turn: 'theirs', search: 'stealth' }));
     assert.ok(!Core.matchStratagemShown(theirs, { search: 'lethal' }));
 });
+
+test('safeNextPath keeps paths on this site and refuses other sites', () => {
+    assert.equal(Core.safeNextPath('/armies?x=1'), '/armies?x=1');
+    assert.equal(Core.safeNextPath('//evil.example'), '/');
+    assert.equal(Core.safeNextPath('/\x5cevil.example'), '/');  // \x5c is a backslash  // '/\' is a backslash
+    assert.equal(Core.safeNextPath('https://evil.example'), '/');
+    assert.equal(Core.safeNextPath('/\tevil'), '/');
+    assert.equal(Core.safeNextPath(null), '/');
+});

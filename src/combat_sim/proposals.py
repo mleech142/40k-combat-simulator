@@ -88,11 +88,48 @@ def propose():
     return jsonify({'proposed': True, 'message': 'Sent to the host to approve.', 'proposal': proposal_dict(proposal)}), 202
 
 
+# The Data tab sends some fields under other names than the columns they set (app.py's apply_*_fields)
+FIELD_COLUMNS = {'ap': 'armor_penetration', 'range': 'range_inches'}
+ROUTING_FIELDS = {'type'}  # say which kind of record, not part of it
+MISSING = object()
+
+
+def column_for(field, base):
+    if field == 'skill':
+        return 'ballistic_skill' if 'ballistic_skill' in base else 'weapon_skill'
+    return FIELD_COLUMNS.get(field, field)
+
+
+def comparable(field, value):
+    """A value as the Data tab and the database would both write it: '5' and 5 alike, '' as None, lists of text."""
+    if isinstance(value, (list, tuple)):
+        return [comparable(field, v) for v in value]
+    if isinstance(value, str):
+        value = value.strip()
+        if value == '':
+            return None
+        try:
+            value = int(value)
+        except ValueError:
+            return value
+    if field == 'ap' and isinstance(value, int):
+        return abs(value)  # stored without its minus sign
+    return value
+
+
 def changes(proposal, current):
-    """What the proposal changes ({field, now, proposed}) and what changed since it was made ({field, then, now})."""
+    """What the proposal changes ({field, now, proposed}; 'now' is None for a field with no column of its own) and
+    what changed since it was made ({field, then, now})."""
     body = proposal.body if isinstance(proposal.body, dict) else {}
     base = current or proposal.before or {}
-    wanted = [{'field': k, 'now': base.get(k), 'proposed': v} for k, v in body.items() if base.get(k) != v]
+    wanted = []
+    for field, value in body.items():
+        if field in ROUTING_FIELDS:
+            continue
+        now = base.get(column_for(field, base), MISSING)
+        if now is not MISSING and comparable(field, now) == comparable(field, value):
+            continue
+        wanted.append({'field': field, 'now': None if now is MISSING else now, 'proposed': value})
     since = []
     if proposal.before is not None and current is not None:
         since = [{'field': k, 'then': proposal.before.get(k), 'now': v}
@@ -133,6 +170,9 @@ def apply(proposal):
         except IntegrityError:
             db.session.rollback()
             return False, 'That would create a duplicate or break a link between records.'
+        except Exception as error:  # A field missing or of the wrong kind: the proposal fails, nothing is changed
+            db.session.rollback()
+            return False, f'It could not be applied: {type(error).__name__} {error}'.strip()
     if response.status_code >= 400:
         db.session.rollback()
         data = response.get_json(silent=True) or {}

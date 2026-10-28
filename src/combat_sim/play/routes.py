@@ -6,7 +6,9 @@ log (SavedGame); its state is always their replay, so a game reads the same howe
 import json
 import os
 import random
+import functools
 import re
+import threading
 import uuid
 
 from flask import Response, abort, current_app, jsonify, render_template, request
@@ -26,6 +28,23 @@ from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allo
                    afflictions, contagion_ranges, grant_options, has_contagion)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army, rule_texts
+
+
+_game_locks = {}
+_game_locks_guard = threading.Lock()
+
+
+def one_at_a_time(route):
+    """Routes that change a game run one at a time per game: each reads the log the one before wrote, so two
+    actions sent together (a double-click, both players in a reaction window) can't each append to the same old
+    log and lose one. The app is one process (run.py), so a lock in memory is enough."""
+    @functools.wraps(route)
+    def wrapper(game_id, *args, **kwargs):
+        with _game_locks_guard:
+            lock = _game_locks.setdefault(game_id, threading.Lock())
+        with lock:
+            return route(game_id, *args, **kwargs)
+    return wrapper
 
 
 def seat_of(saved):
@@ -576,6 +595,7 @@ def register_play_routes(app):
         return game_response(game_or_404(game_id))
 
     @app.route('/api/play/games/<int:game_id>', methods=['DELETE'])
+    @one_at_a_time
     def api_delete_game(game_id):
         saved = game_or_404(game_id)
         if not owns(saved):
@@ -585,6 +605,7 @@ def register_play_routes(app):
         return jsonify({'deleted': game_id})
 
     @app.route('/api/play/games/<int:game_id>/actions', methods=['POST'])
+    @one_at_a_time
     def api_game_action(game_id):
         """Resolve an action (rolling any dice) and add its event to the game."""
         saved = game_or_404(game_id)
@@ -648,6 +669,7 @@ def register_play_routes(app):
                 mail.your_move(other, me.name, saved, request.host_url)
 
     @app.route('/api/play/games/<int:game_id>/undo', methods=['POST'])
+    @one_at_a_time
     def api_undo(game_id):
         """
         Take back the last action. Hot-seat: at once, if no dice were rolled for it. Against someone on another PC:
@@ -690,6 +712,7 @@ def register_play_routes(app):
         return game_response(saved)
 
     @app.route('/api/play/games/<int:game_id>/seat', methods=['PUT'])
+    @one_at_a_time
     def api_game_seat(game_id):
         """Which player this app plays in the game: 0, 1 or None (both, hot-seat)."""
         saved = game_or_404(game_id)
@@ -760,6 +783,7 @@ def register_play_routes(app):
         return jsonify(dict(game_response(saved).get_json(), imported=how))
 
     @app.route('/api/play/games/<int:game_id>/online', methods=['POST'])
+    @one_at_a_time
     def api_game_online(game_id):
         """Put a game this app plays one side of on the relay: answers the game, whose 'online' has the invite code."""
         saved = game_or_404(game_id)
@@ -777,6 +801,7 @@ def register_play_routes(app):
         return game_response(saved)
 
     @app.route('/api/play/games/<int:game_id>/new-code', methods=['POST'])
+    @one_at_a_time
     def api_game_new_code(game_id):
         """
         Move an online game to a new invite code: the relay's copy under the old one is deleted, so whoever holds
@@ -847,19 +872,30 @@ def register_play_routes(app):
         return game_response(saved)
 
     @app.route('/api/play/games/<int:game_id>/sync', methods=['POST'])
+    @one_at_a_time
     def api_sync_game(game_id):
-        """An online game brought up to date from the relay ('moved': how many of the other player's moves came)."""
+        """
+        An online game brought up to date from the relay ('moved': how many of the other player's moves came). With
+        ?since=<events the page has>, a game with nothing new answers {'moved': 0, 'unchanged': true} without
+        replaying it (the page polls every few seconds).
+        """
         saved = game_or_404(game_id)
+        seen = request.args.get('since', type=int)
+        if saved.seat_users:
+            mail.seen(saved.id, current_user().id)
         if not saved.relay_code:
-            seen = request.args.get('since', type=int)
             moved = max(0, len(saved.events or []) - seen) if saved.seat_users and seen is not None else 0
-            if saved.seat_users:
-                mail.seen(saved.id, current_user().id)
-            return jsonify(dict(game_response(saved).get_json(), moved=moved))
-        try:
-            moved = pull(saved)
-        except relay_client.RelayError as error:
-            return relay_failure(saved, error)
+        else:
+            joined = bool(saved.relay_joined)
+            try:
+                moved = pull(saved)
+            except relay_client.RelayError as error:
+                return relay_failure(saved, error)
+            if bool(saved.relay_joined) != joined:
+                seen = None  # They've just joined: the page needs the whole game
+        if not moved and seen == len(saved.events or []) and not waiting_for_army(saved):
+            return jsonify({'id': saved.id, 'moved': 0, 'unchanged': True, 'waiting_for_army': False,
+                            'online': online_response(saved)})
         return jsonify(dict(game_response(saved).get_json(), moved=moved))
 
     def complete_invite(invited, seat, army_id):

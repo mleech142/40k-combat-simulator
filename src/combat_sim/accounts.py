@@ -16,6 +16,7 @@ import hashlib
 import os
 import re
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -33,8 +34,10 @@ JOIN_DAYS = 7
 MIN_PASSWORD = 8
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,29}$")
 EMAIL_RE = re.compile(r"^[^@\s<>\"'`]+@[^@\s<>\"'`]+\.[^@\s<>\"'`]+$")
-LOGIN_TRIES = 5  # wrong passwords for one name before it waits
+LOGIN_TRIES = 5  # wrong passwords for one name from one device before it waits
 LOGIN_WAIT = 60  # seconds
+LOGIN_MEMORY = 15 * 60  # seconds a wrong password is remembered
+LOGIN_KEYS = 10_000  # most names and devices remembered at once
 
 # Reachable without logging in
 OPEN_PATHS = ('/login', '/welcome', '/join/', '/api/auth/login', '/api/auth/welcome', '/api/auth/join', '/static/')
@@ -43,7 +46,31 @@ HOST_PATHS = ('/setup', '/api/bsdata/', '/api/wahapedia/', '/api/play/setting', 
               '/api/players')
 SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS')
 
-_failed = {}  # name_key -> (count, time of the last failure)
+_failed = {}  # (name_key, device) -> (count, time of the last failure)
+_failed_lock = threading.Lock()
+_welcome_lock = threading.Lock()  # one host, even if two people send the Welcome form together
+
+
+def device():
+    """Who is logging in, for the login throttle: their address, or behind this computer's own proxy (Tailscale
+    serve, Caddy) the address it forwarded. Counting per name alone would let anyone keep the host locked out."""
+    if request.remote_addr in ('127.0.0.1', '::1') and request.access_route:
+        return request.access_route[0]
+    return request.remote_addr or ''
+
+
+def path_in(path, prefixes):
+    """Whether `path` is one of `prefixes` or below one, by whole path segments ('/setup' and '/setup/x', never
+    '/setupx'); a prefix ending in '/' matches anything below it."""
+    return any(path == p.rstrip('/') or path.startswith(p if p.endswith('/') else p + '/') for p in prefixes)
+
+
+def new_setup_code():
+    """The one-time code a new copy prints in its log; the Welcome form needs it, so only whoever runs the copy
+    can become its host."""
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    code = ''.join(secrets.choice(alphabet) for _ in range(8))
+    return f'{code[:4]}-{code[4:]}'
 
 
 def secret_key(folder):
@@ -196,6 +223,8 @@ def register_account_routes(app):
     app.config['SESSION_COOKIE_NAME'] = 'combat_sim_session'
     app.config['SESSION_COOKIE_SECURE'] = os.environ.get('COMBAT_SIM_SECURE_COOKIES', '').strip() in ('1', 'true', 'yes')
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+    with app.app_context():
+        app.config['SETUP_CODE'] = None if User.query.count() else new_setup_code()  # run.py prints it
 
     @app.before_request
     def gate():
@@ -210,7 +239,7 @@ def register_account_routes(app):
             else:
                 session.clear()
         path = request.path
-        if path.startswith(OPEN_PATHS):
+        if path_in(path, OPEN_PATHS):
             return None
         if g.user is None:
             no_host = User.query.count() == 0
@@ -221,7 +250,7 @@ def register_account_routes(app):
         if data_write and not g.user.is_host and path != '/api/data/import':
             from .proposals import propose  # a player's edit waits for the host
             return propose()
-        host_only = path.startswith(HOST_PATHS) or data_write
+        host_only = path_in(path, HOST_PATHS) or data_write
         if host_only and not g.user.is_host:
             message = 'Only the host can do that.'
             if wants_page():
@@ -245,21 +274,27 @@ def register_account_routes(app):
 
     @app.route('/api/auth/welcome', methods=['POST'])
     def api_auth_welcome():
-        """Create the host: only while the copy has no players at all."""
-        if User.query.count():
-            return error('This copy already has a host.', 403)
+        """Create the host: only while the copy has no players at all, with the setup code from its log."""
         data = form()
-        try:
-            name, email = clean_name(data.get('name')), clean_email(data.get('email'))
-            password = check_password(data.get('password'))
-        except ValueError as err:
-            return error(str(err))
-        user = User(name=name, name_key=name.lower(), email=email, is_host=True,
-                    password_hash=generate_password_hash(password))
-        db.session.add(user)
-        db.session.flush()  # its ID, for the login
-        log_in(user)
-        db.session.commit()
+        with _welcome_lock:
+            code = app.config.get('SETUP_CODE')
+            if User.query.count() or not code:
+                return error('This copy already has a host.', 403)
+            given = str(data.get('setup_code') or '').strip().upper()
+            if not secrets.compare_digest(given.encode(), code.encode()):
+                return error('That setup code is wrong: it is printed in the log when the copy starts.', 403)
+            try:
+                name, email = clean_name(data.get('name')), clean_email(data.get('email'))
+                password = check_password(data.get('password'))
+            except ValueError as err:
+                return error(str(err))
+            user = User(name=name, name_key=name.lower(), email=email, is_host=True,
+                        password_hash=generate_password_hash(password))
+            db.session.add(user)
+            db.session.flush()  # its ID, for the login
+            log_in(user)
+            db.session.commit()
+            app.config['SETUP_CODE'] = None
         return jsonify(user.to_dict())
 
     @app.route('/login')
@@ -272,14 +307,21 @@ def register_account_routes(app):
     def api_auth_login():
         data = form()
         key = ' '.join(str(data.get('name') or '').split()).lower()
-        count, last = _failed.get(key, (0, 0))
-        if count >= LOGIN_TRIES and time.time() - last < LOGIN_WAIT:
-            return error(f'Too many wrong passwords: wait a minute and try again.', 429)
+        slot, now = (key, device()), time.time()
+        with _failed_lock:
+            count, last = _failed.get(slot, (0, 0))
+        if count >= LOGIN_TRIES and now - last < LOGIN_WAIT:
+            return error('Too many wrong passwords: wait a minute and try again.', 429)
         user = User.query.filter_by(name_key=key).first() if key else None
         if not (user and user.password_hash and check_password_hash(user.password_hash, str(data.get('password') or ''))):
-            _failed[key] = (count + 1 if time.time() - last < LOGIN_WAIT * 10 else 1, time.time())
+            with _failed_lock:
+                if len(_failed) >= LOGIN_KEYS:  # forget the stale ones, then the oldest
+                    for old in [k for k, (_, t) in _failed.items() if now - t > LOGIN_MEMORY] or sorted(_failed, key=lambda k: _failed[k][1])[:LOGIN_KEYS // 10]:
+                        _failed.pop(old, None)
+                _failed[slot] = (count + 1 if now - last < LOGIN_MEMORY else 1, now)
             return error('Wrong name or password.', 401)
-        _failed.pop(key, None)
+        with _failed_lock:
+            _failed.pop(slot, None)
         log_in(user)
         db.session.commit()
         return jsonify(user.to_dict())
@@ -351,7 +393,7 @@ def register_account_routes(app):
 
     @app.route('/api/players')
     def api_players():
-        return jsonify([u.to_dict() for u in User.query.order_by(User.name_key)])
+        return jsonify([u.to_dict() for u in User.query.filter(User.removed.isnot(True)).order_by(User.name_key)])
 
     @app.route('/api/players', methods=['POST'])
     def api_add_player():
@@ -371,7 +413,7 @@ def register_account_routes(app):
 
     def player_or_404(player_id):
         user = db.session.get(User, player_id)
-        if user is None:
+        if user is None or user.removed:
             return None, error('No such player.', 404)
         return user, None
 
@@ -404,6 +446,11 @@ def register_account_routes(app):
             return failed
         if user.is_host:
             return error('The host can\'t be removed.', 403)
-        db.session.delete(user)
+        # Kept, so the ID is never reused (it would hand the next player their armies and games); their name is
+        # free again, and they can't log in
+        user.removed = True
+        user.name_key = f'removed:{user.id}'
+        user.password_hash = user.session_key = user.join_token_hash = user.join_expires = None
+        user.email = None
         db.session.commit()
         return jsonify({'message': f'{user.name} removed'})

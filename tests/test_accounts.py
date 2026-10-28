@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from conftest import welcome
 from combat_sim import accounts, paths
 from combat_sim.models import User, db
 
@@ -26,7 +27,7 @@ def hosted(make_client, monkeypatch):
 @pytest.fixture
 def host(hosted):
     client, _ = hosted
-    assert client.post('/api/auth/welcome', json=HOST).status_code == 200
+    assert welcome(client, HOST).status_code == 200
     return client
 
 
@@ -59,14 +60,14 @@ def test_a_new_copy_asks_for_its_host_first(hosted):
 
 def test_the_host_is_created_once(hosted):
     client, _ = hosted
-    assert client.post('/api/auth/welcome', json=dict(HOST, password='short')).status_code == 400
-    assert client.post('/api/auth/welcome', json=dict(HOST, email='nope')).status_code == 400
-    resp = client.post('/api/auth/welcome', json=HOST)
+    assert welcome(client, dict(HOST, password='short')).status_code == 400
+    assert welcome(client, dict(HOST, email='nope')).status_code == 400
+    resp = welcome(client, HOST)
     assert resp.get_json()['is_host'] is True
     assert client.get('/api/auth/me').get_json()['name'] == 'Hosty'
     # Nobody can make themselves host afterwards
     stranger = client.application.test_client()
-    assert stranger.post('/api/auth/welcome', json=dict(HOST, name='Other')).status_code == 403
+    assert welcome(stranger, dict(HOST, name='Other')).status_code == 403
     assert stranger.get('/welcome').status_code == 302
 
 
@@ -179,7 +180,7 @@ def test_writes_from_other_sites_are_refused(host):
 def test_logins_survive_a_restart(hosted, make_client):
     client, data_file = hosted
     key = (data_file.parent / accounts.SECRET_KEY_FILE)
-    client.post('/api/auth/welcome', json=HOST)
+    welcome(client, HOST)
     assert key.exists()
     assert client.application.config['SECRET_KEY'] == key.read_text(encoding='utf-8').strip()
 

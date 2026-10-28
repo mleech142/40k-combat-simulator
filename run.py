@@ -70,6 +70,8 @@ def main(argv=None):
     status = app.config.get('BSDATA_STATUS') or {}
     print(f"BSData:    {app.config['BSDATA_DIR']}" +
           ('' if status.get('loaded') else '  (not loaded yet: open Setup in the app)'))
+    if app.config.get('SETUP_CODE'):
+        print(f"\nSetup code: {app.config['SETUP_CODE']}  (the Welcome page asks for it to create the host)")
     print(f'Open in browser: {url}' + ("  (hosted mode: other computers use this one's address)" if hosted else ''))
     print('\nClose this window (or press Ctrl+C) to stop.\n')
 

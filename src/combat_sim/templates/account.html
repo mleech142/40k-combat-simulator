@@ -18,6 +18,10 @@
             other players and approve their edits to the shared data.</p>
         {{ throwaway }}
         <form class="account-form" data-api="/api/auth/welcome" data-then="/setup">
+            <label>Setup code <input name="setup_code" class="filter-input" maxlength="9" autocomplete="off" required
+                    placeholder="ABCD-2345">
+                <span class="weapon-picker-hint">Printed in the copy's log when it starts
+                    (<code>docker compose logs combat-sim</code>), so only whoever runs it can become the host.</span></label>
             <label>Name <input name="name" class="filter-input" maxlength="30" autocomplete="username" required></label>
             <label>Email <input name="email" type="email" class="filter-input" maxlength="254" autocomplete="email" required>
                 <span class="weapon-picker-hint">For "your move" emails.</span></label>
@@ -157,7 +161,7 @@ document.querySelectorAll('.account-form').forEach(formEl => {
             loadPlayers();
         } else if (then === 'next') {
             const next = new URLSearchParams(location.search).get('next') || '/';
-            location.href = next.startsWith('/') && !next.startsWith('//') ? next : '/';
+            location.href = Core.safeNextPath(next);
         } else if (then) {
             location.href = then;
         }

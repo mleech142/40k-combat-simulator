@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import welcome
 from combat_sim import paths
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,7 +22,7 @@ HOST = {'name': 'Hosty', 'email': 'host@example.com', 'password': 'throwaway-1'}
 def hosted_client(make_client, monkeypatch):
     monkeypatch.setenv(paths.HOSTED_ENV, '1')
     client, _ = make_client(APP_DATA)
-    assert client.post('/api/auth/welcome', json=HOST).status_code == 200  # logged in as the host
+    assert welcome(client, HOST).status_code == 200  # logged in as the host
     return client
 
 

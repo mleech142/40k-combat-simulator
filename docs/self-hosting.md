@@ -13,17 +13,20 @@ docker compose up -d        # with compose.yaml from this repository
 or
 
 ```bash
-docker run -d -p 5000:5000 -v combat-sim-data:/data --restart unless-stopped ghcr.io/mleech142/40k-combat-simulator:latest
+docker run -d -p 127.0.0.1:5000:5000 -e COMBAT_SIM_SECURE_COOKIES=1 -v combat-sim-data:/data --restart unless-stopped ghcr.io/mleech142/40k-combat-simulator:latest
 ```
 
-Then open `http://<that computer's address>:5000`. The first visit creates the host (see Players), then goes to
-the Setup page: **Download latest**
+As shipped it listens on **this computer only** (`127.0.0.1`), with logins sent only over HTTPS: everyone else
+comes in through Tailscale's HTTPS (below) or another HTTPS proxy. Open `http://localhost:5000` on the computer
+itself. The first visit creates the host (see Players), then goes to the Setup page: **Download latest**
 fetches the BSData catalogues and **Download** fetches Wahapedia's rules and stratagems, onto the server, the same
 way each desktop user gets them. The image ships neither (see the scope, Data licences).
 
 ## Players
 
-The first visit to a new copy asks for the **host**: a name, an email and a password. The host downloads the game
+The first visit to a new copy asks for the **host**: the **setup code** the copy prints in its log when it starts
+(`docker compose logs combat-sim`, a line like `Setup code: ABCD-2345`; only whoever runs the copy can see it), then
+a name, an email and a password. The host downloads the game
 data on the Setup page, and adds the other players on the **Players** page (name and email). Each player gets a
 link (it works once, for 7 days) to send them, where they choose their own password. Forgotten passwords: the host
 makes a new link. Players can use everything else but can't open Setup or the Players page or import app data.
@@ -97,7 +100,7 @@ Settings:
 | `COMBAT_SIM_DATA` | The data folder (`/data` in the image). Seeded with the shipped app data JSON on first start. |
 | `COMBAT_SIM_HOSTED` | `1` for hosted mode (`--hosted` sets it). |
 | `RELAY_URL` | The relay for online games (default: the project's, [relay.md](relay.md)). |
-| `COMBAT_SIM_SECURE_COOKIES` | `1` once it's served over HTTPS, so browsers send the login only over HTTPS. |
+| `COMBAT_SIM_SECURE_COOKIES` | `1` (as `compose.yaml` sets it) to send logins only over HTTPS; browsers also allow them on `http://localhost`. Leave it out only for plain HTTP on a trusted network. |
 
 ## With Tailscale (recommended)
 
@@ -109,15 +112,13 @@ address with nothing opened to the internet:
    and run the command again). The copy is then at `https://<computer>.<tailnet>.ts.net`; this keeps working after
    restarts.
 3. Put your own settings in `compose.override.yaml` next to `compose.yaml` (Docker Compose reads both; it's
-   gitignored, so passwords stay out of the repository):
+   gitignored, so passwords stay out of the repository). `compose.yaml` already listens on this computer only with
+   secure logins; the override adds the address for email links (and your mail server):
 
    ```yaml
    services:
      combat-sim:
-       ports: !override
-         - "127.0.0.1:5000:5000"  # only this computer: everyone else comes in through Tailscale's HTTPS
        environment:
-         COMBAT_SIM_SECURE_COOKIES: "1"
          PUBLIC_URL: https://<computer>.<tailnet>.ts.net
    ```
 

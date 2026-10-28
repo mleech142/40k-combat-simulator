@@ -18,7 +18,7 @@ modifier can be edited. Hand-written ones ('app') that Wahapedia has too are `su
 """
 
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import JSON
+from sqlalchemy import JSON, event
 import math
 from datetime import datetime
 
@@ -711,6 +711,8 @@ class User(db.Model):
     session_key = db.Column(db.String(64), nullable=True)  # In their login cookie; changed to log every browser out
     join_token_hash = db.Column(db.String(64), nullable=True)  # Their join (or new password) link's token, hashed
     join_expires = db.Column(db.DateTime, nullable=True)
+    # Removed by the host: the row stays so its ID is never given to another player (saved records refer to it)
+    removed = db.Column(db.Boolean, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -742,8 +744,23 @@ def init_db(app):
     """Initialize the database with the Flask app."""
     db.init_app(app)
     with app.app_context():
+        if db.engine.dialect.name == 'sqlite':
+            prepare_sqlite(db.engine)
         db.create_all()
         add_missing_columns()
+
+
+def prepare_sqlite(engine):
+    """
+    SQLite for several players at once (a self-hosted copy): WAL, so readers keep reading while one connection
+    writes, and a busy timeout instead of "database is locked". The driver still starts transactions only before
+    a write, so reads always see the latest commit; data_store.rebuild_reference_tables starts its own so that its
+    DROP / CREATE TABLE are inside it.
+    """
+    @event.listens_for(engine, 'connect')
+    def on_connect(connection, _record):
+        connection.execute('PRAGMA journal_mode=WAL')
+        connection.execute('PRAGMA busy_timeout=15000')
 
 
 def add_missing_columns():

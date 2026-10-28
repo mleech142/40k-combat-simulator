@@ -1276,7 +1276,15 @@
         return [s.name, s.text, s.category, s.detachment, s.timing].some(x => String(x || '').toLowerCase().includes(words));
     }
 
+    /** Where to go after logging in: `next` if it's a path on this site ('/armies'), else '/'. Never '//x' or
+     * '/\x', which browsers read as another site. */
+    function safeNextPath(next) {
+        const path = String(next || '');
+        return /^\/(?![\/\\])\S*$/.test(path) ? path : '/';
+    }
+
     return {
+        safeNextPath,
         playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playInside, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
