@@ -936,6 +936,16 @@
         return { left: Math.min(...xs), bottom: Math.min(...ys), right: Math.max(...xs), top: Math.max(...ys) };
     }
 
+    /** Play: whether a point ({x, y}) is inside a polygon ([[x, y], ...]), for choosing how to drop a unit (not a rule check). */
+    function playInside(point, polygon) {
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const [ax, ay] = polygon[i], [bx, by] = polygon[j];
+            if ((ay > point.y) !== (by > point.y) && point.x < ax + (point.y - ay) * (bx - ax) / (by - ay)) inside = !inside;
+        }
+        return inside;
+    }
+
     /** The middle of some positions ({x, y}), or null when there are none. */
     function playCentre(positions) {
         if (!positions.length) return null;
@@ -1258,7 +1268,7 @@
     }
 
     return {
-        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playInside, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

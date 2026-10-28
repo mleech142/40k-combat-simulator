@@ -55,6 +55,8 @@ INGRESS_GAP = 8  # ...and more than this horizontally from every enemy unit (cor
 INGRESS_FROM = 2  # Reserves arrive from this battle round...
 ENEMY_ZONE_FROM = 3  # ...and outside the opponent's deployment zone before this one
 RESERVES_LOST = 3  # Units still in reserves at the end of this battle round are destroyed (20.03)
+SCOUT_GAP = 8  # A scout move ends more than this from every enemy unit (24.32)
+INFILTRATE_GAP = 8  # Infiltrators set up more than this from the enemy deployment zone and enemy units (24.20)
 # Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
 MANUAL_EFFECTS = {
     'hit_plus': ('+1 to hit', 'Attacker', 'Hit Modifier +1'),
@@ -217,7 +219,7 @@ def _handlers(action, dice, rewind=None, redo=None):
                 'pass': lambda s: _pass(s, action, dice), 'overwatch': lambda s: _overwatch(s, action, dice),
                 'heroic': lambda s: _heroic(s, action, dice),
                 'reserve': lambda s: _reserve(s, action), 'ingress': lambda s: _ingress(s, action),
-                'rapid_ingress': lambda s: _rapid_ingress(s, action, dice),
+                'rapid_ingress': lambda s: _rapid_ingress(s, action, dice), 'scout': lambda s: _scout(s, action, dice),
                 'command_reroll': lambda s: _command_reroll(s, action, dice, redo),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
 
@@ -367,11 +369,114 @@ def _end_deployment(state, dice):
         report['first_turn'] = _roll_off(dice, 'first turn')
         first = report['first_turn']['winner']
     state['roles'] = dict(state.get('roles') or {'attacker': 0, 'defender': 1}, first=first)
+    # Resolve pre-battle abilities (Scouts): the players take turns, the one who goes first starting
+    order = [first, 1 - first]
+    waiting = [p for p in order if scout_units(state, p)]
+    if waiting:
+        state['turn'] = {'phase': 'prebattle', 'round': 0, 'player': waiting[0], 'scouted': [], 'finished': []}
+        return {k: v for k, v in report.items() if v}
+    return _begin_battle(state, dice, report)
+
+
+def _begin_battle(state, dice, report):
+    """Deployment and pre-battle abilities are done: battle round 1 begins with the player who goes first."""
     update_control(state)  # Who holds what as the battle begins
     mission_state.start_battle(state)
-    _start_turn(state, 1, first, dice, report)
+    _start_turn(state, 1, first_player(state), dice, report)
     _prune_effects(state)
     return {k: v for k, v in report.items() if v}
+
+
+# --- Pre-battle abilities: Scouts (core rules 24.31, 24.32) ---------------------------------------------------
+
+def scouts(unit):
+    """X from Scouts X" if every living model in the unit has it (the least of its parts' X), else None."""
+    living = {m['part'] for m in unit['models'] if m['alive']}
+    values = [unit['parts'][p].get('scouts') for p in living]
+    return min(values) if values and all(values) else None
+
+
+def _wholly_in_zone(state, unit):
+    zone = deployment_zone(state, unit['player'])
+    placed = _placed_shapes(unit)
+    return bool(placed) and all(battlefields.wholly_inside(shape, zone) for shape in placed)
+
+
+def scout_units(state, player):
+    """A player's units that can still use Scouts in the pre-battle step: in reserves, or wholly within their zone."""
+    done = (state['turn'].get('scouted') or []) if state['turn']['phase'] == 'prebattle' else []
+    return [u['id'] for u in state['units'] if u['player'] == player and u['id'] not in done and scouts(u)
+            and any(m['alive'] for m in u['models']) and (in_reserve(u) or _wholly_in_zone(state, u))]
+
+
+def _next_scout(state, dice):
+    """After a player's pre-battle ability (or when they finish): the other player's go if they have one left,
+    else this player's; once neither has, the battle begins."""
+    turn = state['turn']
+    left = [p for p in (1 - turn['player'], turn['player']) if p not in turn['finished'] and scout_units(state, p)]
+    if left:
+        turn['player'] = left[0]
+        return {}
+    return _begin_battle(state, dice, {'battle_shock': [], 'hazards': []})
+
+
+def _scout(state, action, dice):
+    """
+    A pre-battle Scouts ability: a unit in reserves is set up wholly within its deployment zone; a unit on the
+    board (wholly within its zone) makes a scout move of up to X", as a move (not through enemy models; climbing
+    counts), ending wholly on the board, more than 8" from every enemy unit, in coherency and overlapping nothing.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    turn = state['turn']
+    if turn['phase'] != 'prebattle':
+        raise ActionError('Scouts is used in the pre-battle step, after deployment.')
+    _require(state, 'prebattle', unit)
+    if unit['id'] not in scout_units(state, unit['player']):
+        raise ActionError(f'{unit["name"]} can\'t use Scouts now: every model needs it, and the unit must be in reserves '
+                          'or wholly within your deployment zone (each unit once).')
+    living = {m['id']: m for m in unit['models'] if m['alive']}
+    spots = _spots(unit, action, 'Move')
+    shapes = {mid: model_shape(unit['parts'][living[mid]['part']], spot) for mid, spot in spots.items()}
+    if in_reserve(unit):  # Set up wholly within the deployment zone
+        zone = deployment_zone(state, unit['player'])
+        if not all(battlefields.wholly_inside(shape, zone) for shape in shapes.values()):
+            raise ActionError('A unit in reserves with Scouts is set up wholly within your deployment zone.')
+        unit['status'].pop('reserve', None)
+        how = 'set_up'
+    else:
+        reach = scouts(unit)
+        blocking = _blocking(state, unit)
+        for mid, spot in spots.items():
+            part = unit['parts'][living[mid]['part']]
+            path = [living[mid]['position'], *_route(action, mid, spot), spot]
+            _within_allowance(part, path_length(path), _climb(state, part, path), reach, f'its Scouts {reach}"')
+            _check_path(part, path, blocking, spot)
+        how = 'moved'
+    placed = list(shapes.values())
+    for shape in placed:
+        left, bottom, right, top = bounds(shape)
+        if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
+            raise ActionError('Every model must end wholly on the board.')
+    if how == 'moved' and any(not farther_than(shape, enemy, SCOUT_GAP) for shape in placed for enemy in _enemy_shapes(state, unit)):
+        raise ActionError(f'A scout move ends more than {SCOUT_GAP}" from every enemy unit.')
+    others = [shape for u in state['units'] if u is not unit for shape in _placed_shapes(u)]
+    for i, shape in enumerate(placed):
+        if any(overlaps(shape, other) for other in placed[i + 1:] + others):
+            raise ActionError("Models' bases can't overlap.")
+    problem = coherency_problem(placed)
+    if problem:
+        raise ActionError(problem)
+    for mid, spot in spots.items():
+        living[mid]['position'] = spot
+    turn['scouted'].append(unit['id'])
+    return dict({'scouted': unit['id'], 'how': how}, **_next_scout(state, dice))
+
+
+def _end_prebattle(state, dice):
+    """The player whose go it is uses no more pre-battle abilities."""
+    turn = state['turn']
+    turn['finished'].append(turn['player'])
+    return _next_scout(state, dice)
 
 
 # --- Setup: the mission sequence -----------------------------------------------------------------------------
@@ -436,6 +541,8 @@ def _choose_role(state, action):
 def _next_phase(state, dice):
     """On to the next phase, or the Fight phase's next step (pile in, fight, consolidate); effects that
     lasted until then end. First, the other player may react at the end of a phase (reaction windows)."""
+    if state['turn']['phase'] == 'prebattle':
+        return _end_prebattle(state, dice)
     reaction = _end_of_phase_window(state, dice)
     if reaction is not None:
         return reaction
@@ -1734,12 +1841,17 @@ def _place(state, action):
     spots = _spots(unit, action, 'Place')
     shapes = {mid: model_shape(unit['parts'][living[mid]['part']], spot) for mid, spot in spots.items()}
     zone = deployment_zone(state, unit['player'])
+    in_zone = all(battlefields.wholly_inside(shape, zone) for shape in shapes.values())
     for shape in shapes.values():
         left, bottom, right, top = bounds(shape)
         if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
             raise ActionError('Every model must be wholly on the board.')
-        if not battlefields.wholly_inside(shape, zone):
-            raise ActionError('Every model must be wholly within your deployment zone.')
+    if not in_zone and infiltrators(unit):  # Anywhere more than 8" from the enemy zone and enemy units (24.20)
+        problem = infiltrate_problem(state, unit, shapes.values())
+        if problem:
+            raise ActionError(problem)
+    elif not in_zone:
+        raise ActionError('Every model must be wholly within your deployment zone.')
     others = [model_shape(u['parts'][m['part']], m['position']) for u in state['units'] if u is not unit
               for m in u['models'] if m['alive'] and m['position']]
     placed = list(shapes.values())
@@ -1751,6 +1863,47 @@ def _place(state, action):
     if new:
         _next_deployer(state, unit)
     return {}
+
+
+def infiltrators(unit):
+    """Whether every model in the unit has Infiltrators."""
+    living = {m['part'] for m in unit['models'] if m['alive']}
+    return bool(living) and all(unit['parts'][p].get('infiltrators') for p in living)
+
+
+def _zone_distance(shape, polygon):
+    """How far a model's base is from a polygon (0 if it is partly inside it)."""
+    if _partly_inside(shape, polygon):
+        return 0
+    edge = Shape([tuple(p) for p in polygon])
+    pts = list(edge.points)
+    centre = _centre(shape)
+    nearest = min(math.dist(centre, _closest_on_segment(centre, a, b)) for a, b in zip(pts, pts[1:] + pts[:1]))
+    return max(0, nearest - _reach(shape, centre))
+
+
+def _closest_on_segment(p, a, b):
+    ax, ay = a
+    bx, by = b
+    length = (bx - ax) ** 2 + (by - ay) ** 2
+    t = 0 if not length else max(0, min(1, ((p[0] - ax) * (bx - ax) + (p[1] - ay) * (by - ay)) / length))
+    return (ax + t * (bx - ax), ay + t * (by - ay))
+
+
+def _reach(shape, centre):
+    """How far a base reaches from its centre (its radius, or its farthest corner for a polygon: a little generous)."""
+    return shape.radius or max(math.dist(centre, p) for p in shape.points)
+
+
+def infiltrate_problem(state, unit, shapes):
+    """Why Infiltrators can't be set up with these shapes outside its zone (more than 8" from the enemy zone and units)."""
+    shapes = list(shapes)
+    enemy_zone = deployment_zone(state, 1 - unit['player'])
+    if any(_zone_distance(shape, enemy_zone) <= INFILTRATE_GAP + 1e-9 for shape in shapes):
+        return f'Infiltrators are set up wholly within your deployment zone, or more than {INFILTRATE_GAP}" from the enemy deployment zone.'
+    if any(not farther_than(shape, enemy, INFILTRATE_GAP) for shape in shapes for enemy in _enemy_shapes(state, unit)):
+        return f'Infiltrators outside your deployment zone are set up more than {INFILTRATE_GAP}" from every enemy unit.'
+    return None
 
 
 def _spots(unit, action, verb):
@@ -2831,6 +2984,8 @@ def ready_units(state):
 
     if phase == 'deployment':
         return [u['id'] for u in _unplaced(state, active)]
+    if phase == 'prebattle':
+        return scout_units(state, active)
     if phase == 'movement':
         return [u['id'] for u in mine if 'moved' not in u['activity']
                 and (_placed_shapes(u) or (in_reserve(u) and turn['round'] >= INGRESS_FROM))]

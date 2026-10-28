@@ -16,7 +16,8 @@ written scope for 12. Items 13 and 14 are parked.
    starts on the board (`play-mode-design.md`, "Not in v1"; `rules-audit-11e.md`, "Not modelled").
    *Done (2.7, step a):* reserves chosen during deployment (up to half the points), ingress moves from round 2 on the
    shaded ground, Deep Strike, Rapid Ingress in the reaction window, units lost at the end of round 3. Scouts,
-   Infiltrators and Transports (arriving inside one) follow in steps b and c.
+   Infiltrators and Transports (arriving inside one) follow in steps b and c. *Step b done:* Infiltrators set up away
+   from the enemy, and Scouts move (or set up from reserves) in a pre-battle step after deployment.
 2. **Play: rotate and rearrange models when moving.** In the Movement phase, let the player turn models (and the
    unit's formation) and move individual models within the unit, not only drag the unit as a block. Deployment
    already has turning (the 15° and 45° buttons, `Core.playPivot`) and Shift-drag for one model; movement should

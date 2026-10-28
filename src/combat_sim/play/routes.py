@@ -20,7 +20,7 @@ from .seats import actor, check_seat, waiting_on
 from ..settings import load_settings, update_settings
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, apply_event, can_fly, charge_options,
                    deployment_zone, fight_options, measure, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
-                   ingress_rules, redo_history, rerollable, score, shooting_options, terrain_areas, window_options)
+                   infiltrators, ingress_rules, redo_history, scouts, rerollable, score, shooting_options, terrain_areas, window_options)
 from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
 from .snapshot import freeze_army, rule_texts
 
@@ -60,6 +60,8 @@ def game_response(saved, state=None):
                     'ready': ready_units(state),
                     'reaction': window_options(state),
                     'ingress': [ingress_rules(state, p) for p in (0, 1)],
+                    'scouts': {u['id']: scouts(u) for u in state['units'] if scouts(u)},
+                    'infiltrators': [u['id'] for u in state['units'] if infiltrators(u)],
                     'rerollable': rerollable(state, (saved.events or [None])[-1]),
                     'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
                     'unit_objectives': {u['id']: objectives_in_range(state, u) for u in state['units']},

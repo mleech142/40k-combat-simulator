@@ -60,6 +60,18 @@ def damaged_threshold(text):
     return None
 
 
+SCOUTS = re.compile(r'^scouts (\d+)(?:"|”|\'\'| inches)?$', re.I)
+
+
+def scouts_distance(text):
+    """X from a datasheet's 'Scouts X"' line (its own line, as BSData lists core abilities), else None."""
+    for line in plain_text(text).split('\n'):
+        found = SCOUTS.match(line.strip().rstrip('.'))
+        if found:
+            return int(found.group(1))
+    return None
+
+
 def has_core_ability(text, name):
     """Whether a datasheet's abilities text lists a core ability ('Fights First', 'Deep Strike'): BSData puts
     each on its own line, where a unit's own abilities say 'Name: what it does'."""

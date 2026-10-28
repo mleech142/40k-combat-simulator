@@ -12,7 +12,7 @@
     const { escapeHtml } = Core;
     const SVG = 'http://www.w3.org/2000/svg';
     const PLAYER_CLASSES = ['play-p1', 'play-p2'];
-    const PHASE_NAMES = { setup: 'Setup', deployment: 'Deployment', command: 'Command', movement: 'Movement', shooting: 'Shooting',
+    const PHASE_NAMES = { setup: 'Setup', deployment: 'Deployment', prebattle: 'Pre-battle', command: 'Command', movement: 'Movement', shooting: 'Shooting',
                           charge: 'Charge', fight: 'Fight' };
     const MOVE_MODES = [['normal', 'Normal move'], ['advance', 'Advance'], ['fall_back', 'Fall Back']];
     const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary', ingress: 'arrived' };
@@ -532,7 +532,8 @@
             clearOptions();
             loadOptions();
             const now = state.game.state.turn;
-            message(`${state.game.state.players[now.player].name}: ${PHASE_NAMES[now.phase]} phase${now.step ? ' · ' + STEP_NAMES[now.step] : ''}.`);
+            message(now.phase === 'prebattle' ? `Pre-battle abilities: ${state.game.state.players[now.player].name}'s Scouts.`
+                : `${state.game.state.players[now.player].name}: ${PHASE_NAMES[now.phase]} phase${now.step ? ' · ' + STEP_NAMES[now.step] : ''}.`);
         }
     }
 
@@ -570,6 +571,7 @@
     function allowance(unit, model) {
         const turn = state.game.state.turn;
         if ((state.placing && state.placing.unitId === unit.id) || unit.activity.moved === 'ingress') return null;  // Set up, not moved
+        if (turn.phase === 'prebattle') return (state.game.scouts || {})[unit.id] ?? null;
         const skies = flying(unit) ? SKIES : 0;
         if (turn.phase === 'movement' && unit.player === turn.player) {
             const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
@@ -637,9 +639,9 @@
         const outlines = state.game.outlines[unit.id];
         const sizes = living.map(m => Math.max(outlines[m.part].length, outlines[m.part].width));
         const W = state.game.board.width, D = state.game.board.depth;
-        const board = { left: 0, bottom: 0, right: W, top: D };
+        const board = kind === 'scout' ? Core.playBounds(state.game.zones[unit.player]) : { left: 0, bottom: 0, right: W, top: D };
         // Rows run along the nearest battlefield edge, so the unit stays within the band along it
-        const sideways = Math.min(point.x, W - point.x) < Math.min(point.y, D - point.y);
+        const sideways = kind !== 'scout' && Math.min(point.x, W - point.x) < Math.min(point.y, D - point.y);
         let spots = living.map((m, i) => ({ id: m.id, ...Core.playFormation(sizes, point.x, point.y, false)[i], angle: 0 }));
         if (sideways) spots = Core.playPivot(spots, 90);
         const fitted = Core.playFit(spots, sizes.map(s => s / 2), board);
@@ -662,11 +664,14 @@
         const living = unit.models.filter(m => m.alive);
         const outlines = state.game.outlines[unit.id];
         const sizes = living.map(m => Math.max(outlines[m.part].length, outlines[m.part].width));
-        // Fitted into the box round the player's zone (the server checks it's wholly within the zone itself)
-        const zone = Core.playBounds(state.game.zones[unit.player]);
+        // Fitted into the box round the player's zone (the server checks it's wholly within the zone itself); Infiltrators anywhere
+        const infiltrating = (state.game.infiltrators || []).includes(unit.id) && !Core.playInside(point, state.game.zones[unit.player]);
+        const zone = infiltrating ? { left: 0, bottom: 0, right: state.game.board.width, top: state.game.board.depth }
+            : Core.playBounds(state.game.zones[unit.player]);
         const topEdge = (zone.bottom + zone.top) / 2 > state.game.board.depth / 2;  // The back row towards their own edge
         const spots = Core.playFit(Core.playFormation(sizes, point.x, point.y, topEdge), sizes.map(s => s / 2), zone);
         const angle = topEdge ? 180 : 0;
+        if (infiltrating) message(`Infiltrators: ${unit.name} can be set up anywhere more than 8" from the enemy deployment zone and enemy units (shaded).`);
         startPlacing(unit, living.map((m, i) => ({ id: m.id, x: spots[i].x, y: spots[i].y, angle })));
     }
 
@@ -706,7 +711,7 @@
         if (await (action ? send(action) : place(unitId, placingSpots()))) {  // The server checks it (zone, edges, enemies, overlaps)
             state.placing = null;
             state.selected = null;
-            if (kind) message(`${unitById(unitId).name} arrived from reserves.${kind === 'ingress' ? ' Drag it to set it up somewhere else until the phase ends.' : ''}`);
+            if (kind) message(`${unitById(unitId).name} ${kind === 'scout' ? 'is set up' : 'arrived from reserves'}.${kind === 'ingress' ? ' Drag it to set it up somewhere else until the phase ends.' : ''}`);
             render();
         }
     }
@@ -756,6 +761,8 @@
         const setup = turn && turn.phase === 'setup';
         if (setup) {
             banner = 'Setting up the game';
+        } else if (turn && turn.phase === 'prebattle') {
+            banner = `Pre-battle · ${game.state.players[turn.player].name}: Scouts (drag a unit up to its Scouts distance, or press Done)`;
         } else if (turn && turn.phase === 'deployment') {
             const roles = game.state.roles || {};
             const role = p => roles.attacker === p ? 'attacker' : 'defender';
@@ -774,13 +781,14 @@
         if (result) banner = result;
         $('turn-banner').textContent = banner;
         // The banner says what the board above doesn't: setup, deployment, the result, and who picks in the Fight phase
-        $('turn-banner').hidden = !banner || (turn && !result && !['setup', 'deployment', 'fight'].includes(turn.phase));
+        $('turn-banner').hidden = !banner || (turn && !result && !['setup', 'deployment', 'prebattle', 'fight'].includes(turn.phase));
         renderHud();
         $('turn-banner').className = `play-turn ${turn ? PLAYER_CLASSES[actingPlayer(turn)] : ''}`;
         $('phase-btn').hidden = !game || turn.phase === 'ended' || setup;
-        $('correct-btn').hidden = !game || ['setup', 'deployment'].includes(turn.phase);
+        $('correct-btn').hidden = !game || ['setup', 'deployment', 'prebattle'].includes(turn.phase);
         if (turn) {
             $('phase-btn').querySelector('span').textContent = turn.phase === 'deployment' ? 'Deployment done'
+                : turn.phase === 'prebattle' ? `${game.state.players[turn.player].name}: done with Scouts`
                 : turn.phase === 'fight' && ['pile_in', 'consolidate'].includes(turn.step) && (turn.mover ?? turn.player) === turn.player
                     ? `${game.state.players[turn.player].name} done`  // The other player moves next, if they can
                 : turn.phase === 'fight' ? (turn.step === 'consolidate' ? 'End turn' : 'Next step') : 'Next phase';
@@ -998,7 +1006,7 @@
     function renderHud() {
         const game = state.game;
         const turn = game && game.state.turn;
-        const playing = turn && !['setup', 'deployment'].includes(turn.phase);
+        const playing = turn && !['setup', 'deployment', 'prebattle'].includes(turn.phase);
         const acting = actingPlayer(turn);
         [0, 1].forEach(i => {
             const side = $(`hud-side-${i}`);
@@ -1024,7 +1032,7 @@
     function renderArmies() {
         const game = state.game;
         const turn = game && game.state.turn;
-        const playing = turn && !['setup', 'deployment', 'ended'].includes(turn.phase);
+        const playing = turn && !['setup', 'deployment', 'prebattle', 'ended'].includes(turn.phase);
         [0, 1].forEach(i => {
             const player = game && game.state.players[i];
             $(`army-${i}`).classList.toggle('active', !!playing && actingPlayer(turn) === i);
@@ -1048,7 +1056,7 @@
         const game = state.game;
         const track = $('phase-track');
         const turn = game && game.state.turn;
-        track.hidden = !game || ['setup', 'deployment'].includes(turn.phase);
+        track.hidden = !game || ['setup', 'deployment', 'prebattle'].includes(turn.phase);
         if (track.hidden) return;
         track.className = `play-phases ${PLAYER_CLASSES[turn.player]}`;
         track.innerHTML = Core.playPhaseTrack(turn).map(p => `
@@ -1155,6 +1163,7 @@
         }
         const turn = state.game.state.turn;
         if (!state.selected) message('');
+        else if (turn.phase === 'prebattle' && state.game.ready.includes(unitId)) message(`Scouts: drag ${unitById(unitId).name}, or press Done.`);
         else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone, then press OK, or put it in reserves.`);
         else message('');
         if (changed) {
@@ -1197,6 +1206,15 @@
                 <p class="play-hint">Strategic Reserves: off the board until it arrives in your Movement phase from battle round 2
                     (within 6" of an edge, or anywhere with Deep Strike; more than 8" from enemies). Up to half your points in all;
                     units still in reserves at the end of battle round 3 are lost.</p>`;
+        }
+        if (turn.phase === 'prebattle' && unit.player === turn.player && state.game.ready.includes(unit.id)) {
+            const reach = (state.game.scouts || {})[unit.id];
+            controls = reserve
+                ? `<div class="play-move-modes"><button class="btn btn-primary" data-scout-setup>
+                        <i class="fa-solid fa-person-running" aria-hidden="true"></i> Set up in your zone</button></div>
+                    <p class="play-hint">Scouts ${reach}": a unit in reserves can be set up wholly within your deployment zone now.</p>`
+                : `<p class="play-hint">Scouts ${reach}": drag ${escapeHtml(unit.name)} up to ${reach}" (a scout move, along the path dragged),
+                    ending more than 8" from every enemy unit. Each unit once; then the other player has a go.</p>`;
         }
         if (turn.phase === 'movement' && unit.player === turn.player && (reserve || unit.activity.moved === 'ingress')) {
             const deep = ((state.game.ingress || [])[unit.player] || { deep_strike: [] }).deep_strike.includes(unit.id);
@@ -1274,6 +1292,7 @@
                 render();
             }
         }));
+        $('unit-detail').querySelectorAll('[data-scout-setup]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'scout', unit.player)));
         $('unit-detail').querySelectorAll('[data-arrive]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'ingress', unit.player)));
         $('unit-detail').querySelectorAll('[data-turn]').forEach(b => b.addEventListener('click', () => turnUnit(unit, Number(b.dataset.turn))));
         $('unit-detail').querySelectorAll('[data-skies]').forEach(b => b.addEventListener('click', () => {
@@ -1836,7 +1855,7 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['heroic', 'rapid_ingress', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['heroic', 'rapid_ingress', 'scout', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || e.passed || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
@@ -1853,6 +1872,7 @@
         const players = game.state.players;
         const turns = Core.playLogTurns(game.events);
         const heading = t => !t || t.phase === 'setup' ? ['Setup', null] : t.phase === 'deployment' ? ['Deployment', null]
+            : t.phase === 'prebattle' ? ['Pre-battle', null]
             : [`Round ${t.round} · ${players[t.player].name} · ${PHASE_NAMES[t.phase]}`, t.player];
         let last = null;
         const latest = game.events.length - 1;
@@ -1983,7 +2003,7 @@
 
     /** The icon for a battle log line that isn't an attack. */
     function logIcon(event) {
-        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', rapid_ingress: 'fa-parachute-box', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
+        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', rapid_ingress: 'fa-parachute-box', scout: 'fa-person-running', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
             effect: 'fa-wand-magic-sparkles', roll_off: 'fa-dice', roll_objectives: 'fa-dice', roll_mirrored: 'fa-dice',
             choose_role: 'fa-chess-board', choose_secondaries: 'fa-layer-group', tactical: 'fa-layer-group', condemn: 'fa-gavel',
             start_action: 'fa-flag', place_markers: 'fa-location-dot', beacon: 'fa-tower-broadcast', tempting: 'fa-bullseye',
@@ -2044,6 +2064,8 @@
             case 'heroic':
                 return `<span class="play-effect stratagem">${player(event.player)} used Heroic Intervention (${escapeHtml(HEROIC_MODES[event.heroic])}, ${Number(event.cp)} CP)</span>:
                     ${escapeHtml(name(event.unit))} charge roll ${dice(event.rolls[0])} = <strong>${event.roll}"</strong>${event.failed ? ': nothing in reach, it fails' : ''}`;
+            case 'scout':
+                return `${escapeHtml(name(a.unit))} ${event.how === 'set_up' ? 'was set up from reserves' : 'made a scout move'} (Scouts)`;
             case 'rapid_ingress':
                 return `<span class="play-effect stratagem">${player(event.player)} used Rapid Ingress (${Number(event.cp)} CP)</span>:
                     ${escapeHtml(name(event.unit))} arrived from reserves`;
@@ -2579,7 +2601,11 @@
 
     /** Shade where a unit arriving from reserves can be set up (the server's ingress rules: game.ingress). */
     function drawIngress(svg, depth) {
+        const turn = state.game.state.turn;
+        const placingUnit = state.placing && turn.phase === 'deployment' && unitById(state.placing.unitId);
+        if (placingUnit && (state.game.infiltrators || []).includes(placingUnit.id)) return drawInfiltrate(svg, depth, placingUnit);
         const unit = arrivingUnit();
+        if (unit && state.placing && state.placing.kind === 'scout') return;  // Its own zone, as in deployment
         const rules = unit && (state.game.ingress || [])[unit.player];
         if (!rules) return;
         const W = state.game.board.width, edge = rules.edge;
@@ -2594,6 +2620,21 @@
         }
         for (const enemy of state.game.state.units.filter(u => u.player !== unit.player)) {
             for (const model of enemy.models.filter(m => m.alive && m.position)) padded(mask, enemy, model, depth, rules.gap, { fill: 'black' });
+        }
+        svgEl('rect', { x: 0, y: 0, width: W, height: depth, class: 'play-ingress', mask: `url(#${id})` }, svg);
+    }
+
+    /** Shade where an Infiltrators unit can be set up outside its zone: more than 8" from the enemy zone and enemy units. */
+    function drawInfiltrate(svg, depth, unit) {
+        const W = state.game.board.width, gap = 8;
+        const id = 'play-ingress-mask';
+        const mask = svgEl('mask', { id, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: W, height: depth }, svg);
+        svgEl('rect', { x: 0, y: 0, width: W, height: depth, fill: 'white' }, mask);
+        // The enemy zone grown by 8": its polygon filled, with a round-cornered 16"-wide outline
+        svgEl('polygon', { points: state.game.zones[1 - unit.player].map(([x, y]) => `${x},${depth - y}`).join(' '),
+                           fill: 'black', stroke: 'black', 'stroke-width': 2 * gap, 'stroke-linejoin': 'round' }, mask);
+        for (const enemy of state.game.state.units.filter(u => u.player !== unit.player)) {
+            for (const model of enemy.models.filter(m => m.alive && m.position)) padded(mask, enemy, model, depth, gap, { fill: 'black' });
         }
         svgEl('rect', { x: 0, y: 0, width: W, height: depth, class: 'play-ingress', mask: `url(#${id})` }, svg);
     }
@@ -2744,7 +2785,7 @@
     /** The bends of the path dragged so far (offsets from where the drag began), in the phases where moves follow it. */
     function dragBends(drag) {
         const phase = state.game.state.turn.phase;
-        if (phase !== 'movement' && phase !== 'charge') return [];  // Pile in and Consolidate go in a straight line
+        if (phase !== 'movement' && phase !== 'charge' && phase !== 'prebattle') return [];  // Pile in and Consolidate go in a straight line
         return Core.playRouteBends([...drag.trail, { x: drag.dx, y: drag.dy }]);
     }
 
@@ -2809,7 +2850,9 @@
                 id: m.id, x: round(m.position.x + (moved.has(m.id) ? drag.dx : 0)),
                 y: round(m.position.y + (moved.has(m.id) ? drag.dy : 0)), angle: m.position.angle || 0,
             }, moved.has(m.id) && bends.length ? { route: routeOf(m, bends) } : {}));
-            if (turn.phase === 'movement') {
+            if (turn.phase === 'prebattle') {
+                if (await send({ type: 'scout', unit: unit.id, models })) message(`${unit.name} made a scout move.`);
+            } else if (turn.phase === 'movement') {
                 const mode = state.selected === unit.id ? state.moveMode : 'normal';
                 await send(Object.assign({ type: 'move', unit: unit.id, mode, models }, waypointing(unit) ? { waypoint: true } : {},
                     flying(unit) ? { skies: true } : {}));

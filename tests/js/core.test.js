@@ -548,6 +548,13 @@ test('playZoom zooms about the pointer and keeps the view between 10" and the bo
     assert.equal(Core.playZoom(view, 10, 30, 22).w, 72);
 });
 
+test('playInside says whether a point is inside a polygon', () => {
+    const zone = [[0, 0], [20, 0], [20, 22], [12, 22], [12, 44], [0, 44]];  // Tipping Point's stepped zone
+    assert.ok(Core.playInside({ x: 5, y: 40 }, zone));
+    assert.ok(!Core.playInside({ x: 16, y: 40 }, zone));
+    assert.ok(Core.playInside({ x: 16, y: 10 }, zone));
+});
+
 test('playFit shifts a dropped formation to lie wholly inside an area when it can', () => {
     const area = { left: 0, bottom: 0, right: 60, top: 12 };
     // Two models 1" across (0.5" from centre to edge) dropped too close to the zone's top edge
