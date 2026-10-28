@@ -153,22 +153,6 @@
         </div>
 
         <div class="conditions-column">
-            <h3>Death Guard</h3>
-            <div class="afflicted-group" title="Nurgle's Gift: an Afflicted unit has -1 Toughness and the effect of the Death Guard player's Plague, and some attacks are better against it">
-                <label for="cond-attacker-afflicted">Attacker:</label>
-                <select id="cond-attacker-afflicted" class="select-small" data-affliction="attacker_afflicted">
-                    <option value="">Not Afflicted</option>
-                    {% for choice in afflictions %}<option value="{{ choice.key }}" title="{{ choice.summary }}">{{ choice.name }}</option>{% endfor %}
-                </select>
-                <label for="cond-defender-afflicted">Defender:</label>
-                <select id="cond-defender-afflicted" class="select-small" data-affliction="defender_afflicted">
-                    <option value="">Not Afflicted</option>
-                    {% for choice in afflictions %}<option value="{{ choice.key }}" title="{{ choice.summary }}">{{ choice.name }}</option>{% endfor %}
-                </select>
-            </div>
-        </div>
-
-        <div class="conditions-column">
             <h3>Simulation</h3>
             <div class="simulation-options">
                 <label class="toggle">

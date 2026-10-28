@@ -4649,7 +4649,6 @@ h4 .fa-solid,
         display: none !important;
     }
 }
-.afflicted-group { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.5rem; align-items: center; }
 
 /* Account pages of a self-hosted copy (account.html) */
 .account-form {

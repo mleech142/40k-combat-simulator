@@ -327,7 +327,7 @@ def register_routes(app):
             return redirect('/setup')
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]
-        return render_template('index.html', factions=factions_list, afflictions=contagion.choices())
+        return render_template('index.html', factions=factions_list)
 
     @app.route('/api/units')
     def api_units():
