@@ -148,18 +148,26 @@ a. **Docker image and hosted mode.** `run.py --hosted` (or `COMBAT_SIM_HOSTED=1`
    relay address (from the page; `RELAY_URL` still works), and `--debug`. The Setup page hides them. A `Dockerfile`
    and `compose.yaml` (data in a volume, running as a non-root user), and `release.yml` publishes the image to
    GitHub's registry (`ghcr.io`) with the release. Docs: running it, HTTPS through a reverse proxy, Tailscale.
-b. **Named players and the host.** The first visit to a new instance creates the host (a name and password). The
-   host adds players (a name and a first password they change; no emails) and can reset or remove them. Sessions
-   by cookie, with a secret key kept in the data folder; writes refused from other sites (the `Origin` must be the
-   instance's own, cookies `SameSite=Lax`). Host only: Setup (downloads, re-import, relay address), app data
-   import, and approving edits. Outside hosted mode nothing changes: no login.
+b. **Named players and the host** (agreed: a name, a password and an email each; players choose their own
+   password; every password form tells them to use a throwaway one). The first visit to a new copy creates the host
+   (`/welcome`). The host adds players by name and email on the Players page and sends each a one-time **join
+   link** (7 days) where they choose their password; a new link resets a forgotten one and, once used, logs out
+   their other browsers. The host can't be removed. Logins are a cookie (`SameSite=Lax`, 30 days) signed with a
+   secret kept in the data folder; writes from other sites are refused (`Origin` / `Sec-Fetch-Site`); five wrong
+   passwords for a name make it wait a minute. Host only: Setup (downloads, re-import, relay, the Play menu
+   setting), the Players page, and app data writes (until d). The name you play under online is your account's.
+   Outside hosted mode nothing changes: no login. Code: `accounts.py`, `account.html`, the `users` table.
+   *Done.*
 c. **Players' own lists and games.** Saved armies, scenarios, comparisons and battlefields get an owner (a new
    nullable column: old rows are the host's). A game between two players on the same instance gives each their
    seat (the game records each seat's player; `play/seats.py` checks the logged-in player instead of the install),
-   with no relay. Games with players on other instances still go through the relay.
+   with no relay. Games with players on other instances still go through the relay. Players see each other's
+   armies read-only (agreed): copying one makes it yours. **"Your move" emails** to the player whose turn it
+   becomes, sent through the host's mail server (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
+   `SMTP_FROM`; none set: no emails), with a per-player switch on their account page.
 d. **Proposed edits.** In hosted mode a player's Data-tab write is saved as a proposal instead (who, when, what it
    changes, shown as a readable summary) and answered 202. The host's Data tab lists proposals to approve (applied
    through the same code as a direct edit, then `save_data()`) or reject; the player sees their proposals' outcome.
 
-Questions to agree at each step's start: can players see (read-only) each other's armies (c)? What happens to a
-proposal when the record it edits changed after it was made (d)?
+Question to agree at step d's start: what happens to a proposal when the record it edits changed after it was
+made?

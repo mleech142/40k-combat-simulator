@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="app-boot-id" content="{{ boot_id }}">
+    {% if hosted %}<meta name="app-hosted" content="1">{% endif %}
     <title>{% block title %}40K Combat Simulator{% endblock %}</title>
     <script src="{{ url_for('static', filename='vendor/plotly-2.27.0.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-free-7.3.1/css/fontawesome.min.css') }}">
@@ -18,13 +19,17 @@
             <h1><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> 40K Combat Simulator</h1>
         </a>
         <nav class="header-nav">
+            {% if not hosted or user %}
             <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}"><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> Simulator</a>
             <a href="/analytics" class="nav-link {% if request.path == '/analytics' %}active{% endif %}"><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Analytics</a>
             <a href="/armies" class="nav-link {% if request.path.startswith('/armies') %}active{% endif %}"><i class="fa-solid fa-chess-rook" aria-hidden="true"></i> Armies</a>
             {% if show_play %}<a href="/play" class="nav-link {% if request.path == '/play' %}active{% endif %}"><i class="fa-solid fa-chess-board" aria-hidden="true"></i> Play</a>{% endif %}
             <a href="/scenarios" class="nav-link {% if request.path == '/scenarios' %}active{% endif %}"><i class="fa-solid fa-bookmark" aria-hidden="true"></i> Scenarios</a>
             <a href="/data" class="nav-link {% if request.path == '/data' %}active{% endif %}"><i class="fa-solid fa-database" aria-hidden="true"></i> Data</a>
-            <a href="/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</a>
+            {% if can_setup %}<a href="/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Setup</a>{% endif %}
+            {% if user and user.is_host %}<a href="/players" class="nav-link {% if request.path == '/players' %}active{% endif %}"><i class="fa-solid fa-users" aria-hidden="true"></i> Players</a>{% endif %}
+            {% if user %}<a href="/account" class="nav-link {% if request.path == '/account' %}active{% endif %}"><i class="fa-solid fa-user" aria-hidden="true"></i> {{ user.name }}</a>{% endif %}
+            {% endif %}
             <span class="version">v{{ app_version }} · 11th Edition</span>
         </nav>
     </header>
@@ -38,7 +43,7 @@
         (community-maintained, not endorsed by Games Workshop){% if bsdata_label %} · {{ bsdata_label }}{% endif %}
         {% if wahapedia_label %}· Rules and stratagems powered by <a href="https://wahapedia.ru/" target="_blank" rel="noopener">Wahapedia</a>
         ({{ wahapedia_label }}){% endif %}
-        · <a href="/setup">{% if bsdata_label %}Change{% else %}Set up{% endif %}</a>
+        {% if can_setup %}· <a href="/setup">{% if bsdata_label %}Change{% else %}Set up{% endif %}</a>{% endif %}
     </footer>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

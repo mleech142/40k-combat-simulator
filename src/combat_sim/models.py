@@ -691,6 +691,27 @@ class SavedComparison(db.Model):
         return f'<SavedComparison {self.name}>'
 
 
+class User(db.Model):
+    """A named player of a self-hosted copy (accounts.py; docs/self-hosting.md). Hosted mode only; database only."""
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(30), nullable=False)
+    name_key = db.Column(db.String(30), nullable=False, unique=True)  # name in lower case: names are unique ignoring case
+    email = db.Column(db.String(254), nullable=True)  # For "your move" emails
+    password_hash = db.Column(db.String(255), nullable=True)  # None until they open their join link
+    is_host = db.Column(db.Boolean, nullable=False, default=False)
+    session_key = db.Column(db.String(64), nullable=True)  # In their login cookie; changed to log every browser out
+    join_token_hash = db.Column(db.String(64), nullable=True)  # Their join (or new password) link's token, hashed
+    join_expires = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'email': self.email, 'is_host': bool(self.is_host),
+                'joined': self.password_hash is not None,
+                'link_open': bool(self.join_token_hash and self.join_expires and self.join_expires > datetime.utcnow())}
+
+
 def init_db(app):
     """Initialize the database with the Flask app."""
     db.init_app(app)
@@ -705,7 +726,7 @@ def add_missing_columns():
     (create_all only makes missing tables). Anything else still needs a manual ALTER TABLE.
     """
     inspector = db.inspect(db.engine)
-    for model in (SavedScenario, SavedComparison, SavedArmy, SavedGame, SavedBattlefield, StableId):
+    for model in (SavedScenario, SavedComparison, SavedArmy, SavedGame, SavedBattlefield, StableId, User):
         table = model.__table__
         if not inspector.has_table(table.name):
             continue

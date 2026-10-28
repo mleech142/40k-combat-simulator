@@ -19,6 +19,7 @@ from . import armies, army_share, bsdata_download, contagion, effects, folder_di
 from .effects import RULE_PHASES
 from .rules_text import ability_buffs
 from .play.routes import register_play_routes
+from .accounts import current_user, register_account_routes, secret_key
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
@@ -56,6 +57,8 @@ def create_app(config=None):
     # Hosted mode (docs/self-hosting.md): other people's browsers reach this copy, so what only makes sense on
     # your own computer is refused (the folder dialog, BSData folders by path, the relay's address)
     app.config['HOSTED'] = is_hosted()
+    if app.config['HOSTED'] and not os.environ.get('SECRET_KEY'):
+        app.config['SECRET_KEY'] = secret_key(Path(data_json).parent)  # logins survive restarts
 
     # New on every start. Pages tag saved page state with it, so state survives
     # switching tabs but is discarded after the app is restarted.
@@ -68,6 +71,8 @@ def create_app(config=None):
         return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
                 'bsdata_label': bsdata_label(app),
                 'hosted': app.config['HOSTED'],
+                'user': current_user(),
+                'can_setup': not app.config['HOSTED'] or bool(current_user() and current_user().is_host),
                 'show_play': bool(load_settings(app.config['SETTINGS_JSON']).get('show_play')),
                 'wahapedia_label': (last_update[:10] or 'loaded') if wahapedia_loaded else None}
 
@@ -83,6 +88,7 @@ def create_app(config=None):
     # Register routes
     register_routes(app)
     register_play_routes(app)
+    register_account_routes(app)
 
     return app
 
@@ -298,7 +304,8 @@ def register_routes(app):
     def index():
         """Main simulation page (the Setup page until BSData loads or the user skips it)."""
         status = app.config.get('BSDATA_STATUS') or {}
-        if not status.get('loaded') and not load_settings(app.config['SETTINGS_JSON']).get('setup_skipped'):
+        if (not status.get('loaded') and not load_settings(app.config['SETTINGS_JSON']).get('setup_skipped')
+                and (not app.config['HOSTED'] or current_user().is_host)):
             return redirect('/setup')
         factions = Faction.query.order_by(Faction.name).all()
         factions_list = [{'id': f.id, 'name': f.name} for f in factions]

@@ -18,6 +18,7 @@ from . import battlefields, game_file, mission_state, missions, relay_client, ta
 from .dice import Dice
 from .seats import actor, check_seat, waiting_on
 from ..settings import load_settings, update_settings
+from ..accounts import current_user
 from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, apply_event, can_fly, charge_options,
                    deployment_zone, fight_options, measure, move_characteristic, objective_control, objectives_in_range, outline, ready_units, replay, resolve_action,
                    disembark_options, embark_options, infiltrators, ingress_rules, redo_history, scouts, rerollable, score, shooting_options, terrain_areas, window_options,
@@ -202,7 +203,10 @@ def redo_for(saved, action):
 
 
 def player_name():
-    """The name this player gives online (Setup page), or None."""
+    """The name this player gives online (Setup page; on a self-hosted copy, their account's), or None."""
+    if current_app.config.get('HOSTED'):
+        user = current_user()
+        return user.name if user else None
     return load_settings(current_app.config['SETTINGS_JSON']).get('player_name')
 
 

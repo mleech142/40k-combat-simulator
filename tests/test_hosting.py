@@ -14,12 +14,14 @@ from combat_sim import paths
 ROOT = Path(__file__).resolve().parent.parent
 APP_DATA = {'schema_version': 2, 'source': None, 'factions': [], 'units': [], 'ranged_weapons': [], 'melee_weapons': [],
             'faction_rules': [], 'stratagems': [], 'unit_modifiers': [], 'keywords': [], 'target_profiles': []}
+HOST = {'name': 'Hosty', 'email': 'host@example.com', 'password': 'throwaway-1'}
 
 
 @pytest.fixture
 def hosted_client(make_client, monkeypatch):
     monkeypatch.setenv(paths.HOSTED_ENV, '1')
     client, _ = make_client(APP_DATA)
+    assert client.post('/api/auth/welcome', json=HOST).status_code == 200  # logged in as the host
     return client
 
 
@@ -58,11 +60,11 @@ def test_hosted_mode_refuses_the_folder_dialog_and_folders_by_path(hosted_client
     assert hosted_client.get('/api/data/status').get_json()['hosted'] is True
 
 
-def test_hosted_mode_refuses_changing_the_relay_but_not_the_name(hosted_client):
+def test_hosted_mode_refuses_changing_the_relay(hosted_client):
     assert hosted_client.post('/api/play/relay', json={'url': 'https://elsewhere.example'}).status_code == 403
     resp = hosted_client.post('/api/play/relay', json={'name': 'Sam'})
     assert resp.status_code == 200
-    assert resp.get_json()['name'] == 'Sam'
+    assert resp.get_json()['name'] == 'Hosty'  # on a self-hosted copy, the name you play under is your account's
 
 
 def test_the_setup_page_hides_what_hosted_mode_refuses(hosted_client, make_client, monkeypatch):

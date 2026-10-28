@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}{% if mode == 'players' %}Players{% elif mode == 'account' %}Your account{% else %}Log in{% endif %} - 40K Combat Simulator{% endblock %}
+
+{% block content %}
+<div class="setup-page account-page">
+    {% set throwaway %}
+    <p class="account-warning"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        <strong>Use a throwaway password</strong>: one you don't use anywhere else. This copy is run by someone in
+        your group, not a company, so treat any password you give it as one that could be seen.</p>
+    {% endset %}
+
+    {% if mode == 'welcome' %}
+    <div class="page-header"><h2><i class="fa-solid fa-user-shield" aria-hidden="true"></i> Welcome</h2></div>
+    <section class="setup-card">
+        <h3>Create the host</h3>
+        <p>This copy has no players yet. You'll be its <strong>host</strong>: you download the game data, add the
+            other players and approve their edits to the shared data.</p>
+        {{ throwaway }}
+        <form class="account-form" data-api="/api/auth/welcome" data-then="/setup">
+            <label>Name <input name="name" class="filter-input" maxlength="30" autocomplete="username" required></label>
+            <label>Email <input name="email" type="email" class="filter-input" maxlength="254" autocomplete="email" required>
+                <span class="weapon-picker-hint">For "your move" emails.</span></label>
+            <label>Password <input name="password" type="password" class="filter-input" minlength="8" autocomplete="new-password" required></label>
+            <label>Password again <input name="password2" type="password" class="filter-input" minlength="8" autocomplete="new-password" required></label>
+            <button class="btn btn-primary" type="submit">Create the host</button>
+            <div class="setup-message"></div>
+        </form>
+    </section>
+
+    {% elif mode == 'login' %}
+    <div class="page-header"><h2><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i> Log in</h2></div>
+    <section class="setup-card">
+        <form class="account-form" data-api="/api/auth/login" data-then="next">
+            <label>Name <input name="name" class="filter-input" maxlength="30" autocomplete="username" required></label>
+            <label>Password <input name="password" type="password" class="filter-input" autocomplete="current-password" required></label>
+            <button class="btn btn-primary" type="submit">Log in</button>
+            <div class="setup-message"></div>
+        </form>
+        <p>Forgotten your password? Ask the host for a new link.</p>
+    </section>
+
+    {% elif mode == 'join' %}
+    <div class="page-header"><h2><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Welcome, {{ player.name }}</h2></div>
+    <section class="setup-card">
+        <h3>Choose your password</h3>
+        {{ throwaway }}
+        <form class="account-form" data-api="/api/auth/join" data-then="/">
+            <input type="hidden" name="token" value="">
+            <input type="text" name="username" value="{{ player.name }}" autocomplete="username" hidden>
+            <label>Password <input name="password" type="password" class="filter-input" minlength="8" autocomplete="new-password" required></label>
+            <label>Password again <input name="password2" type="password" class="filter-input" minlength="8" autocomplete="new-password" required></label>
+            <button class="btn btn-primary" type="submit">Save and log in</button>
+            <div class="setup-message"></div>
+        </form>
+    </section>
+
+    {% elif mode == 'bad-link' %}
+    <div class="page-header"><h2><i class="fa-solid fa-link-slash" aria-hidden="true"></i> Link not valid</h2></div>
+    <section class="setup-card">
+        <p>This link has expired or was already used. Ask the host for a new one, or <a href="/login">log in</a>.</p>
+    </section>
+
+    {% elif mode == 'refused' %}
+    <div class="page-header"><h2><i class="fa-solid fa-lock" aria-hidden="true"></i> Host only</h2></div>
+    <section class="setup-card"><p>{{ message }}</p></section>
+
+    {% elif mode == 'account' %}
+    <div class="page-header"><h2><i class="fa-solid fa-user" aria-hidden="true"></i> {{ user.name }}{% if user.is_host %} (host){% endif %}</h2></div>
+    <section class="setup-card">
+        <h3>Email</h3>
+        <form class="account-form" data-api="/api/auth/account">
+            <label>Email <input name="email" type="email" class="filter-input" maxlength="254" value="{{ user.email or '' }}" autocomplete="email" required>
+                <span class="weapon-picker-hint">For "your move" emails.</span></label>
+            <button class="btn btn-secondary" type="submit">Save</button>
+            <div class="setup-message"></div>
+        </form>
+    </section>
+    <section class="setup-card">
+        <h3>Password</h3>
+        {{ throwaway }}
+        <form class="account-form" data-api="/api/auth/account" data-reset="1">
+            <input type="text" name="username" value="{{ user.name }}" autocomplete="username" hidden>
+            <label>Current password <input name="password" type="password" class="filter-input" autocomplete="current-password" required></label>
+            <label>New password <input name="new_password" type="password" class="filter-input" minlength="8" autocomplete="new-password" required></label>
+            <label>New password again <input name="password2" type="password" class="filter-input" minlength="8" autocomplete="new-password" required></label>
+            <button class="btn btn-secondary" type="submit">Change password</button>
+            <div class="setup-message"></div>
+        </form>
+    </section>
+    <section class="setup-card">
+        <button class="btn btn-secondary" id="logout-btn"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> Log out</button>
+    </section>
+
+    {% elif mode == 'players' %}
+    <div class="page-header"><h2><i class="fa-solid fa-users" aria-hidden="true"></i> Players</h2></div>
+    <section class="setup-card">
+        <h3>Add a player</h3>
+        <p>They get a link to choose their own password (it works once, for 7 days). Send it to them yourself.</p>
+        <form class="account-form" data-api="/api/players" data-reset="1" data-then="players">
+            <label>Name <input name="name" class="filter-input" maxlength="30" required></label>
+            <label>Email <input name="email" type="email" class="filter-input" maxlength="254" required></label>
+            <button class="btn btn-primary" type="submit">Add</button>
+            <div class="setup-message"></div>
+        </form>
+    </section>
+    <section class="setup-card">
+        <h3>Everyone</h3>
+        <div class="setup-message" id="link-message"></div>
+        <table class="data-table" id="players-table">
+            <thead><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+async function post(url, body, method = 'POST') {
+    const resp = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+    const data = await resp.json().catch(() => ({}));
+    return {ok: resp.ok, data};
+}
+
+/** Each form posts its fields as JSON to its data-api and then goes to data-then. */
+document.querySelectorAll('.account-form').forEach(formEl => {
+    const tokenField = formEl.querySelector('[name="token"]');
+    if (tokenField) tokenField.value = location.pathname.split('/').pop();
+    formEl.addEventListener('submit', async event => {
+        event.preventDefault();
+        const message = formEl.querySelector('.setup-message');
+        const body = Object.fromEntries(new FormData(formEl).entries());
+        const again = body.password2;
+        delete body.password2;
+        delete body.username;
+        if (again !== undefined && again !== (body.new_password ?? body.password)) {
+            message.className = 'setup-message error';
+            message.textContent = "The two passwords don't match.";
+            return;
+        }
+        const {ok, data} = await post(formEl.dataset.api, body);
+        message.className = 'setup-message ' + (ok ? 'ok' : 'error');
+        message.textContent = ok ? 'Saved.' : (data.error || 'Something went wrong.');
+        if (!ok) return;
+        if (formEl.dataset.reset) formEl.reset();
+        const then = formEl.dataset.then;
+        if (then === 'players') {
+            showLink(data);
+            loadPlayers();
+        } else if (then === 'next') {
+            const next = new URLSearchParams(location.search).get('next') || '/';
+            location.href = next.startsWith('/') && !next.startsWith('//') ? next : '/';
+        } else if (then) {
+            location.href = then;
+        }
+    });
+});
+
+document.getElementById('logout-btn')?.addEventListener('click', async () => {
+    await post('/api/auth/logout');
+    location.href = '/login';
+});
+
+function showLink(player) {
+    const el = document.getElementById('link-message');
+    el.className = 'setup-message ok';
+    el.innerHTML = `Send ${esc(player.name)} this link (it works once, for 7 days): <code>${esc(location.origin + player.link)}</code>`;
+}
+
+async function loadPlayers() {
+    const body = document.querySelector('#players-table tbody');
+    if (!body) return;
+    const players = await fetch('/api/players').then(r => r.json()).catch(() => []);
+    body.innerHTML = players.map(p => `<tr>
+        <td>${esc(p.name)}${p.is_host ? ' (host)' : ''}</td>
+        <td>${esc(p.email)}</td>
+        <td>${p.joined ? 'Joined' : 'Not joined yet'}${p.link_open ? ' · link open' : ''}</td>
+        <td><button class="btn-small" data-link="${p.id}">${p.joined ? 'New password link' : 'New join link'}</button>
+            ${p.is_host ? '' : `<button class="btn-small" data-remove="${p.id}" data-name="${esc(p.name)}">Remove</button>`}</td>
+    </tr>`).join('');
+}
+
+document.getElementById('players-table')?.addEventListener('click', async event => {
+    const link = event.target.closest('[data-link]');
+    const remove = event.target.closest('[data-remove]');
+    if (link) {
+        const {ok, data} = await post(`/api/players/${link.dataset.link}/link`);
+        if (ok) showLink(data);
+        loadPlayers();
+    } else if (remove && confirm(`Remove ${remove.dataset.name}? They can't log in afterwards.`)) {
+        await post(`/api/players/${remove.dataset.remove}`, null, 'DELETE');
+        loadPlayers();
+    }
+});
+loadPlayers();
+</script>
+{% endblock %}

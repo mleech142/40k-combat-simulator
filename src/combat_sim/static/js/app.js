@@ -15,6 +15,16 @@ const PageState = Core.createPageState(
 
 const SIMULATOR_STATE_KEY = 'simulatorState';
 
+// A self-hosted copy (docs/self-hosting.md): when the login has run out, go to the login page
+if (document.querySelector('meta[name="app-hosted"]') && !/^\/(login|welcome|join)(\/|$)/.test(location.pathname)) {
+    const plainFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+        const response = await plainFetch(...args);
+        if (response.status === 401) location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+        return response;
+    };
+}
+
 /**
  * As-you-type warnings for keyword/modifier text boxes (same rules as the Data page forms).
  * Usage: KeywordHints.attach(inputElement, hintElement, 'unit')

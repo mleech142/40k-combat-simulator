@@ -4650,3 +4650,26 @@ h4 .fa-solid,
     }
 }
 .afflicted-group { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.5rem; align-items: center; }
+
+/* Account pages of a self-hosted copy (account.html) */
+.account-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    max-width: 26rem;
+}
+
+.account-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.account-form .btn {
+    align-self: flex-start;
+}
+
+.account-warning {
+    border-left: 3px solid var(--warning, #d9a400);
+    padding: 0.4rem 0.75rem;
+}
