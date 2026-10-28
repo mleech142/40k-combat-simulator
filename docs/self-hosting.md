@@ -99,6 +99,32 @@ Settings:
 | `RELAY_URL` | The relay for online games (default: the project's, [relay.md](relay.md)). |
 | `COMBAT_SIM_SECURE_COOKIES` | `1` once it's served over HTTPS, so browsers send the login only over HTTPS. |
 
+## With Tailscale (recommended)
+
+[Tailscale](https://tailscale.com) puts your group's devices on one private network, and gives the copy an HTTPS
+address with nothing opened to the internet:
+
+1. Install Tailscale on the computer running the copy and log in.
+2. `tailscale serve --bg 5000` (the first time it gives a link to turn Serve on for your tailnet; open it, approve,
+   and run the command again). The copy is then at `https://<computer>.<tailnet>.ts.net`; this keeps working after
+   restarts.
+3. Put your own settings in `compose.override.yaml` next to `compose.yaml` (Docker Compose reads both; it's
+   gitignored, so passwords stay out of the repository):
+
+   ```yaml
+   services:
+     combat-sim:
+       ports: !override
+         - "127.0.0.1:5000:5000"  # only this computer: everyone else comes in through Tailscale's HTTPS
+       environment:
+         COMBAT_SIM_SECURE_COOKIES: "1"
+         PUBLIC_URL: https://<computer>.<tailnet>.ts.net
+   ```
+
+   then `docker compose up -d`.
+4. Each friend installs Tailscale; share the computer with them from the Tailscale admin console (Machines → the
+   computer → Share) or invite them to your tailnet. Then add them on the Players page and send their join link.
+
 ## HTTPS and reaching it from outside
 
 The app serves plain HTTP. On a home network or Tailscale that's enough. To reach it over the internet, put a
