@@ -762,8 +762,9 @@
         };
         const lows = (axis) => Math.min(...positions.map((p, i) => p[axis] - reach[i]));
         const highs = (axis) => Math.max(...positions.map((p, i) => p[axis] + reach[i]));
-        const dx = shift(lows('x'), highs('x'), area.left, area.right);
-        const dy = shift(lows('y'), highs('y'), area.bottom, area.top);
+        const pad = 0.01;  // Inside by more than the rounding below, so a base fitted to an edge never pokes past it
+        const dx = shift(lows('x'), highs('x'), area.left + pad, area.right - pad);
+        const dy = shift(lows('y'), highs('y'), area.bottom + pad, area.top - pad);
         return positions.map(p => ({ x: round(p.x + dx), y: round(p.y + dy) }));
     }
 

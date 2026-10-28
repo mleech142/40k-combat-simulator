@@ -37,6 +37,7 @@ def freeze_army(army):
                 [_part(e, r, catalogue, priced['warlord']) for e, r in attached]
         units.append({'uid': entry['uid'], 'name': entry['name'], 'parts': parts})
     return {'name': army['name'], 'faction': priced['faction'], 'disposition': priced['disposition'], 'units': units,
+            'points_limit': army.get('points_limit'),
             'stratagems': _stratagems(army), 'rules': _rules(army)}
 
 
@@ -121,6 +122,7 @@ def _part(entry, role, catalogue, warlord):
         'enhancement': {'name': enhancement.name, 'buffs': enhancement.buffs or []} if enhancement else None,
         'warlord': entry['uid'] == warlord,
         'fights_first': has_core_ability(unit.abilities, 'Fights First'),
+        'deep_strike': has_core_ability(unit.abilities, 'Deep Strike'),
         'damaged': damaged_threshold(unit.abilities),
     }
 

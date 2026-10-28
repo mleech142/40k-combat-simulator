@@ -49,6 +49,12 @@ DENSE_CLIMB = 2  # Models that aren't Infantry, Beasts, Swarm or Mobile cross De
 SKIES = 2  # Inches off the maximum distance when a Fly unit takes to the skies (core rules 21.03)
 SNEAKY = ('Infantry', 'Beasts', 'Beast', 'Swarm')  # Take cover inside terrain areas and can be hidden (BSData says 'Beast')
 DURATIONS = ('phase', 'turn', 'game')  # How long an effect lasts
+RESERVE_SHARE = 0.5  # Strategic Reserves: at most this share of the battle's points (core rules 20.01)
+INGRESS_EDGE = 6  # An ingress move sets a unit up wholly within this of a battlefield edge...
+INGRESS_GAP = 8  # ...and more than this horizontally from every enemy unit (core rules 20.04)
+INGRESS_FROM = 2  # Reserves arrive from this battle round...
+ENEMY_ZONE_FROM = 3  # ...and outside the opponent's deployment zone before this one
+RESERVES_LOST = 3  # Units still in reserves at the end of this battle round are destroyed (20.03)
 # Manual effects: key -> (name, the side it helps or hinders, the modifier text the dice use)
 MANUAL_EFFECTS = {
     'hit_plus': ('+1 to hit', 'Attacker', 'Hit Modifier +1'),
@@ -101,7 +107,10 @@ def new_game(armies, battlefield=None, roles=None, setup=False, twist=None):
                              'x': o['x'], 'y': o['y'], 'terrain': o.get('terrain'), 'controller': None}
                             for o in battlefield['objectives']]}
     for player, army in enumerate(armies):
+        # The battle's points: the army's points limit, else what the army costs (armies frozen without one)
+        battle_points = army.get('points_limit') or sum(p.get('points') or 0 for u in army['units'] for p in u['parts'])
         state['players'].append({'name': army['name'], 'faction': army['faction'], 'orders': dict(DEFAULT_ORDERS), 'cp': 0,
+                                 'reserve_limit': int(battle_points * RESERVE_SHARE),
                                  'stratagems': copy.deepcopy(army.get('stratagems', []) + army.get('rules', [])),
                                  'used': {}, 'vp': mission_state.new_vp(), 'disposition': army.get('disposition')})
         for unit in army['units']:
@@ -207,6 +216,8 @@ def _handlers(action, dice, rewind=None, redo=None):
                 'start_action': lambda s: mission_state.start_action(s, action),
                 'pass': lambda s: _pass(s, action, dice), 'overwatch': lambda s: _overwatch(s, action, dice),
                 'heroic': lambda s: _heroic(s, action, dice),
+                'reserve': lambda s: _reserve(s, action), 'ingress': lambda s: _ingress(s, action),
+                'rapid_ingress': lambda s: _rapid_ingress(s, action, dice),
                 'command_reroll': lambda s: _command_reroll(s, action, dice, redo),
                 'place_markers': lambda s: mission_state.place_markers(s, action)}
 
@@ -226,7 +237,8 @@ def _resolve(state, action, dice, handler):
     start = len(dice.log)
     detail = handler(state) or {}
     # Models removed to restore coherency don't count as destroyed (core rules 03.03)
-    mission_state.log_destroyed(state, before['models'], action, {m for c in detail.get('coherency', []) for m in c['removed']})
+    mission_state.log_destroyed(state, before['models'], action,
+                                {m for key in ('coherency', 'reserves_lost') for c in detail.get(key, []) for m in c['removed']})
     after = _snapshot(state)
     event = {'action': action, 'rolls': [asdict(g) for g in dice.log[start:]],
              'models': {k: v for k, v in after['models'].items() if v != before['models'][k]},
@@ -294,7 +306,55 @@ def _require(state, phase, unit=None):
 
 
 def _unplaced(state, player):
-    return [u for u in state['units'] if u['player'] == player and any(m['alive'] and not m['position'] for m in u['models'])]
+    """A player's units still to be set up in deployment (not those put in reserves)."""
+    return [u for u in state['units'] if u['player'] == player and not in_reserve(u)
+            and any(m['alive'] and not m['position'] for m in u['models'])]
+
+
+def in_reserve(unit):
+    """Whether a unit is in Strategic Reserves (off the board, to arrive with an ingress move)."""
+    return bool((unit.get('status') or {}).get('reserve'))
+
+
+def unit_points(unit):
+    return sum(part.get('points') or 0 for part in unit['parts'])
+
+
+def reserve_room(state, player):
+    """The points a player can still put in reserves (their limit less the units already there)."""
+    limit = state['players'][player].get('reserve_limit')
+    if limit is None:  # Games started before reserves: half of what the army costs
+        limit = int(sum(unit_points(u) for u in state['units'] if u['player'] == player) * RESERVE_SHARE)
+    return limit - sum(unit_points(u) for u in state['units'] if u['player'] == player and in_reserve(u))
+
+
+def _reserve(state, action):
+    """
+    Deployment: put a unit in Strategic Reserves instead of setting it up (it counts as that unit's turn to
+    deploy). Not Fortifications; all of a player's reserves together cost at most half the battle's points.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    if state['turn']['phase'] != 'deployment':
+        raise ActionError('Units are put in reserves during deployment.')
+    _require(state, 'deployment', unit)
+    if in_reserve(unit) or any(m['position'] for m in unit['models'] if m['alive']):
+        raise ActionError(f'{unit["name"]} is already set up.')
+    if any(_has(p['keywords'], 'Fortification') for p in unit['parts']):
+        raise ActionError('Fortifications can\'t be put in reserves.')
+    room = reserve_room(state, unit['player'])
+    if unit_points(unit) > room:
+        raise ActionError(f'Reserves can cost at most {state["players"][unit["player"]].get("reserve_limit", "half the")} points '
+                          f'in all: {unit["name"]} ({unit_points(unit)} pts) leaves too little room ({max(room, 0)} pts left).')
+    unit.setdefault('status', {'shocked': False})['reserve'] = True
+    _next_deployer(state, unit)
+    return {'reserve': unit['id']}
+
+
+def _next_deployer(state, unit):
+    """Players take turns setting up units; one with nothing left to set up sits out."""
+    other = 1 - unit['player']
+    if _unplaced(state, other):
+        state['turn']['player'] = other
 
 
 def _end_deployment(state, dice):
@@ -441,6 +501,8 @@ def _change_phase(state, dice, report):
     mission_state.score(state, 'any_turn', [other], report)
     mission_state.score(state, 'opp_turn', [other], report)
     tactical.end_of_turn_discards(state, report)
+    if turn['round'] == RESERVES_LOST and turn['player'] != first_player(state):
+        _reserves_lost(state, report)
     if turn['player'] == first_player(state):
         _start_turn(state, turn['round'], 1 - turn['player'], dice, report)
     elif turn['round'] >= BATTLE_ROUNDS:
@@ -659,7 +721,7 @@ def score(state):
         return [mission_state.total(state, p) for p in (0, 1)]
     points = [0, 0]
     for unit in state['units']:
-        if unit['models'] and not any(m['alive'] for m in unit['models']):
+        if unit['models'] and not any(m['alive'] for m in unit['models']) and not unit['status'].get('lost_in_reserve'):
             points[1 - unit['player']] += sum(part.get('points') or 0 for part in unit['parts'])
     return points
 
@@ -717,6 +779,8 @@ def _is_engaged(state, unit):
 def moved_distance(unit):
     """The farthest any model of the unit has moved in this turn's Movement phase, along its path (from
     where it started, by way of any waypoints)."""
+    if unit['activity'].get('moved') == 'ingress':  # Set up this phase: it counts as having moved
+        return math.inf
     start = unit['activity'].get('start') or {}
     via = unit['activity'].get('via') or {}
     return max((path_length([start[m['id']], *via.get(m['id'], []), m['position']])
@@ -939,8 +1003,10 @@ def _shoot(state, action, dice, snap=False):
 
 # --- Reactions: the other player's decisions in your turn (11th edition core stratagems) ------------------------
 
-REACTIONS = {'overwatch': 'Fire Overwatch', 'heroic': 'Heroic Intervention', 'reroll': 'Command Re-roll'}
-WINDOW_ACTIONS = {'overwatch': ('pass', 'overwatch'), 'heroic': ('pass', 'heroic', 'charge_move', 'command_reroll'),
+REACTIONS = {'overwatch': 'Fire Overwatch', 'heroic': 'Heroic Intervention', 'reroll': 'Command Re-roll',
+             'ingress': 'Rapid Ingress'}
+END_OF_PHASE = {'movement': ('overwatch', 'ingress'), 'charge': ('heroic',)}  # Windows at the end of a phase, in order
+WINDOW_ACTIONS = {'overwatch': ('pass', 'overwatch'), 'ingress': ('pass', 'rapid_ingress'), 'heroic': ('pass', 'heroic', 'charge_move', 'command_reroll'),
                   'reroll': ('pass', 'command_reroll')}
 REROLL_PURPOSES = ('hit', 'wound', 'save', 'damage', 'attacks', 'hazard', 'advance', 'charge')  # Command Re-roll's rolls
 REROLL_ACTIONS = ('shoot', 'fight', 'overwatch', 'charge', 'advance', 'heroic')  # Actions whose rolls it can take
@@ -948,9 +1014,10 @@ HEROIC_MODES = {'leap': 'Leap to Defend', 'fray': 'Into the Fray'}  # Into the F
 HEROIC_REACH = 12  # Units within this of an enemy unit can intervene
 FRAY_REACH = 6  # Into the Fray: any enemy unit within this can be charged
 FRAY_ROLL = 6  # Into the Fray: the charge roll is at most this
-REACTION_ORDERS = {'overwatch': ('ask', 'never', 'unit'), 'heroic': ('ask', 'never'), 'reroll': ('ask', 'never', 'deaths')}
+REACTION_ORDERS = {'overwatch': ('ask', 'never', 'unit'), 'heroic': ('ask', 'never'), 'ingress': ('ask', 'never'), 'reroll': ('ask', 'never', 'deaths')}
 OVERWATCH_RANGE = 24  # Snap shooting targets one visible enemy unit within this
 REACTION_TIMING = {'overwatch': "at the end of the opponent's Movement phase",
+                   'ingress': "at the end of the opponent's Movement phase, from battle round 2",
                    'heroic': "at the end of the opponent's Charge phase",
                    'reroll': 'just after the roll, from the Re-roll button on it'}
 
@@ -1014,24 +1081,30 @@ def _end_of_phase_window(state, dice):
     (then the phase changes once it closes); None if there is nothing to wait for.
     """
     turn = state['turn']
-    kind = {'movement': 'overwatch', 'charge': 'heroic'}.get(turn['phase'])
-    if kind is None or (turn.get('reacted') or {}).get(kind) == _phase_id(turn):
-        return None
     player = 1 - turn['player']
-    turn.setdefault('reacted', {})[kind] = _phase_id(turn)  # Asked once a phase
-    order = reaction_order(state, player, kind)
-    eligible = overwatch_units(state, player) if kind == 'overwatch' else         [u for u in heroic_units(state, player) if any(heroic_modes(state, player, unit_by_id(state, u)).values())]
-    if order['mode'] == 'never' or _reaction_ready(state, player, kind) or not eligible:
-        return None
-    if order['mode'] == 'unit':  # The standing order answers: that unit at the closest target it can shoot
-        unit = next((u for u in state['units'] if u['id'] == order['unit']), None)
-        target = _overwatch_target(state, unit) if unit and unit['id'] in overwatch_units(state, player) else None
-        if target is None:
-            return None
-        detail = _overwatch(state, {'player': player, 'unit': unit['id'], 'target': target['id']}, dice, standing=True)
-        return dict(detail, **_next_phase(state, dice)) if not turn.get('window') else detail
-    turn['window'] = {'kind': kind, 'player': player, 'then': 'next_phase'}
-    return {'window': kind}
+    for kind in END_OF_PHASE.get(turn['phase'], ()):
+        if (turn.get('reacted') or {}).get(kind) == _phase_id(turn):
+            continue
+        turn.setdefault('reacted', {})[kind] = _phase_id(turn)  # Asked once a phase
+        order = reaction_order(state, player, kind)
+        if kind == 'overwatch':
+            eligible = overwatch_units(state, player)
+        elif kind == 'ingress':
+            eligible = ingress_units(state, player) if turn['round'] >= INGRESS_FROM else []
+        else:
+            eligible = [u for u in heroic_units(state, player) if any(heroic_modes(state, player, unit_by_id(state, u)).values())]
+        if order['mode'] == 'never' or _reaction_ready(state, player, kind) or not eligible:
+            continue
+        if order['mode'] == 'unit':  # The standing order answers: that unit at the closest target it can shoot
+            unit = next((u for u in state['units'] if u['id'] == order['unit']), None)
+            target = _overwatch_target(state, unit) if unit and unit['id'] in overwatch_units(state, player) else None
+            if target is None:
+                continue
+            detail = _overwatch(state, {'player': player, 'unit': unit['id'], 'target': target['id']}, dice, standing=True)
+            return dict(detail, **_next_phase(state, dice)) if not turn.get('window') else detail
+        turn['window'] = {'kind': kind, 'player': player, 'then': 'next_phase'}
+        return {'window': kind}
+    return None
 
 
 def window_options(state):
@@ -1043,6 +1116,8 @@ def window_options(state):
     units = {}
     if window['kind'] == 'overwatch':
         units = {u: [t['id'] for t in overwatch_targets(state, unit_by_id(state, u))] for u in overwatch_units(state, window['player'])}
+    if window['kind'] == 'ingress':
+        units = {u: {'deep_strike': deep_strike(unit_by_id(state, u))} for u in ingress_units(state, window['player'])}
     if window['kind'] == 'heroic' and not window.get('unit'):
         units = {u: heroic_modes(state, window['player'], unit_by_id(state, u)) for u in heroic_units(state, window['player'])}
         units = {u: modes for u, modes in units.items() if any(modes.values())}
@@ -1652,6 +1727,8 @@ def _place(state, action):
     if state['turn']['phase'] != 'deployment':
         raise ActionError('Units can only be placed during deployment.')
     _require(state, 'deployment', unit)
+    if in_reserve(unit):
+        raise ActionError(f'{unit["name"]} is in reserves (undo to set it up instead).')
     new = not any(m['position'] for m in unit['models'] if m['alive'])
     living = {m['id']: m for m in unit['models'] if m['alive']}
     spots = _spots(unit, action, 'Place')
@@ -1671,10 +1748,8 @@ def _place(state, action):
             raise ActionError("Models' bases can't overlap.")
     for mid, spot in spots.items():
         living[mid]['position'] = spot
-    if new:  # Players take turns setting up units; one with nothing left to place sits out
-        other = 1 - unit['player']
-        if _unplaced(state, other):
-            state['turn']['player'] = other
+    if new:
+        _next_deployer(state, unit)
     return {}
 
 
@@ -1808,10 +1883,20 @@ def _back_to_start(unit, key='start'):
             model['position'] = unit['activity'][key][model['id']]
 
 
+def _board_mover(state, unit):
+    """The unit's activity for a move on the board: not one in reserves or one that arrived this phase."""
+    if in_reserve(unit):
+        raise ActionError(f'{unit["name"]} is in reserves: it arrives with an ingress move (from battle round {INGRESS_FROM}).')
+    activity = _ready_to_move(state, unit)
+    if activity.get('moved') == 'ingress':
+        raise ActionError(f'{unit["name"]} arrived this phase: it can\'t make another move until the Charge phase.')
+    return activity
+
+
 def _advance(state, action, dice):
     """Roll to Advance: D6 inches added to the unit's moves this phase (as Advances); the roll stands."""
     unit = _unit_or_error(state, action.get('unit'))
-    activity = _ready_to_move(state, unit)
+    activity = _board_mover(state, unit)
     if 'advance_roll' in activity:
         raise ActionError(f'{unit["name"]} has already rolled to Advance.')
     if _engaged(_start_shapes(unit), _enemy_shapes(state, unit)):
@@ -1822,7 +1907,7 @@ def _advance(state, action, dice):
 def _stationary(state, action):
     """Remain stationary: back where the unit started the phase, if it had moved."""
     unit = _unit_or_error(state, action.get('unit'))
-    activity = _ready_to_move(state, unit)
+    activity = _board_mover(state, unit)
     if 'advance_roll' in activity:
         raise ActionError(f'{unit["name"]} rolled to Advance: it must make an Advance move.')
     _back_to_start(unit)
@@ -1846,8 +1931,129 @@ def _reset_move(state, action):
                           '(or the pile in and consolidate steps).')
     activity = _ready_to_move(state, unit, phase)
     _back_to_start(unit, START_KEYS[phase])
+    if phase == 'movement' and activity.get('moved') == 'ingress':  # Back into reserves
+        unit['status']['reserve'] = True
     for key in ('moved', 'via') if phase == 'movement' else ('charged', 'charge_targets'):
         activity.pop(key, None)
+
+
+# --- Strategic Reserves: arriving ---------------------------------------------------------------------
+
+def deep_strike(unit):
+    """Whether every model in the unit has Deep Strike (it can arrive anywhere more than 8" from enemies)."""
+    living = {m['part'] for m in unit['models'] if m['alive']}
+    return bool(living) and all(unit['parts'][p].get('deep_strike') for p in living)
+
+
+def ingress_rules(state, player):
+    """
+    Where a player's reserves can arrive now, for the page to shade: within `edge` inches of a battlefield edge
+    (anywhere for the `deep_strike` units), more than `gap` inches from enemy models, and outside `enemy_zone`
+    (a polygon) when it is closed to them; `units`: their units in reserves.
+    """
+    units = [u['id'] for u in state['units'] if u['player'] == player and in_reserve(u) and any(m['alive'] for m in u['models'])]
+    closed = state['turn'].get('round', 0) < ENEMY_ZONE_FROM
+    return {'units': units, 'deep_strike': [u for u in units if deep_strike(unit_by_id(state, u))],
+            'edge': INGRESS_EDGE, 'gap': INGRESS_GAP, 'enemy_zone': deployment_zone(state, 1 - player) if closed else None}
+
+
+def _partly_inside(shape, polygon):
+    """Whether any of a model's base is inside a polygon."""
+    return battlefields.inside(_centre(shape), polygon) or any(battlefields.inside(p, polygon) for p in battlefields.outline_points(shape))
+
+
+def ingress_problem(state, unit, shapes):
+    """Why a reserve unit can't be set up with these model shapes (core rules 20.04, Deep Strike 24.09), else None."""
+    shapes = list(shapes)
+    strike = deep_strike(unit)
+    for shape in shapes:
+        left, bottom, right, top = bounds(shape)
+        if left < 0 or right > BOARD_WIDTH or bottom < 0 or top > BOARD_DEPTH:
+            return 'Every model must be wholly on the board.'
+        if not strike and not (right <= INGRESS_EDGE + 1e-9 or left >= BOARD_WIDTH - INGRESS_EDGE - 1e-9
+                               or top <= INGRESS_EDGE + 1e-9 or bottom >= BOARD_DEPTH - INGRESS_EDGE - 1e-9):
+            return f'Every model must be set up wholly within {INGRESS_EDGE}" of a battlefield edge.'
+    if state['turn']['round'] < ENEMY_ZONE_FROM:
+        zone = deployment_zone(state, 1 - unit['player'])
+        if any(_partly_inside(shape, zone) for shape in shapes):
+            return f'Before battle round {ENEMY_ZONE_FROM}, no model can be set up in the opponent\'s deployment zone.'
+    enemies = _enemy_shapes(state, unit)
+    if any(not farther_than(shape, enemy, INGRESS_GAP) for shape in shapes for enemy in enemies):
+        return f'Every model must be set up more than {INGRESS_GAP}" from every enemy unit.'
+    others = [shape for u in state['units'] if u is not unit for shape in _placed_shapes(u)]
+    for i, shape in enumerate(shapes):
+        if any(overlaps(shape, other) for other in shapes[i + 1:] + others):
+            return "Models' bases can't overlap."
+    return coherency_problem(shapes)
+
+
+def _arrive(state, unit, action):
+    """Set a reserve unit up on the board (an ingress move), checked by ingress_problem."""
+    if not in_reserve(unit):
+        raise ActionError(f'{unit["name"]} isn\'t in reserves.')
+    if state['turn']['round'] < INGRESS_FROM:
+        raise ActionError(f'Reserves can arrive from battle round {INGRESS_FROM}.')
+    living = {m['id']: m for m in unit['models'] if m['alive']}
+    spots = _spots(unit, action, 'Set up')
+    shapes = {mid: model_shape(unit['parts'][living[mid]['part']], spot) for mid, spot in spots.items()}
+    problem = ingress_problem(state, unit, shapes.values())
+    if problem:
+        raise ActionError(problem)
+    for mid, spot in spots.items():
+        living[mid]['position'] = spot
+    unit['status'].pop('reserve', None)
+
+
+def _ingress(state, action):
+    """
+    The Movement phase: a unit in reserves arrives (an ingress move; core rules 20.04). It can be set up again
+    until the phase ends (or reset back into reserves), and can't make another move until the Charge phase.
+    """
+    unit = _unit_or_error(state, action.get('unit'))
+    activity = _ready_to_move(state, unit)
+    if activity.get('moved') == 'ingress':  # Setting it up again: back into reserves first
+        _back_to_start(unit)
+        unit['status']['reserve'] = True
+    elif 'moved' in activity:
+        raise ActionError(f'{unit["name"]} has already moved this phase.')
+    _arrive(state, unit, action)
+    activity['moved'] = 'ingress'
+    return {'arrived': unit['id']}
+
+
+def _rapid_ingress(state, action, dice):
+    """Rapid Ingress (1 CP; end of the opponent's Movement phase, not battle round 1): a unit in reserves arrives."""
+    player = action.get('player')
+    _window_for(state, action, 'ingress')
+    unit = _unit_or_error(state, action.get('unit'))
+    if unit['player'] != player:
+        raise ActionError(f'Rapid Ingress brings in one of your own units ({unit["name"]} isn\'t).')
+    if unit['id'] not in ingress_units(state, player):
+        raise ActionError(f'{unit["name"]} can\'t make a Rapid Ingress: it must be in reserves, and not an Aircraft.')
+    entry = _spend_reaction(state, player, 'ingress', unit)  # A refused set-up below undoes this (the action fails)
+    _arrive(state, unit, action)
+    detail = {'stratagem': entry['name'], 'cp': entry['cp'], 'player': player, 'unit': unit['id'], 'arrived': unit['id']}
+    return dict(detail, **_close_window(state, dice))
+
+
+def ingress_units(state, player):
+    """A player's units that Rapid Ingress could bring in: in reserves, not Aircraft, no stratagem on them this phase."""
+    phase = _phase_id(state['turn'])
+    return [u['id'] for u in state['units'] if u['player'] == player and in_reserve(u) and any(m['alive'] for m in u['models'])
+            and not any(_has(p['keywords'], 'Aircraft') for p in u['parts'])
+            and (u.get('status') or {}).get('stratagem_phase') != phase]
+
+
+def _reserves_lost(state, report):
+    """The end of battle round 3: units still in reserves are destroyed (not counted as destroyed by the enemy)."""
+    for unit in state['units']:
+        if in_reserve(unit) and any(m['alive'] for m in unit['models']):
+            lost = [m['id'] for m in unit['models'] if m['alive']]
+            for model in unit['models']:
+                model['alive'], model['wounds_left'] = False, 0
+            unit['status'].pop('reserve', None)
+            unit['status']['lost_in_reserve'] = True
+            report.setdefault('reserves_lost', []).append({'unit': unit['id'], 'name': unit['name'], 'removed': lost})
 
 
 # --- Charges --------------------------------------------------------------------------------------
@@ -2057,7 +2263,7 @@ def _move(state, action):
     'via'): the whole path counts against its Move, and every leg is checked.
     """
     unit = _unit_or_error(state, action.get('unit'))
-    activity = _ready_to_move(state, unit)
+    activity = _board_mover(state, unit)
     mode = action.get('mode')
     if mode not in MOVE_MODES:
         raise ActionError('Choose a Normal move, Advance or Fall Back.')
@@ -2626,7 +2832,8 @@ def ready_units(state):
     if phase == 'deployment':
         return [u['id'] for u in _unplaced(state, active)]
     if phase == 'movement':
-        return [u['id'] for u in mine if 'moved' not in u['activity'] and _placed_shapes(u)]
+        return [u['id'] for u in mine if 'moved' not in u['activity']
+                and (_placed_shapes(u) or (in_reserve(u) and turn['round'] >= INGRESS_FROM))]
     if phase == 'shooting':
         def can_shoot(unit):
             try:

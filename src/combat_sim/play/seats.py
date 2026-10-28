@@ -7,9 +7,9 @@ The engine still checks whether an action is allowed now; this only says which p
 from .game import ActionError, mover, unit_by_id
 
 PLAYER_ACTIONS = {'stratagem', 'rule', 'orders', 'correction', 'accept', 'decline', 'choose_secondaries', 'tactical',
-                  'set_guards', 'pass', 'overwatch', 'heroic', 'command_reroll'}  # Name their player ('player')
+                  'set_guards', 'pass', 'overwatch', 'heroic', 'command_reroll', 'rapid_ingress'}  # Name their player ('player')
 CHOICE_ACTIONS = {'condemn', 'place_markers', 'beacon', 'tempting'}  # Answer the mission's current choice
-UNIT_ACTIONS = {'place', 'move', 'advance', 'stationary', 'reset_move', 'charge', 'charge_move', 'pile_in', 'fight', 'overrun',
+UNIT_ACTIONS = {'place', 'reserve', 'ingress', 'move', 'advance', 'stationary', 'reset_move', 'charge', 'charge_move', 'pile_in', 'fight', 'overrun',
                 'consolidate', 'shoot', 'start_action', 'effect', 'remove_effect'}  # Are their unit's player's
 FLOW_ACTIONS = {'end_deployment', 'next_phase', 'roll_objectives', 'roll_off', 'roll_mirrored', 'choose_role'}  # Whoever the game waits on
 ACTION_TYPES = PLAYER_ACTIONS | CHOICE_ACTIONS | UNIT_ACTIONS | FLOW_ACTIONS  # Every action the engine takes

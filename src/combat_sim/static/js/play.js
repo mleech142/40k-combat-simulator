@@ -15,7 +15,7 @@
     const PHASE_NAMES = { setup: 'Setup', deployment: 'Deployment', command: 'Command', movement: 'Movement', shooting: 'Shooting',
                           charge: 'Charge', fight: 'Fight' };
     const MOVE_MODES = [['normal', 'Normal move'], ['advance', 'Advance'], ['fall_back', 'Fall Back']];
-    const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary' };
+    const DONE = { normal: 'moved', advance: 'advanced', fall_back: 'fell back', stationary: 'remained stationary', ingress: 'arrived' };
     const STEP_NAMES = { pile_in: 'Pile in', fight: 'Fight', consolidate: 'Consolidate' };
     const SHORT_MOVE = 3;  // Pile-in and consolidation moves, as the server sends them in errors
     const SKIES = 2;  // Inches off a move or charge when a Fly unit takes to the skies (game.SKIES)
@@ -362,7 +362,7 @@
     async function syncGame() {
         const game = state.game || state.waiting;
         if (!game || !game.online) return;
-        if (document.hidden || state.working || state.drag || state.placing) return scheduleSync();
+        if (document.hidden || state.working || state.drag || state.placing || state.arriving) return scheduleSync();
         const resp = await fetch(`/api/play/games/${game.id}/sync`, { method: 'POST' }).catch(() => null);
         const data = resp && await resp.json().catch(() => null);
         const now = state.game || state.waiting;
@@ -420,6 +420,7 @@
         const first = !state.game || state.game.id !== game.id;
         state.game = game;
         state.placing = null;  // The server's game replaces anything placed provisionally
+        state.arriving = null;
         if (first) {
             state.selected = null;
             state.logSeen = game.events.length;  // Rolls already made don't animate when a game opens
@@ -568,6 +569,7 @@
      */
     function allowance(unit, model) {
         const turn = state.game.state.turn;
+        if ((state.placing && state.placing.unitId === unit.id) || unit.activity.moved === 'ingress') return null;  // Set up, not moved
         const skies = flying(unit) ? SKIES : 0;
         if (turn.phase === 'movement' && unit.player === turn.player) {
             const roll = state.moveMode === 'advance' ? (unit.activity.advance_roll || 0) : 0;
@@ -626,6 +628,34 @@
         state.fightTarget = {};
     }
 
+    /** A reserve unit arriving (`state.arriving`: {unitId, kind, player}): in formation, centred on a board point,
+     * kept on the board; then OK sends it (the server checks the edges, enemies and zones). */
+    function placeArrivalAt(point) {
+        const { unitId, kind, player } = state.arriving;
+        const unit = unitById(unitId);
+        const living = unit.models.filter(m => m.alive);
+        const outlines = state.game.outlines[unit.id];
+        const sizes = living.map(m => Math.max(outlines[m.part].length, outlines[m.part].width));
+        const W = state.game.board.width, D = state.game.board.depth;
+        const board = { left: 0, bottom: 0, right: W, top: D };
+        // Rows run along the nearest battlefield edge, so the unit stays within the band along it
+        const sideways = Math.min(point.x, W - point.x) < Math.min(point.y, D - point.y);
+        let spots = living.map((m, i) => ({ id: m.id, ...Core.playFormation(sizes, point.x, point.y, false)[i], angle: 0 }));
+        if (sideways) spots = Core.playPivot(spots, 90);
+        const fitted = Core.playFit(spots, sizes.map(s => s / 2), board);
+        state.arriving = null;
+        startPlacing(unit, spots.map((s, i) => ({ ...s, x: fitted[i].x, y: fitted[i].y })), { kind, player });
+    }
+
+    /** Start bringing a unit in from reserves: the next click on the board sets it up there. */
+    function startArriving(unit, kind, player) {
+        if (state.placing) return message(`Press OK or Cancel for ${unitById(state.placing.unitId).name} first.`, true);
+        state.arriving = { unitId: unit.id, kind, player };
+        state.selected = unit.id;
+        message(`Click the board where ${unit.name} arrives (the shaded ground), then press OK.`);
+        render();
+    }
+
     /** Place the selected unit in formation, centred on a board point. */
     async function placeSelectedAt(point) {
         const unit = unitById(state.selected);
@@ -643,12 +673,13 @@
     // --- Deployment: a unit is placed provisionally, moved and pivoted, then confirmed with OK -------------
 
     /** Show a unit at these spots ([{id, x, y, angle}]) on the page only, until OK sends it (or Cancel). */
-    function startPlacing(unit, spots) {
+    function startPlacing(unit, spots, arriving = null) {
         if (state.placing && state.placing.unitId !== unit.id) {
             return message(`Press OK or Cancel for ${unitById(state.placing.unitId).name} first.`, true);
         }
-        if (!state.placing) {  // Where its models were, to go back to on Cancel
-            state.placing = { unitId: unit.id, original: Object.fromEntries(unit.models.map(m => [m.id, m.position && { ...m.position }])) };
+        if (!state.placing) {  // Where its models were, to go back to on Cancel; `arriving`: {kind, player} for reserves
+            state.placing = { unitId: unit.id, original: Object.fromEntries(unit.models.map(m => [m.id, m.position && { ...m.position }])),
+                              ...(arriving || {}) };
         }
         const byId = Object.fromEntries(spots.map(s => [s.id, s]));
         unit.models.forEach(m => {
@@ -670,10 +701,12 @@
 
     async function confirmPlacing() {
         if (!state.placing) return;
-        const unitId = state.placing.unitId;
-        if (await place(unitId, placingSpots())) {  // The server checks it (wholly in the zone, no overlaps)
+        const { unitId, kind, player } = state.placing;
+        const action = kind ? Object.assign({ type: kind, unit: unitId, models: placingSpots() }, kind === 'rapid_ingress' ? { player } : {}) : null;
+        if (await (action ? send(action) : place(unitId, placingSpots()))) {  // The server checks it (zone, edges, enemies, overlaps)
             state.placing = null;
             state.selected = null;
+            if (kind) message(`${unitById(unitId).name} arrived from reserves.${kind === 'ingress' ? ' Drag it to set it up somewhere else until the phase ends.' : ''}`);
             render();
         }
     }
@@ -689,13 +722,13 @@
     /** The bar above the board while a unit is being placed: pivot, OK, Cancel. */
     function renderPlacing() {
         const bar = $('place-bar');
-        const placing = state.placing && state.game && state.game.state.turn.phase === 'deployment' ? state.placing : null;
+        const placing = state.placing && state.game && (state.game.state.turn.phase === 'deployment' || state.placing.kind) ? state.placing : null;
         bar.hidden = !placing;
         if (!placing) return;
         const pivot = (deg, icon, label) => `<button class="btn-small" data-pivot="${deg}" title="Pivot ${label}">
             <i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${Math.abs(deg)}°</button>`;
-        bar.innerHTML = `<span>Placing <strong>${escapeHtml(unitById(placing.unitId).name)}</strong>: drag it or click the board to move it,
-                pivot it (Q / E), then press OK.</span>
+        bar.innerHTML = `<span>${placing.kind ? 'Arriving' : 'Placing'} <strong>${escapeHtml(unitById(placing.unitId).name)}</strong>:
+                drag it or click the board to move it, pivot it (Q / E), then press OK.${placing.kind ? ' It can only be set up on the shaded ground.' : ''}</span>
             <span class="play-pending-actions">${pivot(45, 'rotate-left', 'anticlockwise')}${pivot(15, 'rotate-left', 'anticlockwise')}
                 ${pivot(-15, 'rotate-right', 'clockwise')}${pivot(-45, 'rotate-right', 'clockwise')}
                 <button class="btn btn-primary" id="place-ok"><i class="fa-solid fa-check" aria-hidden="true"></i> OK</button>
@@ -718,7 +751,7 @@
         $('undo-btn').disabled = !canUndo(game);
         $('undo-btn').title = game && game.online ? 'Undo: ask the other player to take back your last action' : 'Undo';
         const turn = game && game.state.turn;
-        const allPlaced = game && game.state.units.every(u => u.models.every(m => !m.alive || m.position));
+        const allPlaced = game && game.state.units.every(u => (u.status && u.status.reserve) || u.models.every(m => !m.alive || m.position));
         let banner = '';
         const setup = turn && turn.phase === 'setup';
         if (setup) {
@@ -1056,13 +1089,17 @@
                     <select data-overwatch="${p}" class="filter-select">${overwatchOrderOptions(player, units)}</select></label>
                 <label class="play-orders" title="At the end of the other player's Charge phase">Heroic Intervention
                     <select data-reaction="${p}|heroic" class="filter-select">${reactionOrderOptions(player, 'heroic', [['ask', 'ask me'], ['never', 'never']])}</select></label>
+                <label class="play-orders" title="At the end of the other player's Movement phase, from battle round 2">Rapid Ingress
+                    <select data-reaction="${p}|ingress" class="filter-select">${reactionOrderOptions(player, 'ingress', [['ask', 'ask me'], ['never', 'never']])}</select></label>
                 <label class="play-orders" title="After an attack in which one of your saves failed">Re-roll a failed save
                     <select data-reaction="${p}|reroll" class="filter-select">${reactionOrderOptions(player, 'reroll',
                         [['ask', 'ask me'], ['deaths', 'only when a model dies'], ['never', 'never']])}</select></label>${units.map(u => {
                 const living = u.models.filter(m => m.alive);
                 const placed = living.length && living.every(m => m.position);
-                const done = game.state.turn.phase === 'deployment' ? (state.placing && state.placing.unitId === u.id ? 'placing: press OK' : placed ? 'placed' : 'not placed')
-                    : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
+                const reserve = u.status && u.status.reserve;
+                const done = game.state.turn.phase === 'deployment' ? (state.placing && state.placing.unitId === u.id ? 'placing: press OK'
+                        : reserve ? 'in reserves' : placed ? 'placed' : 'not placed')
+                    : reserve ? 'in reserves' : (u.status || {}).lost_in_reserve ? 'lost in reserves' : [DONE[u.activity.moved], u.activity.advance_roll != null ? `Advance roll ${u.activity.advance_roll}` : '',
                        u.activity.shot ? 'shot' : '',
                        u.activity.charge_roll != null ? `charge roll ${u.activity.charge_roll}${u.activity.charged ? ', charged' : ''}` : '',
                        u.activity.fought ? 'fought' : '']
@@ -1118,7 +1155,7 @@
         }
         const turn = state.game.state.turn;
         if (!state.selected) message('');
-        else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone, then press OK.`);
+        else if (turn.phase === 'deployment') message(`Click the board to place ${unitById(unitId).name} in its deployment zone, then press OK, or put it in reserves.`);
         else message('');
         if (changed) {
             clearOptions();
@@ -1152,7 +1189,28 @@
         if ($('unit-detail').parentNode !== home) home.appendChild($('unit-detail'));
         const turn = state.game.state.turn;
         let controls = '';
-        if (turn.phase === 'movement' && unit.player === turn.player) {
+        const reserve = unit.status && unit.status.reserve;
+        const placedNow = unit.models.some(m => m.alive && m.position);
+        if (turn.phase === 'deployment' && unit.player === turn.player && !reserve && !placedNow && !state.placing) {
+            controls = `<div class="play-move-modes"><button class="btn-small" data-reserve>
+                    <i class="fa-solid fa-hourglass-half" aria-hidden="true"></i> Put in reserves</button></div>
+                <p class="play-hint">Strategic Reserves: off the board until it arrives in your Movement phase from battle round 2
+                    (within 6" of an edge, or anywhere with Deep Strike; more than 8" from enemies). Up to half your points in all;
+                    units still in reserves at the end of battle round 3 are lost.</p>`;
+        }
+        if (turn.phase === 'movement' && unit.player === turn.player && (reserve || unit.activity.moved === 'ingress')) {
+            const deep = ((state.game.ingress || [])[unit.player] || { deep_strike: [] }).deep_strike.includes(unit.id);
+            const ground = deep ? 'anywhere more than 8" from enemy units (Deep Strike)' : 'wholly within 6" of a battlefield edge, more than 8" from enemy units';
+            const zone = turn.round < 3 ? ', and not in the enemy deployment zone before battle round 3' : '';
+            controls = unit.activity.moved === 'ingress'
+                ? `<div class="play-move-modes"><button class="btn-small" data-reset>Back into reserves</button></div>
+                    <p class="play-hint">${escapeHtml(unit.name)} arrived: drag it to set it up somewhere else (${ground}${zone}).
+                        It can't move again until the Charge phase.</p>`
+                : turn.round < 2 ? '<p class="play-hint">In reserves: units arrive from battle round 2.</p>'
+                : `<div class="play-move-modes"><button class="btn btn-primary" data-arrive>
+                        <i class="fa-solid fa-parachute-box" aria-hidden="true"></i> Arrive</button></div>
+                    <p class="play-hint">An ingress move: set it up ${ground}${zone}. It can't move again until the Charge phase.</p>`;
+        } else if (turn.phase === 'movement' && unit.player === turn.player) {
             const rolled = unit.activity.advance_roll != null;
             const moved = unit.activity.moved;
             controls = `<div class="play-move-modes">${MOVE_MODES.map(([mode, label]) => `
@@ -1209,6 +1267,14 @@
             </div>`;
         }).join('');
         $('unit-detail').querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => movementChoice(b.dataset.mode)));
+        $('unit-detail').querySelectorAll('[data-reserve]').forEach(b => b.addEventListener('click', async () => {
+            if (await send({ type: 'reserve', unit: unit.id })) {
+                state.selected = null;
+                message(`${unit.name} is in Strategic Reserves.`);
+                render();
+            }
+        }));
+        $('unit-detail').querySelectorAll('[data-arrive]').forEach(b => b.addEventListener('click', () => startArriving(unit, 'ingress', unit.player)));
         $('unit-detail').querySelectorAll('[data-turn]').forEach(b => b.addEventListener('click', () => turnUnit(unit, Number(b.dataset.turn))));
         $('unit-detail').querySelectorAll('[data-skies]').forEach(b => b.addEventListener('click', () => {
             state.skies = !state.skies;
@@ -1365,7 +1431,7 @@
     }
 
     /** The open reaction window: the reacting player picks (a unit and target for Fire Overwatch) or passes. */
-    const REACTION_NAMES = { overwatch: 'Fire Overwatch', heroic: 'Heroic Intervention', reroll: 'Command Re-roll' };
+    const REACTION_NAMES = { overwatch: 'Fire Overwatch', heroic: 'Heroic Intervention', reroll: 'Command Re-roll', ingress: 'Rapid Ingress' };
     const HEROIC_MODES = { leap: 'Leap to Defend', fray: 'Into the Fray' };
 
     /** The unit making a Heroic Intervention's charge move now, if any (it charges in the other player's turn). */
@@ -1443,6 +1509,30 @@
                     }
                 }
             }));
+        } else if (r.kind === 'ingress') {
+            const ids = Object.keys(r.units);
+            const arriving = state.placing && state.placing.kind === 'rapid_ingress' ? state.placing.unitId
+                : state.arriving && state.arriving.kind === 'rapid_ingress' ? state.arriving.unitId : null;
+            bar.innerHTML = arriving
+                ? `<span><strong>${escapeHtml(who)}: Rapid Ingress with ${escapeHtml(unitById(arriving).name)}.</strong>
+                    ${state.placing ? 'Drag it into place, then press OK.' : 'Click the shaded ground where it arrives.'}</span>
+                    <span class="play-pending-actions"><button class="btn-small" id="react-cancel">Choose again</button></span>`
+                : `<span><strong>${escapeHtml(who)}: ${escapeHtml(r.name)}?</strong> ${Number(r.cp)} CP · one unit arrives from reserves now
+                    (an ingress move: within 6" of an edge, or anywhere with Deep Strike; more than 8" from enemies).</span>
+                <span class="play-pending-actions">
+                    <select class="filter-select" id="react-unit">${ids.map(id =>
+                        `<option value="${escapeHtml(id)}">${escapeHtml(unitById(id).name)}${r.units[id].deep_strike ? ' (Deep Strike)' : ''}</option>`).join('')}</select>
+                    <button class="btn btn-primary" id="react-go"><i class="fa-solid fa-parachute-box" aria-hidden="true"></i> Set it up</button>
+                    <button class="btn-small" id="react-pass">Pass</button></span>`;
+            if (arriving) {
+                $('react-cancel').addEventListener('click', () => {
+                    state.arriving = null;
+                    cancelPlacing();
+                    message('');
+                });
+                return;
+            }
+            $('react-go').addEventListener('click', () => startArriving(unitById($('react-unit').value), 'rapid_ingress', r.player));
         } else if (r.kind === 'reroll') {
             if (state.rerolling !== r.player) {
                 state.rerolling = r.player;
@@ -1746,12 +1836,12 @@
 
     function renderLog() {
         const game = state.game;
-        const ONE_LINE = ['heroic', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
+        const ONE_LINE = ['heroic', 'rapid_ingress', 'command_reroll', 'roll_mirrored', 'roll_objectives', 'roll_off', 'choose_role', 'choose_secondaries', 'condemn', 'start_action', 'place_markers', 'tactical', 'beacon', 'tempting', 'charge', 'advance', 'stratagem', 'rule', 'effect', 'correction', 'accept', 'decline'];
         const shots = game ? game.events.map((e, i) => [e, i])
             .filter(([e]) => (e.attacks && e.attacks.length) || e.passed || ONE_LINE.includes(e.action.type)
                 || (['next_phase', 'end_deployment'].includes(e.action.type)
                     && (e.rolls.length || (e.vp && e.vp.length) || (e.actions && e.actions.length) || (e.markers_removed && e.markers_removed.length)
-                        || (e.coherency && e.coherency.length)
+                        || (e.coherency && e.coherency.length) || (e.reserves_lost && e.reserves_lost.length)
                         || e.drawn || (e.discards && e.discards.length)))).reverse() : [];
         if (!shots.length) {
             $('dice-log').innerHTML = '<p class="empty-message">No dice rolled yet</p>';
@@ -1893,7 +1983,7 @@
 
     /** The icon for a battle log line that isn't an attack. */
     function logIcon(event) {
-        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
+        const icons = { command_reroll: 'fa-rotate', heroic: 'fa-shield-halved', rapid_ingress: 'fa-parachute-box', pass: 'fa-forward', fight: 'fa-hand-fist', charge: 'fa-person-running', advance: 'fa-person-running', stratagem: 'fa-bolt', rule: 'fa-book',
             effect: 'fa-wand-magic-sparkles', roll_off: 'fa-dice', roll_objectives: 'fa-dice', roll_mirrored: 'fa-dice',
             choose_role: 'fa-chess-board', choose_secondaries: 'fa-layer-group', tactical: 'fa-layer-group', condemn: 'fa-gavel',
             start_action: 'fa-flag', place_markers: 'fa-location-dot', beacon: 'fa-tower-broadcast', tempting: 'fa-bullseye',
@@ -1954,6 +2044,9 @@
             case 'heroic':
                 return `<span class="play-effect stratagem">${player(event.player)} used Heroic Intervention (${escapeHtml(HEROIC_MODES[event.heroic])}, ${Number(event.cp)} CP)</span>:
                     ${escapeHtml(name(event.unit))} charge roll ${dice(event.rolls[0])} = <strong>${event.roll}"</strong>${event.failed ? ': nothing in reach, it fails' : ''}`;
+            case 'rapid_ingress':
+                return `<span class="play-effect stratagem">${player(event.player)} used Rapid Ingress (${Number(event.cp)} CP)</span>:
+                    ${escapeHtml(name(event.unit))} arrived from reserves`;
             case 'command_reroll': {
                 const roll = event.rolls.find(r => r.purpose === 'charge' || r.purpose === 'advance');
                 return `<span class="play-effect stratagem">${player(event.player)} used Command Re-roll (${Number(event.cp)} CP)</span>:
@@ -2006,6 +2099,9 @@
                         : b.was_shocked ? '<strong class="play-shock-good">recovers</strong>' : '<strong class="play-shock-good">holds</strong>';
                     lines.push(`<strong>${escapeHtml(b.name)}</strong> battle-shock test${b.reason ? ` (${escapeHtml(b.reason)})` : ''}: ${dice(event.rolls[b.rolls[0]])}
                         = ${b.total} (needs ${b.leadership}+): ${outcome}`);
+                }
+                for (const c of event.reserves_lost || []) {
+                    lines.push(`<strong>${escapeHtml(c.name)}</strong> was still in reserves at the end of battle round 3: lost`);
                 }
                 for (const c of event.coherency || []) {
                     lines.push(`<strong>${escapeHtml(c.name)}</strong> was out of coherency: ${c.removed.length} model${c.removed.length === 1 ? '' : 's'} removed`);
@@ -2076,6 +2172,7 @@
         }
         drawTerrain(svg, D);
         drawObjectives(svg, D);
+        drawIngress(svg, D);
         drawShotLines(svg, D);
 
         for (const unit of game.state.units) {
@@ -2471,6 +2568,36 @@
      * islands). Each padded base is outlined, and a mask hides the outline wherever it runs inside the unit's
      * padded bases, so only the edge of them all is left (the outline's outer half: the styles draw it double width).
      */
+    /** The unit arriving from reserves, if any: being set up now, or chosen to arrive. */
+    function arrivingUnit() {
+        const turn = state.game.state.turn;
+        if (state.arriving) return unitById(state.arriving.unitId);
+        if (state.placing && state.placing.kind) return unitById(state.placing.unitId);
+        const unit = state.selected && unitById(state.selected);
+        return unit && turn.phase === 'movement' && unit.player === turn.player && unit.activity.moved === 'ingress' ? unit : null;
+    }
+
+    /** Shade where a unit arriving from reserves can be set up (the server's ingress rules: game.ingress). */
+    function drawIngress(svg, depth) {
+        const unit = arrivingUnit();
+        const rules = unit && (state.game.ingress || [])[unit.player];
+        if (!rules) return;
+        const W = state.game.board.width, edge = rules.edge;
+        const id = 'play-ingress-mask';
+        const mask = svgEl('mask', { id, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: W, height: depth }, svg);
+        svgEl('rect', { x: 0, y: 0, width: W, height: depth, fill: 'white' }, mask);
+        if (!rules.deep_strike.includes(unit.id)) {  // Only the band along the edges
+            svgEl('rect', { x: edge, y: edge, width: W - 2 * edge, height: depth - 2 * edge, fill: 'black' }, mask);
+        }
+        if (rules.enemy_zone) {
+            svgEl('polygon', { points: rules.enemy_zone.map(([x, y]) => `${x},${depth - y}`).join(' '), fill: 'black' }, mask);
+        }
+        for (const enemy of state.game.state.units.filter(u => u.player !== unit.player)) {
+            for (const model of enemy.models.filter(m => m.alive && m.position)) padded(mask, enemy, model, depth, rules.gap, { fill: 'black' });
+        }
+        svgEl('rect', { x: 0, y: 0, width: W, height: depth, class: 'play-ingress', mask: `url(#${id})` }, svg);
+    }
+
     function drawBorder(g, unit, placed, depth) {
         const id = `play-border-${++borderCount}`;
         const W = state.game.board.width, margin = 20;
@@ -2632,7 +2759,15 @@
             const pan = state.pan;
             state.pan = null;
             $('play-board').classList.remove('panning');
-            if (!pan.moved && pan.click && state.selected && state.game.state.turn.phase === 'deployment') placeSelectedAt(pan.point);
+            if (!pan.moved && pan.click && state.arriving) placeArrivalAt(pan.point);
+            else if (!pan.moved && pan.click && state.placing && state.placing.kind) {  // Moved to where it was clicked
+                const unit = unitById(state.placing.unitId);
+                state.arriving = { unitId: unit.id, kind: state.placing.kind, player: state.placing.player };
+                const { original } = state.placing;
+                unit.models.forEach(m => { m.position = original[m.id] || null; });
+                state.placing = null;
+                placeArrivalAt(pan.point);
+            } else if (!pan.moved && pan.click && state.selected && state.game.state.turn.phase === 'deployment') placeSelectedAt(pan.point);
             return;
         }
         const drag = state.drag;
@@ -2660,7 +2795,15 @@
         const round = v => Math.round(v * 100) / 100;
         const moved = new Set(drag.modelIds);
         const turn = state.game.state.turn;
-        if (turn.phase !== 'deployment') {
+        const settingUp = state.placing && state.placing.unitId === unit.id;  // Deployment, or arriving from reserves
+        if (turn.phase === 'movement' && !settingUp && unit.activity.moved === 'ingress' && unit.player === turn.player) {
+            // Arrived this phase: set it up again where it was dragged (the server checks the ingress rules again)
+            await send({ type: 'ingress', unit: unit.id, models: unit.models.filter(m => m.alive).map(m => ({
+                id: m.id, angle: m.position.angle || 0,
+                x: round(m.position.x + (moved.has(m.id) ? drag.dx : 0)), y: round(m.position.y + (moved.has(m.id) ? drag.dy : 0)) })) });
+            return;
+        }
+        if (turn.phase !== 'deployment' && !settingUp) {
             const bends = dragBends(drag);
             const models = unit.models.filter(m => m.alive).map(m => Object.assign({
                 id: m.id, x: round(m.position.x + (moved.has(m.id) ? drag.dx : 0)),

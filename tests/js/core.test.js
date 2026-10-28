@@ -552,8 +552,10 @@ test('playFit shifts a dropped formation to lie wholly inside an area when it ca
     const area = { left: 0, bottom: 0, right: 60, top: 12 };
     // Two models 1" across (0.5" from centre to edge) dropped too close to the zone's top edge
     assert.deepEqual(Core.playFit([{ x: 10, y: 11.8 }, { x: 12, y: 11.8 }], [0.5, 0.5], area),
-                     [{ x: 10, y: 11.5 }, { x: 12, y: 11.5 }]);
-    assert.deepEqual(Core.playFit([{ x: 0.2, y: 6 }], [0.5], area), [{ x: 0.5, y: 6 }]);  // Off the left edge
+                     [{ x: 10, y: 11.49 }, { x: 12, y: 11.49 }]);  // 0.01" inside, so rounding never puts a base past the edge
+    assert.deepEqual(Core.playFit([{ x: 0.2, y: 6 }], [0.5], area), [{ x: 0.51, y: 6 }]);  // Off the left edge
+    // A 32mm base (0.63" from centre to edge, after rounding 0.6299") fitted to the edge stays on the board
+    assert.ok(Core.playFit([{ x: 0, y: 6 }], [32 / 25.4 / 2], area)[0].x - 32 / 25.4 / 2 >= 0);
     assert.deepEqual(Core.playFit([{ x: 10, y: 6 }], [0.5], area), [{ x: 10, y: 6 }]);  // Already inside
     // Too deep to fit: left where it was dropped (the server says why)
     assert.deepEqual(Core.playFit([{ x: 10, y: 1 }, { x: 10, y: 14 }], [0.5, 0.5], area), [{ x: 10, y: 1 }, { x: 10, y: 14 }]);
