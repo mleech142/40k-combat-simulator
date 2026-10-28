@@ -19,7 +19,7 @@ from . import armies, army_share, bsdata_download, contagion, effects, folder_di
 from .effects import RULE_PHASES
 from .rules_text import ability_buffs
 from .play.routes import register_play_routes
-from .accounts import current_user, register_account_routes, secret_key
+from .accounts import current_user, mine_or_404, only_mine, owner_id, owner_names, owns, register_account_routes, secret_key
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
 from .simulation import (
@@ -646,7 +646,8 @@ def register_routes(app):
             attacker_config=data['attacker'],
             defender_config=data['defender'],
             battle_conditions=data['conditions'],
-            results=data.get('results')
+            results=data.get('results'),
+            owner_id=owner_id(),
         )
         db.session.add(scenario)
         db.session.commit()
@@ -656,7 +657,7 @@ def register_routes(app):
     @app.route('/api/scenarios/<int:scenario_id>', methods=['DELETE'])
     def api_delete_scenario(scenario_id):
         """Delete a scenario."""
-        scenario = db.get_or_404(SavedScenario, scenario_id)
+        scenario = mine_or_404(SavedScenario, scenario_id)
         db.session.delete(scenario)
         db.session.commit()
         return jsonify({'message': 'Scenario deleted'})
@@ -1328,7 +1329,7 @@ def register_routes(app):
     @app.route('/api/scenarios/<int:scenario_id>', methods=['PUT'])
     def api_update_scenario(scenario_id):
         """Update a scenario."""
-        scenario = db.get_or_404(SavedScenario, scenario_id)
+        scenario = mine_or_404(SavedScenario, scenario_id)
         data = request.get_json()
 
         if 'name' in data:
@@ -1348,7 +1349,7 @@ def register_routes(app):
     @app.route('/api/scenarios')
     def api_get_scenarios():
         """Get all scenarios with full config."""
-        scenarios = SavedScenario.query.order_by(SavedScenario.created_at.desc()).all()
+        scenarios = only_mine(SavedScenario.query, SavedScenario).order_by(SavedScenario.created_at.desc()).all()
         return jsonify([{
             'id': s.id,
             'name': s.name,
@@ -1883,19 +1884,31 @@ def register_routes(app):
     def saved_army_response(saved):
         """A saved army with its prices and problems (its units priced too)."""
         army = saved.to_dict()
-        return jsonify(dict(army, **armies.price_army(army)))
+        whose = owner_names().get(saved.owner_id) if app.config['HOSTED'] else None
+        return jsonify(dict(army, **armies.price_army(army), mine=owns(saved), owner=whose))
+
+    def own_army_or_error(army_id):
+        """(a saved army of yours, None) or (None, the error): another player's army is read-only."""
+        saved = db.get_or_404(SavedArmy, army_id)
+        if not owns(saved):
+            return None, (jsonify({'error': "This army is another player's: copy it to make one you can change."}), 403)
+        return saved, None
 
     @app.route('/api/armies')
     def api_list_armies():
-        """Saved armies, newest first, with their faction and points."""
+        """Saved armies, newest first, with their faction and points. On a self-hosted copy, every player's: 'mine'
+        says which are yours, 'owner' whose the others are (read-only; a copy is yours)."""
         names = {f.id: f.name for f in Faction.query}
+        players = owner_names() if app.config['HOSTED'] else {}
         out = []
         for saved in SavedArmy.query.order_by(SavedArmy.updated_at.desc(), SavedArmy.id.desc()):
             priced = armies.price_army(saved.to_dict())
             out.append({'id': saved.id, 'name': saved.name, 'faction': names.get(saved.faction_id),
                         'detachment': priced['detachment'], 'total': priced['total'],
                         'points_limit': saved.points_limit, 'unit_count': len(saved.units or []),
-                        'problem_count': len(priced['problems'])})
+                        'problem_count': len(priced['problems']), 'mine': owns(saved),
+                        'owner': players.get(saved.owner_id) if app.config['HOSTED'] else None})
+        out.sort(key=lambda a: not a['mine'])  # Yours first
         return jsonify(out)
 
     @app.route('/api/armies/price', methods=['POST'])
@@ -1957,7 +1970,7 @@ def register_routes(app):
         army, error = army_from_request()
         if error:
             return error
-        saved = SavedArmy(**army)
+        saved = SavedArmy(**army, owner_id=owner_id())
         db.session.add(saved)
         db.session.commit()
         return saved_army_response(saved)
@@ -1978,7 +1991,9 @@ def register_routes(app):
 
     @app.route('/api/armies/<int:army_id>', methods=['PUT'])
     def api_update_army(army_id):
-        saved = db.get_or_404(SavedArmy, army_id)
+        saved, error = own_army_or_error(army_id)
+        if error:
+            return error
         army, error = army_from_request()
         if error:
             return error
@@ -1993,21 +2008,24 @@ def register_routes(app):
         copy = SavedArmy(name=f'{saved.name} (copy)'[:200], faction_id=saved.faction_id,
                          detachment_keys=saved.to_dict()['detachment_keys'], points_limit=saved.points_limit,
                          warlord=saved.warlord, disposition=saved.disposition,
-                         units=list(saved.units or []))
+                         units=list(saved.units or []), owner_id=owner_id())
         db.session.add(copy)
         db.session.commit()
         return saved_army_response(copy)
 
     @app.route('/api/armies/<int:army_id>', methods=['DELETE'])
     def api_delete_army(army_id):
-        db.session.delete(db.get_or_404(SavedArmy, army_id))
+        saved, error = own_army_or_error(army_id)
+        if error:
+            return error
+        db.session.delete(saved)
         db.session.commit()
         return jsonify({'message': 'Army deleted'})
 
     @app.route('/api/comparisons', methods=['GET'])
     def api_list_comparisons():
         """List saved matrix comparisons."""
-        comparisons = SavedComparison.query.order_by(SavedComparison.created_at.desc()).all()
+        comparisons = only_mine(SavedComparison.query, SavedComparison).order_by(SavedComparison.created_at.desc()).all()
         return jsonify([{
             'id': c.id,
             'name': c.name,
@@ -2026,7 +2044,8 @@ def register_routes(app):
             attackers=data['attackers'],
             defenders=data['defenders'],
             battle_conditions=data['conditions'],
-            results=data.get('results')
+            results=data.get('results'),
+            owner_id=owner_id(),
         )
         db.session.add(comparison)
         db.session.commit()
@@ -2036,7 +2055,7 @@ def register_routes(app):
     @app.route('/api/comparisons/<int:comparison_id>')
     def api_get_comparison(comparison_id):
         """Get a specific comparison with full config."""
-        c = db.get_or_404(SavedComparison, comparison_id)
+        c = mine_or_404(SavedComparison, comparison_id)
         return jsonify({
             'id': c.id,
             'name': c.name,
@@ -2050,7 +2069,7 @@ def register_routes(app):
     @app.route('/api/comparisons/<int:comparison_id>', methods=['DELETE'])
     def api_delete_comparison(comparison_id):
         """Delete a comparison."""
-        comparison = db.get_or_404(SavedComparison, comparison_id)
+        comparison = mine_or_404(SavedComparison, comparison_id)
         db.session.delete(comparison)
         db.session.commit()
         return jsonify({'message': 'Comparison deleted'})

@@ -4,8 +4,8 @@ A self-hosted copy runs the app on one computer (a home PC, a NAS, a Raspberry P
 everyone in your group opens it in a browser, phones included. Why it's built this way, and what's planned:
 [hosted-version-scope.md](hosted-version-scope.md).
 
-> **Release 2.8 is still being built.** Logins work; players' own armies and games, "your move" emails and
-> proposed edits are still to come (the scope's section 8).
+> **Release 2.8 is still being built.** Proposed edits to the shared data are still to come (the scope's
+> section 8, step d).
 
 ## Run it with Docker
 
@@ -33,6 +33,31 @@ makes a new link. Players can use everything else but can't open Setup or the Pl
 data (custom factions, rules, stratagems): later in 2.8 they'll propose changes for the host to approve.
 
 Tell everyone to **use a throwaway password**: the copy is run by someone in the group, not a company.
+
+**What's whose:** each player's armies are their own, and everyone can see everyone's (read-only: opening another
+player's army and saving it makes a copy of your own). Scenarios, comparisons and battlefields are private. Old
+records from before the copy had players are the host's.
+
+**Playing each other:** on the Play page's New game form, choose the other player under **Against**, which side
+you play, your army and one of theirs. Each of you plays your own side in your own browser, with no relay; Undo
+asks the other player, as in an online game.
+
+## "Your move" emails
+
+When a move in a game here makes it the other player's move, they get an email, unless they have the game open,
+had one for that game in the last 10 minutes, or turned them off on their account page. Emails go through your
+own mail server (for example your email provider's SMTP, with an app password):
+
+| Variable | What |
+| --- | --- |
+| `SMTP_HOST` | The mail server. Not set: no emails. |
+| `SMTP_PORT` | 587 (STARTTLS) by default; 465 for SSL. |
+| `SMTP_USER`, `SMTP_PASSWORD` | Its login, if it needs one. |
+| `SMTP_FROM` | The sender address (default `SMTP_USER`). |
+| `SMTP_STARTTLS` | `0` to turn STARTTLS off (only for a server on your own network). |
+| `PUBLIC_URL` | The copy's address for links in the emails (default: the address the move was made from). |
+
+## Data and updates
 
 Everything the app writes is in the `/data` volume: the app data JSON, the database (armies, scenarios, games),
 `settings.json`, `secret_key` (signs logins: keep it private), and the BSData and Wahapedia downloads. Back up that

@@ -75,6 +75,10 @@
             <button class="btn btn-secondary" type="submit">Save</button>
             <div class="setup-message"></div>
         </form>
+        <label class="setup-row"><input type="checkbox" id="notify-setting" {% if user.notify is not false %}checked{% endif %}>
+            Email me when it's my move in a game here</label>
+        {% if not mail_configured %}<p class="weapon-picker-hint">This copy has no mail server set up yet, so no emails are sent
+            (the host sets one up: see self-hosting.md).</p>{% endif %}
     </section>
     <section class="setup-card">
         <h3>Password</h3>
@@ -159,6 +163,8 @@ document.querySelectorAll('.account-form').forEach(formEl => {
         }
     });
 });
+
+document.getElementById('notify-setting')?.addEventListener('change', event => post('/api/auth/account', {notify: event.target.checked}));
 
 document.getElementById('logout-btn')?.addEventListener('click', async () => {
     await post('/api/auth/logout');

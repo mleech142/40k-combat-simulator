@@ -1026,7 +1026,7 @@
         const online = game.online || null;
         const theirName = online && online.joined && (online.names || [])[1 - game.seat];  // As they named themselves
         const other = players[1 - game.seat].name + (theirName ? ` (${theirName})` : '');
-        const you = `You play ${players[game.seat].name}${online ? ' online' : ''}`;
+        const you = `You play ${players[game.seat].name}${online && !online.local ? ' online' : ''}`;  // local: both on this copy
         const notice = (text, mine = false, send = false) => ({ text: `${you} · ${text}`, mine, send, invite: null });
         if (game.needs_update) return notice(`this game has been played on version ${game.app_version}: update the app to carry on`);
         if (online && !online.joined) {

@@ -165,6 +165,12 @@ c. **Players' own lists and games.** Saved armies, scenarios, comparisons and ba
    armies read-only (agreed): copying one makes it yours. **"Your move" emails** to the player whose turn it
    becomes, sent through the host's mail server (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
    `SMTP_FROM`; none set: no emails), with a per-player switch on their account page.
+   *Done:* saved records have an `owner_id` (None: the host's) and games between two players `seat_users`
+   (each seat's player); every game route checks the player is in it (`play/routes.py`, `game_or_404`,
+   `seat_of`). Each army in a game must be its player's. Scenarios, comparisons and battlefields are private.
+   Undo in a game here asks the other player, as online; the page polls for their moves (`/sync?since=`). Emails
+   (`mail.py`) go in the background, not while the player has the game open, and at most one per game every 10
+   minutes. Not covered: games through the relay don't email (the other player's copy can't know).
 d. **Proposed edits.** In hosted mode a player's Data-tab write is saved as a proposal instead (who, when, what it
    changes, shown as a readable summary) and answered 202. The host's Data tab lists proposals to approve (applied
    through the same code as a direct edit, then `save_data()`) or reject; the player sees their proposals' outcome.

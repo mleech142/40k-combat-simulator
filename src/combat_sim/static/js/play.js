@@ -116,13 +116,17 @@
     async function loadArmies() {
         const armies = await fetch('/api/armies').then(r => r.json()).catch(() => []);
         state.armies = armies;
-        const options = armies.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')
+        const options = armies.map(a => `<option value="${a.id}">${escapeHtml(a.name)}${a.mine === false ? ` (${escapeHtml(a.owner || 'another player')}'s)` : ''}</option>`).join('')
             + `<option value="${OPEN}">The other player joins online with theirs</option>`;
         $('new-red').innerHTML = options;
         $('new-blue').innerHTML = options;
         if (armies.length > 1) $('new-blue').selectedIndex = 1;
         $('new-game-hint').textContent = armies.length ? '' : 'Save an army on the Armies page first.';
         $('new-game-btn').disabled = !armies.length;
+        const opponents = await fetch('/api/play/opponents').then(r => r.ok ? r.json() : []).catch(() => []);
+        $('new-opponent-group').hidden = !opponents.length;
+        $('new-opponent').innerHTML = '<option value="">Nobody here (hot-seat, game file or online)</option>'
+            + opponents.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
     }
 
     /** The Twist cards for the new-game form. */
@@ -208,7 +212,8 @@
         const twist = $('new-twist').value;
         const body = { armies: [$('new-red').value, $('new-blue').value].map(v => v === OPEN ? null : Number(v)), name: $('new-name').value,
                        battlefield: $('new-battlefield').value || null, seat: $('new-seat').value === '' ? null : Number($('new-seat').value),
-                       twist: twist ? { key: twist, primary: twist === 'mirrored-world' ? $('new-mirrored').value : null } : null };
+                       twist: twist ? { key: twist, primary: twist === 'mirrored-world' ? $('new-mirrored').value : null } : null,
+                       opponent: $('new-opponent').value ? Number($('new-opponent').value) : null };
         const resp = await fetch('/api/play/games', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
@@ -365,7 +370,8 @@
         const game = state.game || state.waiting;
         if (!game || !game.online) return;
         if (document.hidden || state.working || state.drag || state.placing || state.arriving) return scheduleSync();
-        const resp = await fetch(`/api/play/games/${game.id}/sync`, { method: 'POST' }).catch(() => null);
+        const since = game.events ? `?since=${game.events.length}` : '';
+        const resp = await fetch(`/api/play/games/${game.id}/sync${since}`, { method: 'POST' }).catch(() => null);
         const data = resp && await resp.json().catch(() => null);
         const now = state.game || state.waiting;
         if (!now || now.id !== game.id) return;
@@ -1537,7 +1543,7 @@
                 <i class="fa-solid fa-file-export" aria-hidden="true"></i> Save game file</a>` : '',
             !game.online && !game.needs_update ? `<button class="btn-small" id="seat-online" title="Moves go to the other player as you make them">
                 <i class="fa-solid fa-globe" aria-hidden="true"></i> Play online</button>` : '',
-            game.online ? `<button class="btn-small" id="seat-new-code" title="If someone else may have used the code: the old one stops working">
+            game.online && !game.online.local ? `<button class="btn-small" id="seat-new-code" title="If someone else may have used the code: the old one stops working">
                 <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> New invite code</button>` : '',
         ].filter(Boolean);
         $('seat-bar').innerHTML = `<strong>${escapeHtml(notice.text)}</strong>${buttons.length

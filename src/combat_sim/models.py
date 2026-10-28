@@ -598,6 +598,7 @@ class SavedScenario(db.Model):
     # Cached results
     results = db.Column(JSON, nullable=True)
 
+    owner_id = db.Column(db.Integer, nullable=True)  # Self-hosted copies: the player it belongs to (None: the host's; accounts.py)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -619,6 +620,7 @@ class SavedArmy(db.Model):
     disposition = db.Column(db.String(40), nullable=True)  # Its force disposition (None: not chosen yet)
     # [{"uid", "unit_id", "models", "attached_to" (uid of the unit it joins, or null), "enhancement" (BSData ID)}]
     units = db.Column(JSON, nullable=False, default=list)
+    owner_id = db.Column(db.Integer, nullable=True)  # Self-hosted copies: the player it belongs to (None: the host's; accounts.py)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -651,6 +653,8 @@ class SavedGame(db.Model):
     relay_joined = db.Column(db.Boolean, nullable=True)  # Both players have joined
     relay_names = db.Column(JSON, nullable=True)  # Each seat's player, as they named themselves (or None)
     pending = db.Column(JSON, nullable=True)  # Online, waiting for the other player's army: the choices that need it (game_file.check_invite)
+    owner_id = db.Column(db.Integer, nullable=True)  # Self-hosted copies: the player it belongs to (None: the host's; accounts.py)
+    seat_users = db.Column(JSON, nullable=True)  # Self-hosted copies: a game between two of its players, each seat's player ID
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -662,6 +666,7 @@ class SavedBattlefield(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     data = db.Column(JSON, nullable=False)
+    owner_id = db.Column(db.Integer, nullable=True)  # Self-hosted copies: the player it belongs to (None: the host's; accounts.py)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -684,6 +689,7 @@ class SavedComparison(db.Model):
     # Cached results matrix
     results = db.Column(JSON, nullable=True)
 
+    owner_id = db.Column(db.Integer, nullable=True)  # Self-hosted copies: the player it belongs to (None: the host's; accounts.py)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -701,6 +707,7 @@ class User(db.Model):
     email = db.Column(db.String(254), nullable=True)  # For "your move" emails
     password_hash = db.Column(db.String(255), nullable=True)  # None until they open their join link
     is_host = db.Column(db.Boolean, nullable=False, default=False)
+    notify = db.Column(db.Boolean, nullable=True)  # "Your move" emails (None: on)
     session_key = db.Column(db.String(64), nullable=True)  # In their login cookie; changed to log every browser out
     join_token_hash = db.Column(db.String(64), nullable=True)  # Their join (or new password) link's token, hashed
     join_expires = db.Column(db.DateTime, nullable=True)
@@ -708,6 +715,7 @@ class User(db.Model):
 
     def to_dict(self):
         return {'id': self.id, 'name': self.name, 'email': self.email, 'is_host': bool(self.is_host),
+                'notify': self.notify is not False,
                 'joined': self.password_hash is not None,
                 'link_open': bool(self.join_token_hash and self.join_expires and self.join_expires > datetime.utcnow())}
 

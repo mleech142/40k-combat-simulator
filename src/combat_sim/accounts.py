@@ -21,9 +21,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import g, jsonify, redirect, render_template, request, session, url_for
+from flask import abort, current_app, g, jsonify, redirect, render_template, request, session, url_for
+from sqlalchemy import or_
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from . import mail
 from .models import User, db
 
 SECRET_KEY_FILE = 'secret_key'
@@ -123,6 +125,52 @@ def current_user():
 def is_host():
     user = current_user()
     return bool(user and user.is_host)
+
+
+# --- What belongs to whom (step c) ------------------------------------------------
+# Saved armies, scenarios, comparisons, battlefields and games have an `owner_id`: the player who made them, None
+# for rows from before (the host's). Outside hosted mode everything is the one user's.
+
+def hosted():
+    return bool(current_app.config.get('HOSTED'))
+
+
+def owner_id():
+    """The owner to stamp on a new saved record (None outside hosted mode)."""
+    user = current_user()
+    return user.id if hosted() and user else None
+
+
+def owns(record):
+    if not hosted():
+        return True
+    user = current_user()
+    return bool(user) and (record.owner_id == user.id or (record.owner_id is None and user.is_host))
+
+
+def only_mine(query, model):
+    """`query` narrowed to the current player's records (unchanged outside hosted mode)."""
+    if not hosted():
+        return query
+    user = current_user()
+    mine = model.owner_id == user.id
+    return query.filter(or_(mine, model.owner_id.is_(None)) if user.is_host else mine)
+
+
+def mine_or_404(model, ident):
+    """A record of the current player's (another player's is as good as missing)."""
+    record = db.get_or_404(model, ident)
+    if not owns(record):
+        abort(404)
+    return record
+
+
+def owner_names():
+    """{player ID (None: the host): name}, for showing whose a record is."""
+    names = {u.id: u.name for u in User.query}
+    host = User.query.filter_by(is_host=True).first()
+    names[None] = host.name if host else None
+    return names
 
 
 def cross_site():
@@ -265,7 +313,7 @@ def register_account_routes(app):
 
     @app.route('/account')
     def account_page():
-        return render_template('account.html', mode='account')
+        return render_template('account.html', mode='account', mail_configured=mail.configured())
 
     @app.route('/api/auth/me')
     def api_auth_me():
@@ -273,11 +321,13 @@ def register_account_routes(app):
 
     @app.route('/api/auth/account', methods=['POST'])
     def api_auth_account():
-        """Change your email, or your password (with the current one)."""
+        """Change your email, "your move" emails ('notify'), or your password (with the current one)."""
         user, data = current_user(), form()
         try:
             if 'email' in data:
                 user.email = clean_email(data.get('email'))
+            if 'notify' in data:
+                user.notify = bool(data.get('notify'))
             if data.get('new_password') is not None:
                 if not check_password_hash(user.password_hash, str(data.get('password') or '')):
                     return error('Your current password is wrong.', 403)

@@ -480,12 +480,13 @@
             return `<div class="army-list-item ${a.id === state.army.id ? 'active' : ''}">
                 <button type="button" class="army-open" data-id="${a.id}">
                     <span class="army-list-name">${escapeHtml(a.name)}</span>
+                    ${a.mine === false ? `<span class="army-list-meta">${escapeHtml(a.owner || 'Another player')}'s · read-only</span>` : ''}
                     <span class="army-list-meta">${escapeHtml([a.faction, a.detachment].filter(Boolean).join(' · '))}</span>
                     <span class="army-list-meta ${points.over ? 'over' : ''}">${points.text} · ${a.unit_count} units${a.problem_count ? ` · ${a.problem_count} to fix` : ''}</span>
                 </button>
                 <div class="army-list-actions">
                     <button class="btn-small army-duplicate" data-id="${a.id}" title="Make a copy"><i class="fa-solid fa-copy" aria-hidden="true"></i></button>
-                    <button class="btn-small btn-danger army-delete" data-id="${a.id}" title="Delete"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                    ${a.mine === false ? '' : `<button class="btn-small btn-danger army-delete" data-id="${a.id}" title="Delete"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`}
                 </div>
             </div>`;
         }).join('');
@@ -502,6 +503,11 @@
         if (id === state.army.id && !state.dirty) return;
         if (!confirmDiscard()) return;
         const army = await fetch(`/api/armies/${id}`).then(r => r.json());
+        if (army.mine === false) {  // Another player's (a self-hosted copy): saving makes your own copy
+            await openArmy({ ...armyFields(army), id: null },
+                           false, [`This is ${army.owner || 'another player'}'s army. Saving it makes a copy of your own.`]);
+            return;
+        }
         await openArmy(armyFields(army));
     }
 
