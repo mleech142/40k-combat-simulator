@@ -247,9 +247,10 @@ async function run(button, messageId, url, body, working, done = null) {
     message.className = 'setup-message';
     message.textContent = working;
     try {
-        const resp = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                       body: JSON.stringify(body || {})});
-        const data = await resp.json().catch(() => ({}));
+        let resp = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                     body: JSON.stringify(body || {})});
+        let data = await resp.json().catch(() => ({}));
+        if (resp.status === 202 && data.job) ({resp, data} = await waitForJob(data.job, message, working));
         if (!resp.ok) {
             message.className = 'setup-message error';
             message.textContent = data.error || 'That did not work.';
@@ -265,6 +266,23 @@ async function run(button, messageId, url, body, working, done = null) {
         return null;
     } finally {
         buttons.forEach(b => b.disabled = false);
+    }
+}
+
+/** Long work runs in the background on the server (jobs.py): show each step until it ends, then answer
+ *  {resp, data} as the request itself would have (the data status, or the error). */
+async function waitForJob(job, message, working) {
+    for (;;) {
+        message.textContent = job.step ? `${job.step}… (${Math.round(job.seconds || 0)}s)` : working;
+        if (job.state === 'failed') return {resp: {ok: false}, data: {error: job.error}};
+        if (job.state === 'done') {
+            const resp = await fetch('/api/data/status');
+            return {resp, data: await resp.json().catch(() => ({}))};
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const resp = await fetch(`/api/jobs/${job.id}`);
+        if (!resp.ok) return {resp, data: await resp.json().catch(() => ({}))};
+        job = await resp.json();
     }
 }
 

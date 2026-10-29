@@ -17,7 +17,7 @@ from .data_store import DataFileError, check_data
 from . import armies, army_share, bsdata_download, contagion, folder_dialog, match_view, wahapedia_download
 from .play.routes import register_play_routes
 from .proposals import register_proposal_routes
-from . import access, reference
+from . import access, jobs, reference
 from . import app_data_edits as edits
 from .access import desktop_only, host_only
 from .app_data_edits import WEAPON_MODELS, edit_route, text_list
@@ -586,20 +586,43 @@ def register_routes(app):
             'download': load_settings(app.config['SETTINGS_JSON']).get('wahapedia_download'),
         }
 
-    @app.route('/api/wahapedia/download', methods=['POST'])
+    # --- Long Setup work runs as a job (jobs.py): the answer is the data status when it finished at once, else
+    # 202 with the job for the page to poll (/api/jobs/<id>)
+
+    def job_answer(job):
+        if not job.finished:
+            return jsonify({'job': job.to_dict()}), 202
+        if job.state == jobs.FAILED:
+            return jsonify({'error': job.error, 'job': job.to_dict()}), job.status or 500
+        return api_data_status()
+
+    @app.route('/api/jobs/<int:job_id>')
     @host_only
-    def api_wahapedia_download():
-        """Download the latest rules and stratagems from Wahapedia and use them."""
+    def api_job(job_id):
+        """A Setup job's progress: {'id', 'kind', 'state' (running, done, failed), 'step', 'error', 'seconds'}."""
+        job = jobs.of(app).get(job_id)
+        if job is None:
+            return jsonify({'error': 'That job is no longer known (the app may have restarted).'}), 404
+        return jsonify(job.to_dict())
+
+    def wahapedia_job(job):
+        job.step = 'Downloading from Wahapedia'
         try:
             info = wahapedia_download.download(app.config['WAHAPEDIA_DIR'])
         except wahapedia_download.DownloadError as err:
-            return jsonify({'error': str(err)}), 502
+            raise jobs.JobError(str(err), 502) from err
         update_settings(app.config['SETTINGS_JSON'], wahapedia_download=dict(
             info, downloaded_at=datetime.now(timezone.utc).isoformat(timespec='seconds')))
+        job.step = 'Reading the rules and stratagems'
         status = reference.load(app, wahapedia_too=True).wahapedia_status
         if status.get('error'):
-            return jsonify({'error': status['error']}), 400
-        return api_data_status()
+            raise jobs.JobError(status['error'], 400)
+
+    @app.route('/api/wahapedia/download', methods=['POST'])
+    @host_only
+    def api_wahapedia_download():
+        """Download the latest rules and stratagems from Wahapedia and use them (a job)."""
+        return job_answer(jobs.of(app).submit('wahapedia', wahapedia_job))
 
     # --- Setup: choosing, downloading and re-importing the BSData folder -------------
 
@@ -643,29 +666,37 @@ def register_routes(app):
         """Open the computer's folder dialog; {'path'} or {'path': null} if cancelled or unavailable."""
         return jsonify({'path': folder_dialog.choose_folder(initial=reference.current(app).bsdata_dir)})
 
-    @app.route('/api/bsdata/download', methods=['POST'])
-    @host_only
-    def api_bsdata_download():
-        """Download the latest catalogues from GitHub into the download folder and use it."""
+    def bsdata_download_job(job):
+        job.step = 'Finding the latest catalogues on GitHub'
         try:
             commit = bsdata_download.latest_commit()
+            job.step = 'Downloading the catalogues'
             count = bsdata_download.install_zip(bsdata_download.download_zip(commit['sha']), app.config['DOWNLOAD_DIR'])
         except bsdata_download.DownloadError as err:
-            return jsonify({'error': str(err)}), 502
+            raise jobs.JobError(str(err), 502) from err
         update_settings(app.config['SETTINGS_JSON'], bsdata_dir=app.config['DOWNLOAD_DIR'], download={
             'sha': commit['sha'], 'date': commit['date'], 'files': count, 'folder': app.config['DOWNLOAD_DIR'],
             'downloaded_at': datetime.now(timezone.utc).isoformat(timespec='seconds')})
+        job.step = 'Importing the catalogues'
         status = reference.load(app, bsdata='fresh').bsdata_status
         if status.get('error'):
-            return jsonify({'error': status['error']}), 400
-        return api_data_status()
+            raise jobs.JobError(status['error'], 400)
+
+    def bsdata_reimport_job(job):
+        job.step = 'Importing the catalogues'
+        reference.load(app, bsdata='fresh')
+
+    @app.route('/api/bsdata/download', methods=['POST'])
+    @host_only
+    def api_bsdata_download():
+        """Download the latest catalogues from GitHub into the download folder and use it (a job)."""
+        return job_answer(jobs.of(app).submit('bsdata', bsdata_download_job))
 
     @app.route('/api/bsdata/reimport', methods=['POST'])
     @host_only
     def api_bsdata_reimport():
-        """Import the BSData folder again (after changing its files), ignoring the cache."""
-        reference.load(app, bsdata='fresh')
-        return api_data_status()
+        """Import the BSData folder again (after changing its files), ignoring the cache (a job)."""
+        return job_answer(jobs.of(app).submit('bsdata', bsdata_reimport_job))
 
     @app.route('/api/bsdata/skip-setup', methods=['POST'])
     @host_only

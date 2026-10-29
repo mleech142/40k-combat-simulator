@@ -35,6 +35,7 @@ def make_client(tmp_path, monkeypatch):
         monkeypatch.setenv('WAHAPEDIA_DIR', str(wahapedia or tmp_path / 'no-wahapedia'))
         app = create_app()
         app.config['PLAY_STATE_CHECK'] = True  # every cached Play state checked against a full replay (session.py)
+        app.config['JOBS'] = 'inline'  # Long work runs inside the request (jobs.py), so answers come at once
         return app.test_client(), data_file
     return _make
 

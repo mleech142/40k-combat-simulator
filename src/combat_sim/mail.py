@@ -4,7 +4,7 @@
     SMTP_HOST, SMTP_PORT (587; 465 means SSL), SMTP_USER, SMTP_PASSWORD, SMTP_FROM (default SMTP_USER),
     SMTP_STARTTLS (on unless 0), PUBLIC_URL (the copy's address in links; default the address the move came from)
 
-With no SMTP_HOST nothing is sent. Emails go in the background, so a slow mail server never slows a move, and
+With no SMTP_HOST nothing is sent. Emails go in the background (a job, jobs.py), so a slow mail server never slows a move, and
 a failure is only logged. A player gets none while they're looking at the game (its page asked for moves in the
 last minute), nor a second for the same game within a few minutes.
 """
@@ -16,6 +16,10 @@ import ssl
 import threading
 import time
 from email.message import EmailMessage
+
+from flask import current_app
+
+from . import jobs
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +63,7 @@ def your_move(player, by, saved, host_url):
     message.set_content(f'{plain(by)} has moved in {plain(saved.name)}, and it is your move.\n\n'
                         f'Open the game: {base}/play?game={saved.id}\n\n'
                         'You can turn these emails off on your account page.\n')
-    threading.Thread(target=send, args=(message,), daemon=True).start()
+    jobs.of(current_app._get_current_object()).submit('mail', lambda job: send(message), single=False)  # Off the request
     return True
 
 

@@ -165,7 +165,6 @@ def outbox(monkeypatch):
     sent = []
     monkeypatch.setenv('SMTP_HOST', 'mail.example')
     monkeypatch.setattr(mail, 'send', sent.append)
-    monkeypatch.setattr(mail.threading, 'Thread', lambda target, args, daemon: type('T', (), {'start': lambda self: target(*args)})())
     return sent
 
 
