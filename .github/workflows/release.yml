@@ -126,6 +126,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          # Only the zips: the Docker step uploads a build record artifact too
+          pattern: '{linux,windows}'
           merge-multiple: true
 
       - name: Publish the release
