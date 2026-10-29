@@ -14,7 +14,8 @@ import math
 import re
 from dataclasses import asdict
 
-from .. import contagion, effects
+from .. import contagion
+from ..engagement import Sources, attack_modifiers, target_modifiers
 from ..simulation import AttackerProfile, BattleConditions, DefenderProfile
 from .attack import roll_attack, roll_wound
 from . import battlefields, mission_state, tactical
@@ -798,12 +799,6 @@ def _remove_effect(state, action):
     except (TypeError, ValueError, IndexError, KeyError):
         raise ActionError('That effect is not on the unit.')
     return {'removed': removed['name'], 'unit': unit['id']}
-
-
-def _effect_modifiers(unit, side, kind):
-    """Modifier text from a unit's effects (stratagems, rules, manual) for one side and the weapon's phase."""
-    rows = [{'applies_to': e['side'], 'phase': e['phase'], 'modifier': e['modifier']} for e in unit.get('effects', [])]
-    return effects.leader_modifiers(rows, side, kind)
 
 
 def half_strength(unit):
@@ -1769,13 +1764,7 @@ def _attacker(unit, part_index, weapon_index, models, afflicted=(None, None)):
     part = unit['parts'][part_index]
     weapon = part['weapons'][weapon_index]
     kind = weapon['type']
-    met = contagion.conditions(afflicted[1])
-    extra = (_leader_effects(unit, 'Attacker', kind, met)
-             + effects.enhancement_modifiers(_carried(unit), 'Attacker', kind, leader_weapon=part['role'] == 'leader',
-                                             conditions=met)
-             + _effect_modifiers(unit, 'Attacker', kind)
-             + effects.leader_modifiers(part.get('ability_buffs'), 'Attacker', kind, met)  # Its datasheet's own
-             + contagion.modifiers(afflicted[0], afflicted[1], kind)[0])
+    extra = attack_modifiers(_sources(unit, afflicted[0], part), afflicted[1], kind, leader_weapon=part['role'] == 'leader')
     return AttackerProfile(weapon['attacks'], weapon['skill'], weapon['strength'], weapon['ap'], weapon['damage'],
                            list(weapon['abilities'] or []) + extra, models, kind)
 
@@ -1785,18 +1774,21 @@ def _defender(unit, part_index, kind='ranged', afflicted=(None, None)):
     `afflicted`: the attacking unit's and this unit's afflictions (Death Guard; afflictions)."""
     part = unit['parts'][part_index]
     stats = part['stats']
-    extra = (_leader_effects(unit, 'Target', kind) + effects.enhancement_modifiers(_carried(unit), 'Target', kind)
-             + _effect_modifiers(unit, 'Target', kind) + contagion.modifiers(afflicted[0], afflicted[1], kind)[1])
+    extra = target_modifiers(_sources(unit, afflicted[1]), afflicted[0], kind)
     alive = sum(m['alive'] for m in unit['models'])
     return DefenderProfile(stats['toughness'], stats['save'], stats['wounds'], stats['invulnerable_save'],
                            stats['feel_no_pain'], list(part['keywords']) + extra, alive)
 
 
-def _leader_effects(unit, side, kind, conditions=()):
-    """Effects a unit's living leaders grant it (those with a condition only when the attack meets it)."""
+def _sources(unit, affliction, part=None):
+    """One side of an attack's sources for engagement.py: the unit's game effects, its living leaders' buffs, the
+    enhancements it carries, the attacking part's own datasheet abilities, and its affliction."""
     alive_parts = {m['part'] for m in unit['models'] if m['alive']}
-    return [m for i, part in enumerate(unit['parts']) if part['role'] == 'leader' and i in alive_parts
-            for m in effects.leader_modifiers(part['leader_buffs'], side, kind, conditions)]
+    own = list((part or {}).get('ability_buffs') or [])
+    return Sources(rows=[{'applies_to': e['side'], 'phase': e['phase'], 'modifier': e['modifier']} for e in unit.get('effects', [])],
+                   leader_buffs=[b for i, p in enumerate(unit['parts']) if p['role'] == 'leader' and i in alive_parts
+                                 for b in p['leader_buffs'] or []],
+                   carried=_carried(unit), unit_buffs=own, leader_own_buffs=own, affliction=affliction)
 
 
 def _carried(unit):
