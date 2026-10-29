@@ -56,3 +56,17 @@ def test_ticked_rules_become_rows_without_none_entries():
     rows = rule_rows([Record(modifier='Lethal Hits, none'), Record(modifier='None'), Record(modifier='Cover', applies_to='Target', faction_id=3)])
     assert rows == [{'applies_to': 'Attacker', 'phase': 'Both', 'modifier': 'Lethal Hits', 'faction_id': None},
                     {'applies_to': 'Target', 'phase': 'Both', 'modifier': 'Cover', 'faction_id': 3}]
+
+
+def test_one_reader_applies_the_wargears_characteristic_changes():
+    from types import SimpleNamespace
+    from combat_sim.engagement import stat_changes, unit_stats, unit_target
+    unit = SimpleNamespace(move='6', toughness=4, save=3, wounds=2, leadership=6, oc=2, invulnerable_save=5,
+                           feel_no_pain=None, target_keywords=['Infantry'])
+    stats = unit_stats(unit, {'stats': {'M': 2, 'W': 1}, 'invulnerable_save': 4})
+    assert (stats['move'], stats['wounds'], stats['invulnerable_save'], stats['toughness']) == ('8', 3, 4, 4)
+    assert unit_stats(unit, {'invulnerable_save': 6})['invulnerable_save'] == 5  # The datasheet's is better
+    assert unit_stats(unit, None) == unit_stats(unit, {})
+    assert stat_changes({'stats': {'W': 0, 'T': True, 'Sv': -1}, 'invulnerable_save': 1}) == {'stats': {'Sv': -1}, 'invulnerable_save': None}
+    assert stat_changes({'keywords': ['Grenades']}) is None and stat_changes('junk') is None
+    assert unit_target(unit, 5, ['Cover'], {'invulnerable_save': 4}).invulnerable_save == 4

@@ -12,7 +12,8 @@ buffs, its Death Guard affliction, and one-off target modifiers. Two calls turn 
 
 Rows carrying a `faction_id` apply only to that faction's units (a core stratagem's is None). A new source of
 effects goes here, and reaches every caller and attached targets with it. The database adapters (`sources_for`,
-`selected_rules`, `load_*`) and the profile builders (`weapon_attack`, `unit_target`, `leader_target`) are here too.
+`selected_rules`, `load_*`) the profile builders (`weapon_attack`, `unit_target`, `leader_target`) and the one
+characteristics reader with wargear's changes (`unit_stats`, `stat_changes`) are here too.
 """
 
 from dataclasses import dataclass, field
@@ -125,6 +126,43 @@ def sources_for(unit=None, leader=None, enhancements=(), rules=(), affliction=No
                    affliction=affliction, extra=list(extra))
 
 
+# --- Characteristics, with the chosen wargear's changes ----------------------------------------
+
+STAT_FIELDS = {'M': 'move', 'T': 'toughness', 'Sv': 'save', 'W': 'wounds', 'LD': 'leadership', 'OC': 'oc'}
+STATS = ('move', 'toughness', 'save', 'wounds', 'leadership', 'oc', 'invulnerable_save', 'feel_no_pain')
+
+
+def stat_changes(effects):
+    """The part of the chosen wargear's effects (wargear.effects) that changes characteristics, cleaned (it also
+    comes back in requests): {'stats': {'W': 1, ...}, 'invulnerable_save': 4 or None}, or None for no change."""
+    effects = effects if isinstance(effects, dict) else {}
+    raw = effects.get('stats') if isinstance(effects.get('stats'), dict) else {}
+    stats = {name: change for name, change in raw.items()
+             if name in STAT_FIELDS and isinstance(change, int) and not isinstance(change, bool) and change}
+    invulnerable = effects.get('invulnerable_save')
+    invulnerable = invulnerable if isinstance(invulnerable, int) and not isinstance(invulnerable, bool) and 2 <= invulnerable <= 6 else None
+    return {'stats': stats, 'invulnerable_save': invulnerable} if stats or invulnerable else None
+
+
+def unit_stats(unit, changes=None):
+    """A datasheet's (or target profile's) characteristics with the chosen wargear's changes (stat_changes)
+    applied: the one reader for the Match view, Analytics and Play. A taken option's invulnerable save counts
+    when it is better than the datasheet's."""
+    stats = {name: getattr(unit, name, None) for name in STATS}
+    changes = stat_changes(changes) or {}
+    for name, change in changes.get('stats', {}).items():
+        field_name = STAT_FIELDS[name]
+        current = stats.get(field_name)
+        if field_name == 'move' and current is not None and str(current).isdigit():
+            stats[field_name] = str(int(current) + change)
+        elif isinstance(current, int):
+            stats[field_name] = current + change
+    invulnerable = changes.get('invulnerable_save')
+    if invulnerable and (stats['invulnerable_save'] is None or invulnerable < stats['invulnerable_save']):
+        stats['invulnerable_save'] = invulnerable
+    return stats
+
+
 def weapon_attack(weapon_type, weapon_id, models=1, modifiers=()):
     """(the library weapon, its AttackerProfile with `modifiers`), or (None, None) if it no longer exists."""
     model = RangedWeapon if weapon_type == 'ranged' else MeleeWeapon
@@ -138,13 +176,14 @@ def weapon_attack(weapon_type, weapon_id, models=1, modifiers=()):
                                    models=max(1, int(models or 1)), weapon_type=weapon_type)
 
 
-def unit_target(unit, model_count, modifiers=()):
-    """A unit (or a generic target profile) as a target, with `modifiers`."""
-    return DefenderProfile(toughness=unit.toughness, save=unit.save, wounds=unit.wounds,
-                           invulnerable_save=unit.invulnerable_save, feel_no_pain=unit.feel_no_pain,
+def unit_target(unit, model_count, modifiers=(), changes=None):
+    """A unit (or a generic target profile) as a target, with `modifiers` and its wargear's stat `changes`."""
+    stats = unit_stats(unit, changes)
+    return DefenderProfile(toughness=stats['toughness'], save=stats['save'], wounds=stats['wounds'],
+                           invulnerable_save=stats['invulnerable_save'], feel_no_pain=stats['feel_no_pain'],
                            keywords=unit.target_keywords + list(modifiers), model_count=model_count)
 
 
-def leader_target(leader, modifiers=()):
+def leader_target(leader, modifiers=(), changes=None):
     """A leader's own profile as the last stage of an attached-unit target (its models after the bodyguard)."""
-    return unit_target(leader, leader.default_models or 1, modifiers)
+    return unit_target(leader, leader.default_models or 1, modifiers, changes)

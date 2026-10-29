@@ -236,7 +236,8 @@
         });
     }
 
-    function attackerEntry(unit, models = null, leader = null, enhancements = [], loadout = null, leaderLoadout = null) {
+    function attackerEntry(unit, models = null, leader = null, enhancements = [], loadout = null, leaderLoadout = null,
+                           statChanges = null, leaderStatChanges = null) {
         const entry = {
             unit_id: unit.id,
             unit_name: unit.name,
@@ -249,6 +250,8 @@
             leaders: unit.leaders || [],
             leader_id: null,
             enhancements: enhancements || [],  // From an army: [{id, bearer: 'unit'|'leader', name}]
+            stat_changes: statChanges || null,  // From an army: what its wargear changes (the server applies it)
+            leader_stat_changes: leaderStatChanges || null,
         };
         if (loadout) {  // Chosen wargear: its weapons and counts, at the size it was chosen for
             entry.weapons = withLoadout(entry.weapons, loadout);
@@ -268,8 +271,10 @@
     }
 
     /** Analytics: a defender unit entry from /api/units/<id> data, with a leader's id or null (and an army's enhancements). */
-    function defenderEntry(unit, modelCount, leaderId = null, enhancements = []) {
+    function defenderEntry(unit, modelCount, leaderId = null, enhancements = [], statChanges = null, leaderStatChanges = null) {
         return {
+            stat_changes: statChanges || null,  // From an army: what its wargear changes (the server applies it)
+            leader_stat_changes: leaderStatChanges || null,
             leaders: unit.leaders || [],
             leader_id: leaderId,
             unit_id: unit.id,
@@ -542,6 +547,8 @@
                              unit_id: atk.unit_id, leader_id: atk.leader_id || null,
                              leader: !!w.leader, enhancements: enhancementRefs(atk) })),
             unit_size: atk.unit_size || atk.default_models || null,
+            stat_changes: atk.stat_changes || null,
+            leader_stat_changes: atk.leader_id ? atk.leader_stat_changes || null : null,
         })).filter(atk => atk.weapons.length > 0);
 
         const defenders = page.defenderMode === 'generic'
@@ -553,6 +560,8 @@
                 extra_modifiers: d.extra_modifiers || '',
                 leader_id: d.leader_id || null,
                 enhancements: enhancementRefs(d),
+                stat_changes: d.stat_changes || null,
+                leader_stat_changes: d.leader_id ? d.leader_stat_changes || null : null,
             }));
 
         return {

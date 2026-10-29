@@ -94,9 +94,9 @@ def test_leaders_join_the_units_they_can_lead(client):
     assert entries['warriors']['led_by'] == ['captain'] and priced['problems'] == []
     assert priced['roster'] == [
         {'unit_id': units['Void Warriors'], 'models': 5, 'leader_id': units['Star Captain'], 'enhancements': [],
-         'loadout': None, 'leader_loadout': None},
+         'loadout': None, 'leader_loadout': None, 'stat_changes': None, 'leader_stat_changes': None},
         {'unit_id': units['Gun Crew'], 'models': 2, 'leader_id': None, 'enhancements': [],
-         'loadout': None, 'leader_loadout': None},
+         'loadout': None, 'leader_loadout': None, 'stat_changes': None, 'leader_stat_changes': None},
     ]
 
     wrong = price(client, army(factions, {'uid': 'crew', 'unit_id': units['Gun Crew']},
@@ -117,9 +117,9 @@ def test_second_leader_takes_the_field_on_its_own_in_analytics(client):
                                 {'uid': 'c2', 'unit_id': units['Star Captain'], 'attached_to': 'w'}, warlord='c1'))
     assert priced['roster'] == [
         {'unit_id': units['Void Warriors'], 'models': 5, 'leader_id': units['Star Captain'], 'enhancements': [],
-         'loadout': None, 'leader_loadout': None},
+         'loadout': None, 'leader_loadout': None, 'stat_changes': None, 'leader_stat_changes': None},
         {'unit_id': units['Star Captain'], 'models': 1, 'leader_id': None, 'enhancements': [],
-         'loadout': None, 'leader_loadout': None},
+         'loadout': None, 'leader_loadout': None, 'stat_changes': None, 'leader_stat_changes': None},
     ]
     assert priced['problems'] == ['Star Captain: Void Warriors already has a leader (one each, unless a datasheet says otherwise).']
 

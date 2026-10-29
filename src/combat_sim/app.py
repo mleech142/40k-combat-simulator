@@ -22,7 +22,7 @@ from . import app_data_edits as edits
 from .access import desktop_only, host_only
 from .app_data_edits import WEAPON_MODELS, edit_route, text_list
 from .engagement import (afflictions, attack_modifiers, enhancement_points, leader_target, load_enhancements, load_leader,
-                         selected_rules, sources_for, target_modifiers, unit_target, weapon_attack)
+                         selected_rules, sources_for, stat_changes, target_modifiers, unit_target, weapon_attack)
 from .accounts import register_account_routes, secret_key
 from .wargear import default_used
 from .settings import settings_path, load_settings, update_settings
@@ -1089,6 +1089,8 @@ def register_routes(app):
                 'leader': atk_leader,
                 'enhancements': atk_enhancements,
                 'size': unit_size or 1,
+                'stat_changes': stat_changes(atk.get('stat_changes')),
+                'leader_stat_changes': stat_changes(atk.get('leader_stat_changes')),
             })
 
         # Load defenders
@@ -1108,6 +1110,9 @@ def register_routes(app):
                     'extra_modifiers': text_list(def_config.get('extra_modifiers')) if isinstance(unit, Unit) else [],
                     'leader': load_leader(def_config.get('leader_id')) if isinstance(unit, Unit) else None,
                     'enhancements': load_enhancements(def_config.get('enhancements')) if isinstance(unit, Unit) else [],
+                    # Its chosen wargear's characteristic changes (an army's; engagement.stat_changes)
+                    'stat_changes': stat_changes(def_config.get('stat_changes')) if isinstance(unit, Unit) else None,
+                    'leader_stat_changes': stat_changes(def_config.get('leader_stat_changes')) if isinstance(unit, Unit) else None,
                 })
 
         # Each defender as seen by ranged and by melee attacks (target rules can be phase-specific);
@@ -1116,9 +1121,10 @@ def register_routes(app):
             d_side = sources_for(None, d['leader'], d['enhancements'], defender_rules, defender_affliction, d['extra_modifiers'])
             d_modifiers = {w_type: target_modifiers(d_side, attacker_affliction, w_type, d['unit'].faction_id)
                            for w_type in ('ranged', 'melee')}
-            d['profiles'] = {w_type: unit_target(d['unit'], d['model_count'], mods)
+            d['profiles'] = {w_type: unit_target(d['unit'], d['model_count'], mods, d['stat_changes'])
                              for w_type, mods in d_modifiers.items()}
-            d['leader_profiles'] = {w_type: leader_target(d['leader'], mods) for w_type, mods in d_modifiers.items()} \
+            d['leader_profiles'] = {w_type: leader_target(d['leader'], mods, d['leader_stat_changes'])
+                                    for w_type, mods in d_modifiers.items()} \
                 if d['leader'] is not None else None
             d['total_models'] = d['model_count'] + (d['leader'].default_models or 1 if d['leader'] is not None else 0)
 
@@ -1317,8 +1323,8 @@ def register_routes(app):
             models = atk['size'] or unit.default_models or 1
             my_side = sources_for(None, atk['leader'], atk.get('enhancements') or [], my_rules, mine)
             extra = {w_type: target_modifiers(my_side, theirs, w_type, unit.faction_id) for w_type in ('ranged', 'melee')}
-            targets = {w_type: unit_target(unit, models, mods) for w_type, mods in extra.items()}
-            leaders = {w_type: leader_target(atk['leader'], mods) for w_type, mods in extra.items()} \
+            targets = {w_type: unit_target(unit, models, mods, atk['stat_changes']) for w_type, mods in extra.items()}
+            leaders = {w_type: leader_target(atk['leader'], mods, atk['leader_stat_changes']) for w_type, mods in extra.items()} \
                 if atk['leader'] is not None else None
             total_models = models + (leaders['ranged'].model_count if leaders else 0)
             cells = []
@@ -1383,6 +1389,8 @@ def register_routes(app):
         defender_enhancements = load_enhancements(data.get('enhancements')) if isinstance(unit, Unit) else []
         attacker_affliction, defender_affliction = afflictions(data)
         target_side = sources_for(None, defender_leader, defender_enhancements, defender_rules, defender_affliction, extra_modifiers)
+        changes = stat_changes(data.get('stat_changes')) if isinstance(unit, Unit) else None
+        leader_changes = stat_changes(data.get('leader_stat_changes')) if isinstance(unit, Unit) else None
 
         # Each weapon with its own unit's attacker rules, against the target as its phase sees it
         profiles, targets, leader_targets = [], [], []
@@ -1398,21 +1406,21 @@ def register_routes(app):
             if profile:
                 profiles.append(profile)
                 mods = target_modifiers(target_side, attacker_affliction, w_type, unit.faction_id)
-                targets.append(unit_target(unit, model_count, mods))
+                targets.append(unit_target(unit, model_count, mods, changes))
                 if defender_leader is not None:
-                    leader_targets.append(leader_target(defender_leader, mods))
+                    leader_targets.append(leader_target(defender_leader, mods, leader_changes))
         if not profiles:
             return jsonify({'error': 'No weapons found'}), 400
 
         conditions = conditions_from_request(data.get('conditions', {}))
         if defender_leader is not None:  # Attached unit: bodyguard models first, then the leader
             result = simulate_monte_carlo_attached(
-                profiles, unit_target(unit, model_count, extra_modifiers),
-                leader_target(defender_leader, extra_modifiers), conditions, iterations,
+                profiles, unit_target(unit, model_count, extra_modifiers, changes),
+                leader_target(defender_leader, extra_modifiers, leader_changes), conditions, iterations,
                 bodyguard_targets=targets, leader_targets=leader_targets)
         else:
             result = simulate_monte_carlo_combined(
-                profiles, unit_target(unit, model_count, extra_modifiers), conditions, iterations,
+                profiles, unit_target(unit, model_count, extra_modifiers, changes), conditions, iterations,
                 weapon_defenders=targets,
             )
 

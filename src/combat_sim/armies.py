@@ -36,6 +36,7 @@ What is checked (an army that breaks a rule can still be saved; the problems are
 from collections import Counter
 
 from . import wargear as wargear_engine
+from .engagement import stat_changes
 from .models import db, Detachment, Enhancement, Faction, Unit, RangedWeapon, MeleeWeapon
 
 # (name, points limit, Detachment Points) as BSData's game system has them; Onslaught is provisional there
@@ -443,7 +444,8 @@ def check_detachments(army, faction):
 def roster(entries, enhancements=None):
     """
     Analytics' units: [{'unit_id', 'models', 'leader_id', 'enhancements': [{'id', 'name', 'bearer', 'unit_id'}],
-    'loadout', 'leader_loadout'}] (a loadout: chosen wargear's weapons and counts, None = defaults), one
+    'loadout', 'leader_loadout', 'stat_changes', 'leader_stat_changes'}] (a loadout: chosen wargear's weapons and
+    counts, None = defaults; stat changes: what it changes on the datasheet, engagement.stat_changes), one
     per unit that isn't joining another, with the first leader attached to it (Analytics joins one
     leader to a unit; a second leader and support units take the field on their own). An
     enhancement's `bearer` is 'unit' when the unit itself carries it, 'leader' when its leader does
@@ -465,10 +467,13 @@ def roster(entries, enhancements=None):
             attached.add(leader['uid'])
         out.append({'unit_id': entry['unit_id'], 'models': entry['models'], 'leader_id': leader['unit_id'] if leader else None,
                     'enhancements': carried(entry, 'unit') + (carried(leader, 'leader') if leader else []),
-                    'loadout': entry.get('loadout'), 'leader_loadout': leader.get('loadout') if leader else None})
+                    'loadout': entry.get('loadout'), 'leader_loadout': leader.get('loadout') if leader else None,
+                    'stat_changes': stat_changes(entry.get('wargear_effects')),
+                    'leader_stat_changes': stat_changes(leader.get('wargear_effects')) if leader else None})
     # A second leader on the same unit takes the field on its own
     out += [{'unit_id': e['unit_id'], 'models': e['models'], 'leader_id': None, 'enhancements': carried(e, 'unit'),
-             'loadout': e.get('loadout'), 'leader_loadout': None}
+             'loadout': e.get('loadout'), 'leader_loadout': None,
+             'stat_changes': stat_changes(e.get('wargear_effects')), 'leader_stat_changes': None}
             for e in entries if e['attached_to'] in by_uid and e['uid'] in by_uid[e['attached_to']]['led_by']
             and e['uid'] not in attached]
     return out

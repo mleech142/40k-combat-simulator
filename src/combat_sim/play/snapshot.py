@@ -5,6 +5,7 @@ Needs an app context; everything else in the play package works on the plain dat
 """
 
 from .. import armies, contagion
+from ..engagement import unit_stats
 from ..models import Detachment, Enhancement, Faction, FactionRule, MeleeWeapon, RangedWeapon, Stratagem, Unit, db
 from ..rules_text import (ability_buffs, afflicts_after_shooting, contagion_bonus, damaged_threshold, deadly_demise, firing_deck,
                           granted_ability, has_core_ability, parse_transport, plain_text, scouts_distance, units_contagion_bonus)
@@ -127,6 +128,7 @@ def _rules(army):
 def _part(entry, role, catalogue, warlord, faction_id=None):
     unit = db.session.get(Unit, entry['unit_id'])
     enhancement = Enhancement.query.filter_by(bsdata_id=entry['enhancement']).first() if entry['enhancement'] else None
+    stats = unit_stats(unit, entry.get('wargear_effects'))
     return {
         'uid': entry['uid'],
         'unit_id': unit.id,
@@ -135,7 +137,7 @@ def _part(entry, role, catalogue, warlord, faction_id=None):
         'role': role,
         'models': entry['models'],
         'points': entry['points'] or 0,  # Including its enhancement
-        'stats': {name: getattr(unit, name) for name in STATS},
+        'stats': {name: stats[name] for name in STATS},  # With its chosen wargear's changes
         'keywords': unit.target_keywords,
         'base': unit.base,
         'weapons': _weapons(unit, entry, catalogue),

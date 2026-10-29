@@ -408,10 +408,12 @@
                 const unit = await unitData(item.unit_id);
                 if (side === 'attacker') {
                     entries.push(Core.attackerEntry(unit, item.models, item.leader_id ? await unitData(item.leader_id) : null,
-                                                    item.enhancements, item.loadout, item.leader_loadout));
+                                                    item.enhancements, item.loadout, item.leader_loadout,
+                                                    item.stat_changes, item.leader_stat_changes));
                 } else {
                     entries.push(Core.defenderEntry(unit, item.models || unit.default_models || DEFAULT_DEFENDER_MODELS,
-                                                    item.leader_id || null, item.enhancements));
+                                                    item.leader_id || null, item.enhancements,
+                                                    item.stat_changes, item.leader_stat_changes));
                 }
             }
             if (side === 'attacker') state.attackers = entries;
@@ -613,6 +615,7 @@
         atk.weapons = Core.withLeaderEntries(atk.weapons, detail);
         atk.leader_id = choice?.id ?? null;
         atk.leader_name = choice?.name ?? null;
+        atk.leader_stat_changes = null;  // An army's leader wargear no longer applies
         atk.leader_points = choice?.points ?? null;
         renderAttackerTable();
     }
@@ -753,6 +756,7 @@
         if (e.target.classList.contains('def-leader')) {
             const defender = state.defenders[parseInt(e.target.dataset.d)];
             defender.leader_id = e.target.value ? parseInt(e.target.value) : null;
+            defender.leader_stat_changes = null;  // An army's leader wargear no longer applies
             defender.leader_name = defender.leaders.find(l => l.id === defender.leader_id)?.name || null;
             renderDefenderTable();
             return;
@@ -1039,6 +1043,8 @@
                     extra_modifiers: defender.extra_modifiers || '',
                     leader_id: defender.leader_id || null,
                     enhancements: defender.enhancements || [],
+                    stat_changes: defender.stat_changes || null,
+                    leader_stat_changes: defender.leader_stat_changes || null,
                     model_count: defender.model_count,
                     conditions: request.conditions,
                     afflicted: request.afflicted,

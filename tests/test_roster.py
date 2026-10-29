@@ -217,3 +217,27 @@ def test_extra_modifiers_in_simulator_and_cell_detail(client):
         'weapons': [{'weapon_id': 1, 'weapon_type': 'ranged', 'models': 20, 'unit_id': 1}],
         'unit_id': 1, 'model_count': 10, 'conditions': {}, 'iterations': 4000, 'extra_modifiers': extra}).get_json()
     assert cell('Stealth')['summary']['average_damage'] < cell('')['summary']['average_damage']
+
+
+# --- Wargear's characteristic changes (an army's units, engagement.stat_changes) -----------------
+
+def wargear_matrix(client, defender, attacker=None):
+    return client.post('/api/matrix/simulate', json={
+        'attackers': [dict({'unit_id': 1, 'weapons': [{'weapon_id': 1, 'weapon_type': 'ranged', 'models': 10}]}, **(attacker or {}))],
+        'defenders': [dict({'unit_id': 1, 'model_count': 10}, **defender)], 'conditions': {}}).get_json()
+
+
+def test_a_defenders_wargear_changes_its_characteristics_in_the_matrix(client):
+    plain = wargear_matrix(client, {})['matrix'][0][0]['avg_damage']
+    shielded = wargear_matrix(client, {'stat_changes': {'stats': {'T': 1}, 'invulnerable_save': 4}})['matrix'][0][0]['avg_damage']
+    assert shielded < plain  # Toughness 4: wounds on 5s; the 4+ invulnerable beats the 5+ save
+    junk = wargear_matrix(client, {'stat_changes': {'stats': {'T': 'x', 'Q': 3}, 'invulnerable_save': 9}})['matrix'][0][0]['avg_damage']
+    assert junk == plain  # What isn't a characteristic change is ignored
+
+
+def test_the_cell_detail_uses_the_same_changes(client):
+    body = {'weapons': [{'weapon_id': 1, 'weapon_type': 'ranged', 'models': 10, 'unit_id': 1}], 'unit_id': 1,
+            'model_count': 10, 'conditions': {}, 'iterations': 2000}
+    plain = client.post('/api/matrix/cell', json=body).get_json()['summary']['average_damage']
+    tough = client.post('/api/matrix/cell', json=dict(body, stat_changes={'stats': {'T': 5}})).get_json()['summary']['average_damage']
+    assert tough < plain * 0.7  # Toughness 8 against Strength 3: wounds on 6s instead of 4s

@@ -412,8 +412,10 @@ test('buildMatrixRequest: real defenders, included weapons, labels and rules', (
     assert.equal(request.attackers[1].unit_size, 5);  // datasheet size when not set
 
     assert.deepEqual(request.defenders, [
-        { unit_id: 2, model_count: 5, label: 'Hellblasters (x5)', extra_modifiers: 'Stealth', leader_id: null, enhancements: [] },
-        { unit_id: 2, model_count: 10, label: 'Hellblasters #2 (x10)', extra_modifiers: '', leader_id: null, enhancements: [] },
+        { unit_id: 2, model_count: 5, label: 'Hellblasters (x5)', extra_modifiers: 'Stealth', leader_id: null, enhancements: [],
+          stat_changes: null, leader_stat_changes: null },
+        { unit_id: 2, model_count: 10, label: 'Hellblasters #2 (x10)', extra_modifiers: '', leader_id: null, enhancements: [],
+          stat_changes: null, leader_stat_changes: null },
     ]);
     assert.deepEqual(request.attacker_rules, { rule_ids: [1], stratagem_ids: [] });
     assert.deepEqual(request.defender_rules, { rule_ids: [], stratagem_ids: [2] });
@@ -444,6 +446,21 @@ test('enhancements reach the matrix request: the unit own ones, and its leader o
     assert.equal(request.attackers[0].weapons[0].leader, false);
     page.attackers[0].leader_id = 31;  // Another leader: not the bearer
     assert.deepEqual(Core.buildMatrixRequest(page).attackers[0].enhancements, [{ id: 8, bearer: 'unit' }]);
+});
+
+test('an army unit wargear stat changes reach the matrix request, its leader ones only while it leads', () => {
+    const page = matchupsPage();
+    const shield = { stats: {}, invulnerable_save: 4 };
+    Object.assign(page.attackers[0], { stat_changes: shield, leader_stat_changes: { stats: { W: 1 }, invulnerable_save: null } });
+    Object.assign(page.defenders[0], { stat_changes: shield, leader_stat_changes: shield });
+    let request = Core.buildMatrixRequest(page);
+    assert.deepEqual(request.attackers[0].stat_changes, shield);
+    assert.equal(request.attackers[0].leader_stat_changes, null);  // No leader
+    assert.deepEqual(request.defenders[0].stat_changes, shield);
+    assert.equal(request.defenders[0].leader_stat_changes, null);
+    page.defenders[0].leader_id = 30;
+    request = Core.buildMatrixRequest(page);
+    assert.deepEqual(request.defenders[0].leader_stat_changes, shield);
 });
 
 test('buildMatrixRequest: weapon filter and generic profiles', () => {

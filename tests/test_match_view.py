@@ -93,3 +93,19 @@ def test_chosen_wargear_changes_the_datasheet(client):
     assert (brute['stats']['wounds'], brute['stats']['invulnerable_save']) == (3, 4)
     assert [a['name'] for a in brute['abilities']] == ['Slab Shield', 'Brute Shield']
     assert brute['wargear_summary'] == '2× Brute shield'
+
+
+def test_play_and_analytics_get_the_same_wargear_characteristics(client):
+    # The Match view, Play's frozen army and Analytics' roster all read engagement.unit_stats / stat_changes
+    from combat_sim.play.snapshot import freeze_army
+    factions = {f['name']: f['id'] for f in client.get('/api/data/factions').get_json()}
+    units = {u['name']: u['id'] for u in client.get(f'/api/units?faction_id={factions["Starfarers"]}').get_json()}
+    form = client.post('/api/armies/wargear', json={'unit_id': units['Shield Brutes'], 'models': 3}).get_json()['form']
+    k = {m['name']: m['k'] for s in form for m in s['members']}
+    army = {'name': 'Brutes', 'faction_id': factions['Starfarers'], 'points_limit': 2000, 'warlord': None,
+            'units': [{'uid': 'b', 'unit_id': units['Shield Brutes'], 'models': 3, 'wargear': {k['Brute shield']: 2}}]}
+    with client.application.app_context():
+        stats = freeze_army(army)['units'][0]['parts'][0]['stats']
+    assert (stats['wounds'], stats['invulnerable_save']) == (3, 4)
+    roster = client.post('/api/armies/price', json=army).get_json()['roster']
+    assert roster[0]['stat_changes'] == {'stats': {'W': -1}, 'invulnerable_save': 4}
