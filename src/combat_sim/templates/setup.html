@@ -49,7 +49,7 @@
         </div>
     </section>
 
-    {% if not hosted %}
+    {% if who.local %}
     <section class="setup-card">
         <h3>Units: use a folder you already have</h3>
         <p>The folder holding <code>Warhammer 40,000.json</code> and the faction catalogues (for example a
@@ -82,21 +82,22 @@
         <label class="setup-row"><input type="checkbox" id="play-setting" {% if show_play %}checked{% endif %}
             onchange="setPlay(this.checked)"> Show Play in the menu</label>
         {% if show_play %}
-        {% if hosted %}
+        {% if not who.local %}
         <p>Online games go through a relay that passes moves between the two players' apps. On a self-hosted copy
-            its address is set when the copy is started (<code>RELAY_URL</code>).</p>
+            its address is set when the copy is started (<code>RELAY_URL</code>), and each player plays under their
+            account's name. Each player chooses whether Play is in their own menu (their Account page).</p>
         {% else %}
         <p>Online games go through a relay that passes moves between the two players' apps. Leave the address
             empty to use the app's own, or enter a relay you host yourself.</p>
-        {% endif %}
         <div class="setup-row">
             <input type="text" id="player-name" class="filter-input" maxlength="40" placeholder="Your name" aria-label="Your name">
-            <input type="url" id="relay-url" class="filter-input" placeholder="https://..." aria-label="Relay address"{% if hosted %} hidden{% endif %}>
+            <input type="url" id="relay-url" class="filter-input" placeholder="https://..." aria-label="Relay address">
             <button class="btn btn-secondary" onclick="saveRelay()">Save</button>
         </div>
         <p>Your name is shown to the other player when you start or join an online game, so each of you
             can see the right person joined.</p>
         <div class="setup-message" id="relay-message"></div>
+        {% endif %}
         {% endif %}
     </section>
 

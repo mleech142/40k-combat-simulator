@@ -11,7 +11,9 @@ Who may do what: the one place the app decides it (docs/hosted-version-scope.md;
 
 A record's owner is ``owner_id``; None means the host's (rows from before the copy had players). The host has no
 extra right to other players' records. On a desktop install (no logins) the one user is the host and owns
-everything, so callers never ask whether the copy is self-hosted to decide access.
+everything. Callers never ask whether the copy is self-hosted: they ask ``principal()`` who is acting (a
+``Desktop``, ``Player`` or ``Visitor``) and what that lets them do, and keep that person's own preferences
+through it (settings.py).
 
 Records go through four calls: ``get(Model, id)`` (to read; None for "not found"), ``get(Model, id, write=True)``
 (to change: "not allowed" with a reason when it can be read but not changed), ``visible(query, Model)`` /
@@ -30,6 +32,7 @@ from urllib.parse import urlsplit
 from flask import abort, current_app, g, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import or_
 
+from . import settings
 from .models import Proposal, SavedArmy, SavedBattlefield, SavedComparison, SavedGame, SavedScenario, User, db
 
 SHARED, PRIVATE, GAME, PROPOSAL = 'shared', 'private', 'game', 'proposal'
@@ -46,24 +49,157 @@ OPEN, PLAYER, HOST, PROPOSABLE, DESKTOP = 'open', 'player', 'host', 'proposable'
 SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS')
 
 
-# --- Who is asking ------------------------------------------------------------------------
+# --- Who is acting: the principal (architecture review, candidate 7) -----------------------------
 
-def hosted():
-    """Whether this copy is self-hosted (logins, several players) rather than a desktop install."""
-    return bool(current_app.config.get('HOSTED'))
+class Principal:
+    """
+    Who is acting on this request, and what that lets them do. Callers ask it instead of whether the copy is
+    self-hosted. Three adapters: `Desktop` (the person at their own install: its host, owning everything),
+    `Player` (a logged-in player of a self-hosted copy) and `Visitor` (not logged in yet).
+
+    - `user`: their account, or None. `is_host`: may change the install (Setup, players, approving proposals).
+    - `shared`: the copy has several players (records have owners; whose they are is shown).
+    - `local`: at the computer the app runs on (native dialogs, paths on it, the relay's address).
+    - `reads` / `writes` (a record), `narrow` (a query, to what they see or with `own` to their own),
+      `owner_id` (for a record they make).
+    - `preferences()` / `set_preferences(**changes)`: their own settings (settings.PREFERENCES); the install's
+      other settings are the host's (settings.py).
+    """
+    user = None
+    is_host = False
+    shared = False
+    local = False
+    owner_id = None
+
+    def reads(self, record):
+        return False
+
+    def writes(self, record):
+        return False
+
+    def narrow(self, query, model, own=False):
+        return query.filter(db.false())
+
+    def preferences(self):
+        return {}
+
+    def set_preferences(self, **changes):
+        raise PermissionError('Log in first.')
+
+    @property
+    def player_name(self):
+        """The name they play under online (shown to the other player), or None."""
+        return self.preferences().get('player_name')
+
+
+class Desktop(Principal):
+    """A desktop install: one person, its host, who owns every record; their preferences are in settings.json."""
+    is_host = True
+    local = True
+
+    def reads(self, record):
+        return True
+
+    def writes(self, record):
+        return True
+
+    def narrow(self, query, model, own=False):
+        return query
+
+    def preferences(self):
+        saved = settings.load_settings(current_app.config['SETTINGS_JSON'])
+        return {key: saved[key] for key in settings.PREFERENCES if key in saved}
+
+    def set_preferences(self, **changes):
+        settings.update_settings(current_app.config['SETTINGS_JSON'], **_preferences_only(changes))
+
+
+class Player(Principal):
+    """A logged-in player of a self-hosted copy: their own records and those POLICY shares. Their preferences are
+    their own (users.preferences); one they haven't set is the install's (as the copy had it before players)."""
+    shared = True
+
+    def __init__(self, user):
+        self.user = user
+        self.is_host = bool(user.is_host)
+        self.owner_id = user.id
+
+    def _owns(self, record):
+        return record.owner_id == self.user.id or (record.owner_id is None and self.is_host)
+
+    def reads(self, record):
+        kind, _ = _rule(type(record))
+        if kind == SHARED or self._owns(record):
+            return True
+        if kind == GAME:
+            return self.user.id in (record.seat_users or [])
+        if kind == PROPOSAL:
+            return self.is_host
+        return False
+
+    def writes(self, record):
+        return self._owns(record)
+
+    def narrow(self, query, model, own=False):
+        kind, _ = _rule(model)
+        if not own and (kind == SHARED or (kind == PROPOSAL and self.is_host)):
+            return query
+        theirs = model.owner_id == self.user.id
+        return query.filter(or_(theirs, model.owner_id.is_(None)) if self.is_host else theirs)
+
+    def preferences(self):
+        install = settings.load_settings(current_app.config['SETTINGS_JSON'])
+        found = {key: install[key] for key in settings.PREFERENCES if key in install}
+        found.update(self.user.preferences or {})
+        found['player_name'] = self.user.name  # Online, a player goes by their account's name
+        return found
+
+    def set_preferences(self, **changes):
+        changes = _preferences_only(changes)
+        changes.pop('player_name', None)
+        saved = dict(self.user.preferences or {})
+        for key, value in changes.items():
+            if value is None:
+                saved.pop(key, None)
+            else:
+                saved[key] = value
+        self.user.preferences = saved
+        db.session.commit()
+
+
+class Visitor(Principal):
+    """Someone on a self-hosted copy who hasn't logged in: only the routes open to all (the gate sees to that)."""
+    shared = True
+
+
+def _preferences_only(changes):
+    unknown = set(changes) - set(settings.PREFERENCES)
+    if unknown:
+        raise ValueError(f'Not a player preference: {", ".join(sorted(unknown))}')
+    return changes
+
+
+def principal():
+    """Who is acting on this request (worked out once a request, after the gate has read the login)."""
+    found = g.get('principal')
+    if found is None or (current_app.config.get('HOSTED') and found.user is not getattr(g, 'user', None)):  # Logged in or out since
+        if not current_app.config.get('HOSTED'):
+            found = Desktop()
+        else:
+            user = getattr(g, 'user', None)
+            found = Player(user) if user is not None else Visitor()
+        g.principal = found
+    return found
 
 
 def viewer():
     """The logged-in player of this request on a self-hosted copy; None on a desktop install or before login."""
-    return getattr(g, 'user', None)
+    return principal().user
 
 
 def is_host():
     """Whether the request comes from the host (always, on a desktop install)."""
-    if not hosted():
-        return True
-    user = viewer()
-    return bool(user and user.is_host)
+    return principal().is_host
 
 
 # --- Records --------------------------------------------------------------------------------
@@ -75,31 +211,12 @@ def _rule(model):
         raise LookupError(f'{model.__name__} has no access rule in access.POLICY') from None
 
 
-def _owns(record, user):
-    return record.owner_id == user.id or (record.owner_id is None and user.is_host)
-
-
 def can_read(record):
-    if not hosted():
-        return True
-    user = viewer()
-    if user is None:
-        return False
-    kind, _ = _rule(type(record))
-    if kind == SHARED or _owns(record, user):
-        return True
-    if kind == GAME:
-        return user.id in (record.seat_users or [])
-    if kind == PROPOSAL:
-        return user.is_host
-    return False
+    return principal().reads(record)
 
 
 def can_write(record):
-    if not hosted():
-        return True
-    user = viewer()
-    return bool(user) and _owns(record, user)
+    return principal().writes(record)
 
 
 def get(model, ident, write=False):
@@ -115,38 +232,27 @@ def get(model, ident, write=False):
 
 def visible(query, model):
     """`query` narrowed to the records this player can see (games by owner here; `listed` adds seats)."""
-    if not hosted():
-        return query
-    user = viewer()
-    kind, _ = _rule(model)
-    if kind == SHARED or (kind == PROPOSAL and user.is_host):
-        return query
-    mine = model.owner_id == user.id
-    return query.filter(or_(mine, model.owner_id.is_(None)) if user.is_host else mine)
+    return principal().narrow(query, model)
 
 
 def mine(query, model):
     """`query` narrowed to this player's own records (a shared one included only if theirs), e.g. "my copy of
     this game"."""
-    if not hosted():
-        return query
-    user = viewer()
-    own = model.owner_id == user.id
-    return query.filter(or_(own, model.owner_id.is_(None)) if user.is_host else own)
+    return principal().narrow(query, model, own=True)
 
 
 def listed(model, query=None):
     """Every record of `model` this player can see, as a list (the games they're seated in included)."""
     query = model.query if query is None else query
-    if _rule(model)[0] == GAME and hosted():
-        return [r for r in query if can_read(r)]
+    who = principal()
+    if _rule(model)[0] == GAME and who.shared:
+        return [r for r in query if who.reads(r)]
     return visible(query, model).all()
 
 
 def stamp():
     """The owner for a record this player makes (None on a desktop install)."""
-    user = viewer()
-    return user.id if hosted() and user else None
+    return principal().owner_id
 
 
 def owner_of(record):
@@ -217,6 +323,7 @@ def register(app):
     def gate():
         from .accounts import load_session_user  # logins live in accounts.py
         g.user = None
+        g.pop('principal', None)
         writing = request.method not in SAFE_METHODS
         if writing and cross_site():
             return jsonify({'error': 'Refused: that request came from another site.'}), 403
@@ -229,7 +336,7 @@ def register(app):
                 return jsonify({'error': 'Log in first.', 'login': True}), 401
             no_host = User.query.count() == 0
             return redirect('/welcome' if no_host else url_for('login_page', next=request.full_path.rstrip('?')))
-        if label == DESKTOP:
+        if label == DESKTOP and not principal().local:
             return refused('That is turned off on a self-hosted copy (hosted mode).')
         if label == HOST and not g.user.is_host:
             return refused('Only the host can do that.')

@@ -29,7 +29,9 @@ The first visit to a new copy asks for the **host**: the **setup code** the copy
 a name, an email and a password. The host downloads the game
 data on the Setup page, and adds the other players on the **Players** page (name and email). Each player gets a
 link (it works once, for 7 days) to send them, where they choose their own password. Forgotten passwords: the host
-makes a new link. Players can use everything else but can't open Setup or the Players page or import app data.
+makes a new link. Players can use everything else but can't open Setup or the Players page or import app data. Each
+player chooses whether Play (experimental) is in their own menu, on their **Account** page; until they do, they
+see what the host chose on the Setup page before the copy had players.
 
 **Changing the shared data:** custom factions, units, weapons, rules and stratagems (and how the maths reads
 Wahapedia's) are shared by everyone. A player's change on the Data tab is sent to the host as a **proposal**; the

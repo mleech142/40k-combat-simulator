@@ -713,6 +713,7 @@ class User(db.Model):
     join_expires = db.Column(db.DateTime, nullable=True)
     # Removed by the host: the row stays so its ID is never given to another player (saved records refer to it)
     removed = db.Column(db.Boolean, nullable=True)
+    preferences = db.Column(JSON, nullable=True)  # Their own settings (settings.PREFERENCES; access.Player)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):

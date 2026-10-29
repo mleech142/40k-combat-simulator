@@ -151,7 +151,7 @@ def test_players_cant_do_the_hosts_jobs(host):
     assert player.post('/api/players', json={'name': 'Sneaky', 'email': 's@example.com'}).status_code == 403
     assert player.post('/api/bsdata/reimport').status_code == 403
     assert player.post('/api/wahapedia/download').status_code == 403
-    assert player.post('/api/play/setting', json={'enabled': True}).status_code == 403
+    assert player.post('/api/play/relay', json={'name': 'x'}).status_code == 403
     assert player.post('/api/data/import', json=APP_DATA).status_code == 403
     assert player.post('/api/data/factions', json={'name': 'Mine'}).status_code == 202  # a proposal for the host
     # Reading the data and using the app is fine
@@ -191,3 +191,12 @@ def test_no_login_on_your_own_computer(make_client, monkeypatch):
     assert client.get('/api/armies').status_code == 200
     assert client.get('/welcome').status_code == 404
     assert client.post('/api/data/factions', json={'name': 'Mine'}).status_code != 403
+
+
+def test_each_player_chooses_whether_play_is_in_their_menu(host):
+    player = player_client(host)
+    assert 'href="/play"' not in player.get('/armies').get_data(as_text=True)
+    assert player.post('/api/play/setting', json={'enabled': True}).status_code == 200
+    assert 'href="/play"' in player.get('/armies').get_data(as_text=True)
+    assert 'href="/play"' not in host.get('/armies').get_data(as_text=True)  # The host's menu is the host's
+    assert 'id="play-setting"' in player.get('/account').get_data(as_text=True)

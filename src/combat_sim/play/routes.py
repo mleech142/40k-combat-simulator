@@ -286,11 +286,10 @@ def register_play_routes(app):
         return render_template('play.html')
 
     @app.route('/api/play/setting', methods=['POST'])
-    @host_only
     def api_play_setting():
-        """Show or hide Play in the menu (Setup page)."""
+        """Show or hide Play in your menu (the Setup page; a self-hosted copy's players, their Account page)."""
         enabled = bool((request.get_json(silent=True) or {}).get('enabled'))
-        update_settings(current_app.config['SETTINGS_JSON'], show_play=True if enabled else None)
+        access.principal().set_preferences(show_play=enabled)
         return jsonify({'enabled': enabled})
 
     @app.route('/api/play/relay', methods=['GET', 'POST'])
@@ -300,17 +299,16 @@ def register_play_routes(app):
         the name you play under ('name', shown to the other player)."""
         if request.method == 'POST':
             data = request.get_json(silent=True) or {}
-            changes = {}
-            if 'url' in data and access.hosted():
+            if 'url' in data and not access.principal().local:
                 return jsonify({'error': "The relay's address is set with RELAY_URL on a self-hosted copy (hosted mode)."}), 403
             if 'url' in data:
                 url = str(data.get('url') or '').strip().rstrip('/')
                 if url and not url.startswith(('https://', 'http://127.0.0.1', 'http://localhost')):
                     return jsonify({'error': 'The relay\'s address starts with https://'}), 400
-                changes['relay_url'] = url or None
-            if 'name' in data:
-                changes['player_name'] = ''.join(c for c in str(data.get('name') or '') if c not in '<>"\'`' and ord(c) >= 32).strip()[:40] or None
-            update_settings(current_app.config['SETTINGS_JSON'], **changes)
+                update_settings(current_app.config['SETTINGS_JSON'], relay_url=url or None)  # The install's
+            if 'name' in data:  # Yours (a self-hosted copy's players go by their account's name)
+                name = ''.join(c for c in str(data.get('name') or '') if c not in '<>"\'`' and ord(c) >= 32).strip()[:40]
+                access.principal().set_preferences(player_name=name or None)
         return jsonify({'url': relay_url(), 'default': DEFAULT_RELAY_URL, 'name': player_name()})
 
     @app.route('/api/play/games')
@@ -352,7 +350,7 @@ def register_play_routes(app):
                 saved = None
             if saved is None:
                 return jsonify({'error': 'That army is no longer saved.'}), 400
-            if access.hosted() and (access.owner_of(saved) != seat_users[side] if seat_users else not access.can_write(saved)):
+            if (access.owner_of(saved) != seat_users[side] if seat_users else not access.can_write(saved)):
                 whose = 'theirs' if seat_users and side != seat else 'yours'
                 return jsonify({'error': f"{saved.name} isn't {whose}: each player plays one of their own armies "
                                          '(copy one on the Armies page to make it yours).'}), 400
@@ -381,7 +379,7 @@ def register_play_routes(app):
         if opponent in (None, ''):
             return None, None
         user = access.viewer()
-        if not access.hosted() or user is None:
+        if user is None:  # A desktop install has no other players
             return None, 'Only a self-hosted copy has other players.'
         other = db.session.get(User, opponent) if isinstance(opponent, int) and not isinstance(opponent, bool) else None
         if other is None or other.id == user.id or other.password_hash is None:
@@ -396,7 +394,7 @@ def register_play_routes(app):
     def api_opponents():
         """The other players of a self-hosted copy, to play against there (empty elsewhere)."""
         user = access.viewer()
-        if not access.hosted() or user is None:
+        if user is None:  # A desktop install has no other players
             return jsonify([])
         others = User.query.filter(User.id != user.id, User.password_hash.isnot(None)).order_by(User.name_key)
         return jsonify([{'id': u.id, 'name': u.name} for u in others])

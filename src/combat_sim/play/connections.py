@@ -70,10 +70,7 @@ def relay():
 
 def player_name():
     """The name this player gives online (Setup page; on a self-hosted copy, their account's), or None."""
-    if access.hosted():
-        user = access.viewer()
-        return user.name if user else None
-    return load_settings(current_app.config['SETTINGS_JSON']).get('player_name')
+    return access.principal().player_name
 
 
 def clean_code(text):

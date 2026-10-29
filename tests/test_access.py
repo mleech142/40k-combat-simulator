@@ -142,9 +142,48 @@ def test_the_desktop_install_is_its_own_host(make_client, monkeypatch):
     app = make_app(make_client, monkeypatch, hosted=False)
     with app.test_request_context():
         record = SavedScenario(name='x', attacker_config={}, defender_config={}, battle_conditions={}, owner_id=None)
-        assert access.is_host() and not access.hosted()
+        who = access.principal()
+        assert isinstance(who, access.Desktop) and who.is_host and who.local and not who.shared
         assert access.can_read(record) and access.can_write(record)
         assert access.stamp() is None
+
+
+# --- The principal: who is acting -----------------------------------------------------------
+
+def test_each_kind_of_person_is_its_own_adapter(copy):
+    app, users, records = copy
+    with app.test_request_context():
+        visitor = access.principal()
+        assert isinstance(visitor, access.Visitor) and not visitor.is_host and not visitor.local
+        assert not visitor.reads(records['army']) and visitor.owner_id is None
+        g.user = db.session.get(User, users['Pat'])
+        pat = access.principal()  # Worked out again once the login is read
+        assert isinstance(pat, access.Player) and pat.shared and not pat.local and not pat.is_host
+        assert pat.owner_id == users['Pat'] and pat.player_name == 'Pat'
+
+
+def test_preferences_are_each_players_own_falling_back_to_the_installs(copy):
+    from combat_sim.settings import update_settings
+    app, users, _ = copy
+    with app.test_request_context():
+        update_settings(app.config['SETTINGS_JSON'], show_play=True)  # As the copy had it before players
+        g.user = db.session.get(User, users['Pat'])
+        assert access.principal().preferences()['show_play'] is True
+        access.principal().set_preferences(show_play=False, player_name='Someone else')
+        assert access.principal().preferences() == {'show_play': False, 'player_name': 'Pat'}  # Their account's name
+        g.user = db.session.get(User, users['Sam'])
+        assert access.principal().preferences()['show_play'] is True  # Pat's choice is Pat's
+        with pytest.raises(ValueError):
+            access.principal().set_preferences(bsdata_dir='/elsewhere')  # The install's, not a player's
+
+
+def test_a_desktop_installs_preferences_are_in_its_settings_file(make_client, monkeypatch):
+    from combat_sim.settings import load_settings
+    app = make_app(make_client, monkeypatch, hosted=False)
+    with app.test_request_context():
+        access.principal().set_preferences(show_play=True, player_name='Me')
+        assert access.principal().preferences() == {'show_play': True, 'player_name': 'Me'}
+        assert load_settings(app.config['SETTINGS_JSON'])['player_name'] == 'Me'
 
 
 # --- Start-up checks -------------------------------------------------------------------------

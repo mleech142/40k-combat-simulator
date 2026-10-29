@@ -85,6 +85,12 @@
             (the host sets one up: see self-hosting.md).</p>{% endif %}
     </section>
     <section class="setup-card">
+        <h3>Play (experimental)</h3>
+        <p>Full games against another player on a top-down board. Still being built: turn it on to try what's there so far.</p>
+        <label class="setup-row"><input type="checkbox" id="play-setting" {% if show_play %}checked{% endif %}>
+            Show Play in my menu</label>
+    </section>
+    <section class="setup-card">
         <h3>Password</h3>
         {{ throwaway }}
         <form class="account-form" data-api="/api/auth/account" data-reset="1">
@@ -169,6 +175,10 @@ document.querySelectorAll('.account-form').forEach(formEl => {
 });
 
 document.getElementById('notify-setting')?.addEventListener('change', event => post('/api/auth/account', {notify: event.target.checked}));
+document.getElementById('play-setting')?.addEventListener('change', async event => {
+    await post('/api/play/setting', {enabled: event.target.checked});
+    location.reload();  // The menu changes
+});
 
 document.getElementById('logout-btn')?.addEventListener('click', async () => {
     await post('/api/auth/logout');

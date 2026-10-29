@@ -70,14 +70,15 @@ def create_app(config=None):
 
     @app.context_processor
     def inject_page_globals():
+        who = access.principal()  # Pages ask who is acting, never whether the copy is self-hosted
         return {'boot_id': app.config['BOOT_ID'], 'app_version': __version__,
                 'bsdata_label': reference.label(app),
-                'hosted': app.config['HOSTED'],
-                'user': access.viewer(),
-                'can_setup': access.is_host(),
+                'who': who,
+                'user': who.user,
+                'can_setup': who.is_host,
                 'pending_proposals': (Proposal.query.filter_by(status='pending').count()
-                                      if app.config['HOSTED'] and access.is_host() else 0),
-                'show_play': bool(load_settings(app.config['SETTINGS_JSON']).get('show_play')),
+                                      if who.shared and who.is_host else 0),
+                'show_play': bool(who.preferences().get('show_play')),
                 'wahapedia_label': reference.wahapedia_label(app)}
 
     if config:
@@ -542,7 +543,7 @@ def register_routes(app):
             'label': reference.label(app),
             'download': load_settings(app.config['SETTINGS_JSON']).get('download'),
             'download_folder': app.config['DOWNLOAD_DIR'],
-            'hosted': app.config['HOSTED'],
+            'hosted': not access.principal().local,  # No folder dialog or paths
             'default_folder': app.config['DEFAULT_BSDATA_DIR'],
             'wahapedia': wahapedia_status(bool(request.args.get('report'))),
         }))
@@ -615,7 +616,7 @@ def register_routes(app):
     def api_bsdata_folder():
         """Use the BSData folder {'path'} (null = back to the default), if it loads."""
         path = (request.get_json() or {}).get('path')
-        if path and access.hosted():
+        if path and not access.principal().local:
             return hosted_refusal('Choosing a BSData folder by path')
         settings_file = app.config['SETTINGS_JSON']
         previous = load_settings(settings_file).get('bsdata_dir')
@@ -1465,7 +1466,7 @@ def register_routes(app):
     def saved_army_response(saved):
         """A saved army with its prices and problems (its units priced too)."""
         army = saved.to_dict()
-        whose = access.owner_names().get(saved.owner_id) if access.hosted() else None
+        whose = access.owner_names().get(saved.owner_id) if access.principal().shared else None
         return jsonify(dict(army, **armies.price_army(army), mine=access.can_write(saved), owner=whose))
 
 
@@ -1474,7 +1475,7 @@ def register_routes(app):
         """Saved armies, newest first, with their faction and points. On a self-hosted copy, every player's: 'mine'
         says which are yours, 'owner' whose the others are (read-only; a copy is yours)."""
         names = {f.id: f.name for f in Faction.query}
-        players = access.owner_names() if access.hosted() else {}
+        players = access.owner_names() if access.principal().shared else None
         out = []
         for saved in SavedArmy.query.order_by(SavedArmy.updated_at.desc(), SavedArmy.id.desc()):
             priced = armies.price_army(saved.to_dict())
@@ -1482,7 +1483,7 @@ def register_routes(app):
                         'detachment': priced['detachment'], 'total': priced['total'],
                         'points_limit': saved.points_limit, 'unit_count': len(saved.units or []),
                         'problem_count': len(priced['problems']), 'mine': access.can_write(saved),
-                        'owner': players.get(saved.owner_id) if access.hosted() else None})
+                        'owner': players.get(saved.owner_id) if players is not None else None})
         out.sort(key=lambda a: not a['mine'])  # Yours first
         return jsonify(out)
 

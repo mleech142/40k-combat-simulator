@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="app-boot-id" content="{{ boot_id }}">
-    {% if hosted %}<meta name="app-hosted" content="1">{% endif %}
+    {% if who.shared %}<meta name="app-hosted" content="1">{% endif %}
     <title>{% block title %}40K Combat Simulator{% endblock %}</title>
     <script src="{{ url_for('static', filename='vendor/plotly-2.27.0.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-free-7.3.1/css/fontawesome.min.css') }}">
@@ -19,7 +19,7 @@
             <h1><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> 40K Combat Simulator</h1>
         </a>
         <nav class="header-nav">
-            {% if not hosted or user %}
+            {% if not who.shared or user %}
             <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}"><i class="fa-solid fa-dice-d6" aria-hidden="true"></i> Simulator</a>
             <a href="/analytics" class="nav-link {% if request.path == '/analytics' %}active{% endif %}"><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Analytics</a>
             <a href="/armies" class="nav-link {% if request.path.startswith('/armies') %}active{% endif %}"><i class="fa-solid fa-chess-rook" aria-hidden="true"></i> Armies</a>
