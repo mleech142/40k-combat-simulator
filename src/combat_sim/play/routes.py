@@ -4,7 +4,8 @@ log (SavedGame); its state is always their replay, so a game reads the same howe
 
 Changing a game (actions, Undo, the other player's moves) is the game session's (session.py), and what differs
 between hot-seat, game-file, relay and same-copy games is the game's connection's (connections.py): these routes
-turn web requests into their calls and their results into answers, and add what the board needs to draw.
+turn web requests into their calls and their results into answers. What the board draws a game from is the
+board view's (view.py), next to the engine.
 """
 
 import json
@@ -14,25 +15,19 @@ import uuid
 
 from flask import Response, current_app, jsonify, render_template, request
 
-from .. import __version__, armies, contagion
+from .. import __version__, access, armies, mail
+from ..access import host_only
 from ..match_view import split_abilities
 from ..models import SavedArmy, SavedBattlefield, SavedGame, Unit, User, db
-from . import battlefields, game_file, mission_state, missions, relay_client, tactical
+from ..settings import update_settings
+from . import battlefields, game_file, mission_state, missions, relay_client, view
 from .connections import (DEFAULT_RELAY_URL, RELAY, Refused, clean_code, connect, game_data, kind_of, player_name,
                           put_online, relay, relay_url)
-from .seats import waiting_on
+from .game import ActionError, charge_options, fight_options, measure, shooting_options
+from .geometry import FOOTPRINTS, footprint_corners
 from .session import (CLOSED, MOVED_ON, NOT_NOW, NOT_YOURS, REFUSED, RELAY_REFUSED, UNREACHABLE, GameSession, Notifier,
                       forget, needs_update)
-from ..settings import update_settings
-from .. import access
-from ..access import host_only
-from .. import mail
-from .game import (MANUAL_EFFECTS, MARKER_MM, OBJECTIVE_RANGE, ActionError, allocation_groups, can_fly, charge_options,
-                   deployment_zone, fight_options, measure, move_characteristic, objective_control, objectives_in_range, outline, ready_units,
-                   disembark_options, embark_options, infiltrators, ingress_rules, scouts, rerollable, score, shooting_options, terrain_areas, window_options,
-                   afflictions, contagion_ranges, grant_options, has_contagion)
-from .geometry import BOARD_DEPTH, BOARD_WIDTH, FOOTPRINTS, footprint_corners
-from .snapshot import freeze_army, rule_texts
+from .snapshot import freeze_army
 
 
 class MailNotifier(Notifier):
@@ -78,41 +73,13 @@ def game_response(session, state=None, **extra):
                         'uid': saved.uid, 'seat': session.seat, 'players': [a and a['name'] for a in saved.armies],
                         'connection': session.connection.status(), 'can_undo': False,
                         'app_version': saved.app_version, 'needs_update': needs_update(saved),
-                        'options': pending_summary(saved.pending), **extra})
+                        'options': view.pending_summary(saved.pending), **extra})
     state = session.state() if state is None else state
-    afflicted = afflictions(state)
     return jsonify({**extra, 'id': saved.id, 'name': saved.name, 'events': saved.events or [], 'state': state,
-                    'uid': saved.uid, 'seat': session.seat, 'waiting_on': waiting_on(state),
+                    'uid': saved.uid, 'seat': session.seat,
                     'connection': session.connection.status(), 'can_undo': session.can_undo(state),
                     'app_version': saved.app_version, 'needs_update': needs_update(saved),
-                    'board': {'width': BOARD_WIDTH, 'depth': BOARD_DEPTH},
-                    'zones': [deployment_zone(state, p) for p in (0, 1)],
-                    'terrain': [{**piece, 'points': [list(pt) for pt in shape.points]} for piece, shape in terrain_areas(state)],
-                    'outlines': {u['id']: [outline(p) for p in u['parts']] for u in state['units']},
-                    'moves': {u['id']: [move_characteristic(p, afflicted.get(u['id'])) for p in u['parts']]
-                              for u in state['units']},
-                    'fly': [u['id'] for u in state['units'] if can_fly(u)],
-                    'allocation': {u['id']: allocation_groups(u) for u in state['units'] if len(allocation_groups(u)) > 1},
-                    'score': score(state),
-                    'ready': ready_units(state),
-                    'reaction': window_options(state),
-                    'ingress': [ingress_rules(state, p) for p in (0, 1)],
-                    'scouts': {u['id']: scouts(u, state) for u in state['units'] if scouts(u, state)},
-                    'embark': embark_options(state), 'disembark': disembark_options(state),
-                    'infiltrators': [u['id'] for u in state['units'] if infiltrators(u)],
-                    # Death Guard's Nurgle's Gift: Afflicted units, Contagion Ranges, the Plagues; Verminous Haze
-                    'afflicted': afflicted,
-                    'contagion': {u['id']: ranges for u in state['units'] if (ranges := contagion_ranges(state, u))},
-                    'plagues': {'players': [p for p in (0, 1) if has_contagion(state, p)],
-                                'choices': [{'key': k, **v} for k, v in contagion.PLAGUES.items()]},
-                    'grants': [grant_options(state, p) for p in (0, 1)],
-                    'rerollable': rerollable(state, (saved.events or [None])[-1]),
-                    'objective_oc': {o['id']: objective_control(state, o) for o in state['objectives']},
-                    'unit_objectives': {u['id']: objectives_in_range(state, u) for u in state['units']},
-                    'objective_size': {'marker_mm': MARKER_MM, 'range': OBJECTIVE_RANGE},
-                    'manual_effects': [{'key': k, 'name': n, 'side': side} for k, (n, side, _) in MANUAL_EFFECTS.items()],
-                    'mission': mission_response(state), 'twist': twist_response(state),
-                    'texts': rule_texts(saved.armies)})
+                    **view.board(state, saved.armies, (saved.events or [None])[-1])})
 
 
 MAX_IMPORT = 10 * 1024 * 1024  # Bytes: the largest game file opened
@@ -126,64 +93,6 @@ def read_seat(value):
     if seat not in (0, 1):
         raise ValueError(seat)
     return seat
-
-
-def mission_response(state):
-    """The Mission panel's data: both primaries and each player's secondaries (just 'chosen' until both
-    have chosen) with their lines and timings, what each line would score now, VP and the caps, the Fixed
-    cards to choose from, and Punishment's condemned units and choice; None without missions."""
-    mission = state.get('mission')
-    if not mission:
-        return None
-
-    def described(card):
-        return {'key': card['key'], 'name': card['name'],
-                'lines': [{'id': entry['id'], 'text': entry['text'], 'timing': missions.timing(entry),
-                           'needs': entry['needs'], 'either': entry['either'], 'vp': entry['vp'],
-                           'each': missions.scores_each(entry), 'turn_cap': entry['turn_cap']} for entry in card['lines']]}
-
-    # Each player's own force disposition (a twist can give them another disposition's primary)
-    primaries = [dict(described(missions.primary(key)),
-                      disposition=state['players'][p].get('disposition') or missions.DISPOSITIONS[missions.primary(key)['disposition']])
-                 for p, key in enumerate(mission['primaries'])]
-    chosen = mission.get('secondaries') or {}
-    revealed = all(chosen.get(str(p)) for p in (0, 1))
-    secondaries = []
-    for player in (0, 1):
-        mine = chosen.get(str(player))
-        if not mine:
-            secondaries.append(None)
-        elif mine['mode'] == 'tactical':
-            deck = tactical.mine(state, player) or {}
-            secondaries.append({'mode': 'tactical', 'chosen': True, 'deck': len(deck.get('deck', [])),
-                                'discarded': len(deck.get('discarded', [])), 'redraw_used': deck.get('redraw_used', False),
-                                'beacon': deck.get('beacon'), 'tempting': deck.get('tempting'), 'guards': deck.get('guards', {}),
-                                'cards': [dict(described(missions.tactical(c['key'])), hold=c['hold'], discard=c['discard'],
-                                               redraw=c['redraw'], short=c['key'])
-                                          for c in deck.get('active', [])] if revealed else None})
-        else:
-            secondaries.append({'mode': mine['mode'], 'chosen': True,
-                                'cards': [described(missions.secondary(k)) for k in mine['cards']] if revealed else None})
-    now = []
-    for player, key in enumerate(mission['primaries']):
-        context = mission_state.context(state, player)
-        keys = [key] + ((chosen.get(str(player)) or {}).get('cards', []) if revealed else [])
-        keys += [missions.TACTICAL_PREFIX + k for k in tactical.active_keys(state, player)] if revealed else []
-        now.append({line_id: {'vp': vp, 'how': how} for k in keys for line_id, (vp, how) in missions.preview(k, context).items()})
-    return {'primaries': primaries, 'secondaries': secondaries, 'now': now,
-            'secondary_options': [described(missions.secondary(k)) for k in missions.SECONDARIES],
-            'vp': [dict(mission_state.new_vp(), **(p.get('vp') or {})) for p in state['players']],
-            'caps': {'round': missions.PRIMARY_ROUND_CAP, 'game': missions.PRIMARY_GAME_CAP},
-            'secondary_caps': {'round': missions.SECONDARY_ROUND_CAP, 'game': missions.SECONDARY_GAME_CAP,
-                               'card': missions.FIXED_CARD_CAP, 'cards': missions.FIXED_CARDS},
-            'condemned': mission['condemned'], 'choice': mission['choice'], 'condemn_options': mission_state.condemn_options(state),
-            'markers': mission.get('markers', []), 'actions': mission.get('actions', []),
-            'beacon_options': tactical._own_units(state, mission['choice']['player'])
-            if (mission.get('choice') or {}).get('kind') == 'beacon' else None,
-            'tempting_options': tactical.tempting_options(state, mission['choice']['for'])
-            if (mission.get('choice') or {}).get('kind') == 'tempting' else None,
-            'locate_options': mission_state.locate_options(state, mission['choice']['player'])
-            if (mission.get('choice') or {}).get('kind') == 'locate' else None}
 
 
 def finish_setup(frozen, options):
@@ -213,18 +122,6 @@ def finish_setup(frozen, options):
     return {'battlefield': battlefield or None, 'twist': twist, 'name': name}, None
 
 
-def pending_summary(pending):
-    """What a game waiting for the other player's army will be, for the page: {'battlefield', 'twist'} as names."""
-    if not pending:
-        return None
-    battlefield = pending.get('battlefield')
-    twist = pending.get('twist')
-    twist_key = twist.get('key') if isinstance(twist, dict) else twist
-    return {'battlefield': ('Their pairing\'s Event Companion layout' if isinstance(battlefield, str)
-                            else (battlefield or {}).get('name') or 'The default map'),
-            'twist': 'Random' if twist_key == 'random' else missions.TWISTS[twist_key][0] if twist_key in missions.TWISTS else None}
-
-
 def pick_twist(asked, missions_on, setup):
     """(the game's Twist {'key', 'primary'} or None, an error or None) from the new-game form's choice: a
     twist's key or 'random', with Mirrored World's primary (one of its five, or 'roll')."""
@@ -248,14 +145,6 @@ def pick_twist(asked, missions_on, setup):
             return None, "Mirrored World's roll happens during setup."
         return {'key': key, 'primary': primary}, None
     return {'key': key}, None
-
-
-def twist_response(state):
-    twist = state.get('twist')
-    if not twist:
-        return None
-    name, text, _ = missions.TWISTS[twist['key']]
-    return dict(twist, name=name, text=text)
 
 
 def pairing_layouts(first, second):
@@ -596,7 +485,7 @@ def register_play_routes(app):
                 game_file.check_invite(invited['game'], seat)
                 theirs = invited['game']['armies'][1 - seat]
                 if data.get('army') is None:
-                    return jsonify({'needs_army': True, 'code': code, 'options': pending_summary(invited['game']['pending']),
+                    return jsonify({'needs_army': True, 'code': code, 'options': view.pending_summary(invited['game']['pending']),
                                     'opponent': {'army': theirs['name'], 'faction': theirs.get('faction'),
                                                  'disposition': theirs.get('disposition'), 'player': invited['names'][1 - seat]}})
                 completed, error = complete_invite(invited['game'], seat, data['army'])

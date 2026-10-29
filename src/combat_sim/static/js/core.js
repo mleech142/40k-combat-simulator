@@ -968,17 +968,6 @@
     }
 
     /**
-     * The stratagems and rules to offer in a phase: those for it ('Shooting', 'Fighting' or 'Both'),
-     * and those the app has no phase for (it reads phases only for shooting and fighting).
-     */
-    function playUsableNow(entries, phase) {
-        const BATTLE = ['command', 'movement', 'shooting', 'charge', 'fight'];
-        if (!BATTLE.includes(phase)) return [];
-        const fits = { shooting: ['Shooting', 'Both'], fight: ['Fighting', 'Both'] }[phase] || [];
-        return entries.filter(e => !e.phase || fits.includes(e.phase));
-    }
-
-    /**
      * The phase track above the board: each phase of a player's turn with its icon and whether it is
      * 'done', 'current' or 'next' this turn ('step' names the Fight phase's step while in it).
      */
@@ -1117,20 +1106,6 @@
         const how = entry.how ? ` (${entry.how})` : '';
         const cut = entry.vp < entry.asked ? ` (${entry.asked}VP, cut by the cap)` : '';
         return `${players[entry.player].name} · ${entry.mission}: ${entry.text}${how}: ${entry.vp}VP${cut}`;
-    }
-
-    /** Play: a player's VP ({primary, rounds, battle, adjust}) this round and in all against the caps. */
-    function playVpCaps(vp, roundNumber, caps) {
-        const round = (vp.rounds || {})[roundNumber] || 0;
-        return { total: vp.primary + (vp.adjust || 0), round, roundCap: caps.round, primary: vp.primary,
-                 gameCap: caps.game, roundFull: round >= caps.round };
-    }
-
-    /** Play: a player's secondary VP ({secondary, secondary_rounds}) this round and in all against the caps. */
-    function playSecondaryCaps(vp, roundNumber, caps) {
-        const round = (vp.secondary_rounds || {})[roundNumber] || 0;
-        return { total: vp.secondary || 0, round, roundCap: caps.round, gameCap: caps.game, roundFull: round >= caps.round,
-                 cardCap: caps.card };
     }
 
     /** Play: an operation marker's letter on the board and what it marks, by its tag. */
@@ -1302,7 +1277,7 @@
 
     return {
         safeNextPath,
-        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUsableNow, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playVpCaps, playSecondaryCaps, playSetupPrompt, playSeatNotice, playWaitingNotice, playOnline, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playInside, playFootprintPoints, playBattlefieldGroups, playSnap,
+        playFormation, playPivot, playTurn, playFit, playMoveLabel, playPath, playPathLength, playRouteBends, playZoom, playPan, playUnitCard, playUnitTags, playLineVp, playLogTurns, playDieFace, playResult, playMarker, playVpLine, playSetupPrompt, playSeatNotice, playWaitingNotice, playOnline, playInviteText, playInviteCode, PLAY_MATS, PLAY_MAT_STRENGTH, playMat, playRollOff, playPhaseTrack, playDiceGroups, playLuck, playAttackSummary, playShotLines, playCentre, playBounds, playInside, playFootprintPoints, playBattlefieldGroups, playSnap,
         escapeHtml, truncate, formatMetricValue, getHeatColor, keywordHintHtml,
         copyLabel, defenderLabel, weaponVisible, pointsFor, pointsLabel, scaleUnitSize,
         simulatorWeapons, matchupWeaponEntry, matchupWeapons, detachmentOptionsHtml, detachmentKeys, detachmentSummary,

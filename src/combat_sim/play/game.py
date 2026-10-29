@@ -772,6 +772,47 @@ def _stratagem(state, action):
     return {'stratagem': entry['name'], 'cp': entry['cp'], 'player': player, 'unit': unit['id'], 'key': entry['key']}
 
 
+PHASE_FITS = {'shooting': ('Shooting', 'Both'), 'fight': ('Fighting', 'Both')}  # The phases the app reads for effects
+
+
+def usable_now(state):
+    """
+    Each player's stratagems and rules to offer in this phase, with whether `_stratagem` would take them now: those
+    for the phase ('Shooting', 'Fighting' or 'Both') and those the app has no phase for. Each is the entry with
+    'ready' and, when not, 'why'. Which unit it goes on is the player's choice (stratagem_targets). Outside the
+    battle's phases: none.
+    """
+    turn = state['turn']
+    if turn['phase'] not in PHASES:
+        return [[], []]
+    fits = PHASE_FITS.get(turn['phase'], ())
+    out = []
+    for owner in state['players']:
+        used, offered = owner.get('used') or {}, []
+        for entry in owner.get('stratagems', []):
+            if entry.get('phase') and entry['phase'] not in fits:
+                continue
+            why = None
+            if entry['kind'] == 'stratagem':
+                reaction = next((k for k, name in REACTIONS.items() if entry['name'].lower() == name.lower()), None)
+                if reaction:
+                    why = f'Used when the game offers it: {REACTION_TIMING[reaction]}.'
+                elif owner.get('cp', 0) < entry['cp']:
+                    why = f'Costs {entry["cp"]} CP; {owner["name"]} has {owner.get("cp", 0)} CP.'
+                elif used.get(entry['key']) == _phase_id(turn):
+                    why = 'Already used this phase (once per phase).'
+            offered.append(dict(entry, ready=why is None, **({'why': why} if why else {})))
+        out.append(offered)
+    return out
+
+
+def stratagem_targets(state):
+    """The units a stratagem can target now: not battle-shocked, and not targeted by one this phase (core rules 15.01)."""
+    phase = _phase_id(state['turn'])
+    return [u['id'] for u in state['units']
+            if not (u.get('status') or {}).get('shocked') and (u.get('status') or {}).get('stratagem_phase') != phase]
+
+
 def _rule(state, action):
     """Switch on one of the army's rules for a unit (free) for this phase, this turn or the rest of the game."""
     _in_battle(state)

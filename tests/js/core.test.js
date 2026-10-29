@@ -660,15 +660,6 @@ test('playFormation puts the last row (leaders) at the back for a player on the 
     assert.deepEqual(Core.playFormation([1, 1, 1, 1, 1, 2], 20, 38, true).map(p => p.y), [36.95, 36.95, 36.95, 36.95, 36.95, 39.05]);
 });
 
-test('playUsableNow offers stratagems for the current phase (any phase when the app has none for it)', () => {
-    const entries = [{ name: 'Aim', phase: 'Shooting' }, { name: 'Strike', phase: 'Fighting' },
-                     { name: 'Both', phase: 'Both' }, { name: 'Anytime', phase: null }];
-    assert.deepEqual(Core.playUsableNow(entries, 'shooting').map(e => e.name), ['Aim', 'Both', 'Anytime']);
-    assert.deepEqual(Core.playUsableNow(entries, 'fight').map(e => e.name), ['Strike', 'Both', 'Anytime']);
-    assert.deepEqual(Core.playUsableNow(entries, 'movement').map(e => e.name), ['Anytime']);
-    assert.deepEqual(Core.playUsableNow(entries, 'deployment'), []);
-});
-
 test('playLineVp says what a mission line is worth', () => {
     assert.deepEqual(Core.playLineVp({ vp: 3, each: false, turn_cap: null }), { amount: '+3', each: false, note: '3VP' });
     assert.deepEqual(Core.playLineVp({ vp: 2, each: true, turn_cap: null }), { amount: '+2', each: true, note: '2VP each' });
@@ -889,24 +880,11 @@ test('playVpLine writes one scoring line for the log, saying when a cap cut it',
         'Blue · Outmanoeuvre: Round 1: each objective (4 objectives × 4VP): 5VP (16VP, cut by the cap)');
 });
 
-test('playVpCaps sums a player\'s primary VP this round and in all against the caps', () => {
-    const vp = { primary: 23, rounds: { 1: 8, 2: 15 }, battle: 0, adjust: 2 };
-    assert.deepEqual(Core.playVpCaps(vp, 2, { round: 15, game: 45 }),
-        { total: 25, round: 15, roundCap: 15, primary: 23, gameCap: 45, roundFull: true });
-    assert.equal(Core.playVpCaps(vp, 3, { round: 15, game: 45 }).round, 0);
-});
-
 test('playSetupPrompt asks both players to choose their secondary missions', () => {
     const prompt = Core.playSetupPrompt({ phase: 'setup', step: 'secondaries', player: 1 }, [{ name: 'Red' }, { name: 'Blue' }]);
     assert.equal(prompt.secondaries, true);
     assert.deepEqual(prompt.buttons, []);
     assert.match(prompt.text, /secondary missions/);
-});
-
-test('playSecondaryCaps sums secondary VP this round and in all against the caps', () => {
-    const vp = { secondary: 18, secondary_rounds: { 2: 15 }, cards: { assassination: 12 } };
-    assert.deepEqual(Core.playSecondaryCaps(vp, 2, { round: 15, game: 45, card: 20 }),
-        { total: 18, round: 15, roundCap: 15, gameCap: 45, roundFull: true, cardCap: 20 });
 });
 
 test('playMarker gives an operation marker its letter and what it marks', () => {

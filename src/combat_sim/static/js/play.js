@@ -826,7 +826,7 @@
         const turn = game.state.turn;
         const name = id => (game.state.units.find(u => u.id === id) || { name: id }).name;
         m.primaries.forEach((p, i) => {
-            const caps = Core.playVpCaps(m.vp[i], turn.round, m.caps);
+            const caps = m.standing[i].primary;  // The server's sums against the caps (view.standing)
             const lines = p.lines.map(line => {
                 const now = (m.now[i] || {})[line.id];
                 const badge = line.needs ? '<span class="play-mission-later">comes with actions</span>'
@@ -854,7 +854,7 @@
                 <button class="btn-small" id="condemn-btn">Condemn</button></div>` : '';
             $(`army-missions-${i}`).innerHTML = `${choice}${locate}${beacon}${tempting}
                 <div class="play-mission-block"><h6>Primary · ${escapeHtml(p.name)} <span class="play-mission-vp">${caps.primary} VP</span></h6>
-                <p class="play-hint">This round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''} · game ${caps.primary}/${caps.gameCap}</p>
+                <p class="play-hint">This round ${caps.round}/${caps.round_cap}${caps.round_full ? ' (full)' : ''} · game ${caps.primary}/${caps.game_cap}</p>
                 ${condemned.length ? `<p class="play-hint">Condemned: ${condemned.map(id => escapeHtml(name(id))).join(', ')}</p>` : ''}
                 <ul class="play-mission-lines">${lines}</ul></div>
                 ${secondaryCards(m, i, turn)}`;
@@ -905,12 +905,12 @@
         const chosen = m.secondaries && m.secondaries[i];
         if (!chosen) return '';
         if (!chosen.cards) return '<p class="play-hint">Secondary missions chosen: shown once both players have chosen.</p>';
-        const caps = Core.playSecondaryCaps(m.vp[i], turn.round, m.secondary_caps);
+        const caps = m.standing[i].secondary;
         if (chosen.mode === 'tactical') return tacticalCards(m, i, turn, chosen, caps);
         return `<div class="play-mission-block"><h6>Secondary · ${escapeHtml(chosen.mode)} <span class="play-mission-vp">${caps.total} VP</span></h6>
-            <p class="play-hint play-secondary-head">This round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''} · game ${caps.total}/${caps.gameCap}</p>
+            <p class="play-hint play-secondary-head">This round ${caps.round}/${caps.round_cap}${caps.round_full ? ' (full)' : ''} · game ${caps.total}/${caps.game_cap}</p>
             ${chosen.cards.map(c => `<div class="play-secondary-card"><strong>${escapeHtml(c.name)}</strong>
-                <span class="play-mission-vp">${(m.vp[i].cards || {})[c.key] || 0}/${caps.cardCap} VP</span>
+                <span class="play-mission-vp">${(m.vp[i].cards || {})[c.key] || 0}/${caps.card_cap} VP</span>
                 <ul class="play-mission-lines">${c.lines.map(line => {
                     const now = (m.now[i] || {})[line.id];
                     const badge = now && now.vp ? `<span class="play-mission-now" title="${escapeHtml(now.how)}">now ${now.vp}VP</span>` : '';
@@ -946,8 +946,8 @@
                 <div class="play-card-buttons">${buttons}</div>${extra}<ul class="play-mission-lines">${lines}</ul></div>`;
         }).join('');
         return `<div class="play-mission-block"><h6>Secondary · tactical <span class="play-mission-vp">${caps.total} VP</span></h6>
-            <p class="play-hint play-secondary-head">This round ${caps.round}/${caps.roundCap}${caps.roundFull ? ' (full)' : ''}
-                · game ${caps.total}/${caps.gameCap} · deck ${chosen.deck}, discarded ${chosen.discarded}</p>
+            <p class="play-hint play-secondary-head">This round ${caps.round}/${caps.round_cap}${caps.round_full ? ' (full)' : ''}
+                · game ${caps.total}/${caps.game_cap} · deck ${chosen.deck}, discarded ${chosen.discarded}</p>
             ${cards || '<p class="play-hint">No active cards: two are drawn at the start of your Command phase.</p>'}</div>`;
     }
 
@@ -1049,8 +1049,8 @@
                 return;
             }
             const m = game.mission;
-            const split = m ? `Primary ${Core.playVpCaps(m.vp[i], turn.round, m.caps).primary}
-                · Secondary ${Core.playSecondaryCaps(m.vp[i], turn.round, m.secondary_caps).total}` : '';
+            const split = m ? `Primary ${m.standing[i].primary.primary}
+                · Secondary ${m.standing[i].secondary.total}` : '';
             $(`army-head-${i}`).innerHTML = `<span class="play-army-name">${escapeHtml(player.name)}
                     <small>${escapeHtml(player.faction || '')}${player.disposition ? ` · ${escapeHtml(player.disposition)}` : ''}</small></span>
                 <span class="play-army-stats"><span class="play-army-cp" title="Command points">${player.cp ?? 0}<small>CP</small></span>
@@ -1476,11 +1476,9 @@
         const playing = game && ['command', 'movement', 'shooting', 'charge', 'fight'].includes(game.state.turn.phase);
         [0, 1].forEach(p => { $(`army-strats-sec-${p}`).hidden = !playing; });
         if (!playing) return;
-        const turn = game.state.turn;
         const selected = state.selected && unitById(state.selected);
         game.state.players.forEach((pl, p) => {
-                const usable = Core.playUsableNow(pl.stratagems || [], turn.phase);
-                const used = pl.used || {};
+                const usable = (game.usable || [])[p] || [];  // This phase's, each 'ready' or not and why (view.board)
                 $(`army-strats-count-${p}`).textContent = usable.length ? `${usable.length} now` : '';
                 // Used on the selected unit, so only its own side's are live (and say how long a rule lasts)
                 const hint = selected && selected.player === p
@@ -1489,20 +1487,17 @@
                     : `<p class="play-hint">Select one of ${escapeHtml(pl.name)}'s units to use these on it.</p>`;
                 $(`army-strats-${p}`).innerHTML = `<div class="play-player-stratagems ${PLAYER_CLASSES[p]}">${hint}
                     ${usable.map(e => {
-                        const targeted = selected && (selected.status || {}).stratagem_phase === phaseId(turn);  // One per unit per phase
-                        const disabled = !selected || selected.player !== p || (e.kind === 'stratagem' && (e.cp > (pl.cp ?? 0) || targeted
-                            || Object.values(used).length && used[e.key] === phaseId(turn)));
+                        // The server says which it would take now, and which units a stratagem can target (one per unit per phase)
+                        const targetable = selected && (game.stratagem_targets || []).includes(selected.id);
+                        const disabled = !selected || selected.player !== p || (e.kind === 'stratagem' && (!e.ready || !targetable));
+                        const why = e.why ? `${e.why}\n\n` : '';
                         return `<button class="play-stratagem ${e.kind === 'rule' ? 'rule' : 'stratagem'}" data-use="${p}|${escapeHtml(e.key)}" ${disabled ? 'disabled' : ''}
-                            title="${escapeHtml(ruleText(e.key))}"><span>${escapeHtml(e.name)}</span>
+                            title="${escapeHtml(why + ruleText(e.key))}"><span>${escapeHtml(e.name)}</span>
                             <small>${e.kind === 'stratagem' ? Number(e.cp) + ' CP' : 'rule'}${e.modifier ? ' · ' + escapeHtml(e.modifier) : ' · apply by hand'}</small></button>`;
                     }).join('') || '<p class="empty-message">Nothing for this phase</p>'}
                 </div>`;
                 $(`army-strats-${p}`).querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => useEntry(b.dataset.use)));
         });
-    }
-
-    function phaseId(turn) {
-        return `${turn.round}.${turn.player}.${turn.phase}.${turn.step || ''}`;
     }
 
     async function useEntry(code) {
